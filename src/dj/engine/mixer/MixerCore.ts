@@ -98,6 +98,17 @@ export function toNativeQ(type: IsolatorSection['type'] | 'bandpass', qLinear: n
   return type === 'lowpass' || type === 'highpass' ? 20 * Math.log10(qLinear) : qLinear;
 }
 
+/**
+ * DynamicsCompressorNode applies automatic makeup gain (Blink/WebKit/Gecko share the kernel):
+ * makeup = (1 / gain at 0 dBFS)^0.6. With a hard knee, 0 dBFS comes out at threshold·(1 − 1/ratio) dB.
+ * Returns the linear gain that cancels it, so MASTER LEVEL 0 dB stays unity below the threshold.
+ */
+export function limiterMakeupGain(o: { threshold: number; ratio: number }): number {
+  const fullRangeDb = o.threshold * (1 - 1 / o.ratio); // ≤ 0
+  if (fullRangeDb === 0) return 1;
+  return dbToGain(0.6 * fullRangeDb);
+}
+
 /** Linear region of the soft clip (0.5 = −6 dBFS). */
 export const SOFT_CLIP_KNEE = 0.5;
 

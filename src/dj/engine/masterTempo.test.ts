@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { equalPowerCurves, mtSemitones, mtWetAllowed, semitonesChanged } from './masterTempo';
+import { equalPowerCurves, mtFadeCurves, MT_FADE_SEC, mtSemitones, mtWetAllowed, semitonesChanged } from './masterTempo';
 
 const playing = { scratching: false, releasing: false, rate: 1.05, motor: 1, state: 'PLAYING' as const };
 
@@ -30,5 +30,21 @@ describe('master tempo', () => {
   it('throttles tiny semitone changes', () => {
     expect(semitonesChanged(0, 0.005)).toBe(false);
     expect(semitonesChanged(0, 0.02)).toBe(true);
+  });
+  it('fades from the current wet gain (no jump when the gate flips mid-fade)', () => {
+    const full = mtFadeCurves(0, true, 8);
+    expect(full.durationSec).toBeCloseTo(MT_FADE_SEC, 12);
+    expect(full.wet[0]).toBe(0);
+    expect(full.wet[7]).toBeCloseTo(1, 6);
+    expect(full.dry[0]).toBe(1);
+    const half = Math.SQRT1_2; // halfway along the equal-power fade
+    const back = mtFadeCurves(half, false, 8);
+    expect(back.wet[0]).toBeCloseTo(half, 6);
+    expect(back.dry[0]).toBeCloseTo(half, 6);
+    expect(back.wet[7]).toBeCloseTo(0, 6);
+    expect(back.dry[7]).toBeCloseTo(1, 6);
+    expect(back.durationSec).toBeCloseTo(MT_FADE_SEC / 2, 12);
+    for (let i = 0; i < 8; i++) expect(back.wet[i]! ** 2 + back.dry[i]! ** 2).toBeCloseTo(1, 6);
+    expect(mtFadeCurves(1, true, 8).durationSec).toBe(0);
   });
 });

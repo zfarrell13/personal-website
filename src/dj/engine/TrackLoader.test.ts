@@ -99,6 +99,7 @@ describe('pcmTransferList', () => {
     const a = new Float32Array(4);
     expect(pcmTransferList({ left: a, right: a })).toEqual([a.buffer]);
     const b = new Float32Array(4);
-    expect(pcmTransferList({ left: a, right: b })).toEqual([a.buffer, b.buffer]);
+    const list: ArrayBuffer[] = pcmTransferList({ left: a, right: b });
+    expect(list).toEqual([a.buffer, b.buffer]);
   });
 });

@@ -1,62 +1,137 @@
 import type { BeatFxType, FxChannel } from '../../constants';
 import { PROCESSORS, type BeatFxMessage, type ClockPortMessage } from '../worklets/messages';
 
+/** Runs `fn` after `ms` (setTimeout by default; an OfflineAudioContext passes a suspend()-based one). */
+export type Scheduler = (ms: number, fn: () => void) => void;
+
+/** in → bypass → out, and in → send → [FX] → ret → out while the FX is wired to this point. */
 export interface InsertPoint {
   in: GainNode;
   bypass: GainNode;
+  send: GainNode;
+  ret: GainNode;
   out: GainNode;
 }
 
+/** Bypass/return crossfade time constant (s). */
+const FADE_TC = 0.004;
+/** Send fade-in time constant (s) and the lead it gets before the return opens. */
+const SEND_TC = 0.001;
+const SEND_LEAD_SEC = 0.01;
+/** Time for a faded-out point to settle (≈ 7.5 time constants) before the FX is rewired. */
+const SETTLE_MS = 30;
+
 /**
  * The Beat FX unit can be inserted at CH1, CH2 (post fader), XF-A, XF-B (crossfader
- * buses) or MASTER. Every point is in → bypass → out; the selected point routes
- * in → FX → out instead (the FX output already contains the dry signal).
+ * buses) or MASTER. The single FX worklet is wired to exactly ONE point at any instant,
+ * so the graph never contains a cycle (e.g. CH1 → Σ → MASTER → FX → CH1).
+ *
+ * Moving the insert: the old point crossfades return → bypass (bypass + return stay
+ * complementary, so the level is constant; the FX output already contains the dry signal),
+ * then the FX is unwired from it and wired to the new point with send/return at 0, the
+ * send opens, and the new point crossfades bypass → return.
  */
 export class BeatFxRouter {
   readonly node: AudioWorkletNode;
   readonly points: Record<FxChannel, InsertPoint>;
-  private current: FxChannel = 'MASTER';
-  private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  /** The point the worklet is wired to. */
+  private attached: FxChannel = 'MASTER';
+  /** The point the user selected (differs from `attached` while a move is in progress). */
+  private target: FxChannel = 'MASTER';
+  private pending = false;
+  private disposed = false;
 
-  constructor(private readonly ctx: BaseAudioContext) {
+  constructor(
+    private readonly ctx: BaseAudioContext,
+    private readonly after: Scheduler = (ms, fn) => void setTimeout(fn, ms),
+  ) {
     this.node = new AudioWorkletNode(ctx, PROCESSORS.beatFx, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
-    const make = (): InsertPoint => {
-      const p = { in: new GainNode(ctx), bypass: new GainNode(ctx, { gain: 1 }), out: new GainNode(ctx) };
+    const make = (active: boolean): InsertPoint => {
+      const on = active ? 1 : 0;
+      const p = {
+        in: new GainNode(ctx),
+        bypass: new GainNode(ctx, { gain: 1 - on }),
+        send: new GainNode(ctx, { gain: on }),
+        ret: new GainNode(ctx, { gain: on }),
+        out: new GainNode(ctx),
+      };
       p.in.connect(p.bypass).connect(p.out);
+      p.in.connect(p.send);
+      p.ret.connect(p.out);
       return p;
     };
-    this.points = { '1': make(), '2': make(), XF_A: make(), XF_B: make(), MASTER: make() };
-    this.attach(this.current);
+    this.points = { '1': make(false), '2': make(false), XF_A: make(false), XF_B: make(false), MASTER: make(true) };
+    this.wire(this.attached);
   }
 
-  private attach(ch: FxChannel): void {
+  private wire(ch: FxChannel): void {
     const p = this.points[ch];
-    p.in.connect(this.node);
-    this.node.connect(p.out);
-    p.bypass.gain.cancelScheduledValues(this.ctx.currentTime);
-    p.bypass.gain.setTargetAtTime(0, this.ctx.currentTime, 0.004);
+    p.send.connect(this.node);
+    this.node.connect(p.ret);
+  }
+
+  private unwire(ch: FxChannel): void {
+    const p = this.points[ch];
+    try {
+      p.send.disconnect(this.node);
+      this.node.disconnect(p.ret);
+    } catch {
+      // already disconnected
+    }
+  }
+
+  private fade(param: AudioParam, value: number, at: number, tc: number): void {
+    param.cancelScheduledValues(this.ctx.currentTime);
+    param.setTargetAtTime(value, at, tc);
+  }
+
+  /** Return → 0 while bypass → 1 (complementary: constant level). The send stays open. */
+  private fadeOut(ch: FxChannel): void {
+    const p = this.points[ch];
+    const t = this.ctx.currentTime;
+    this.fade(p.ret.gain, 0, t, FADE_TC);
+    this.fade(p.bypass.gain, 1, t, FADE_TC);
+  }
+
+  /** Opens the send, then crossfades bypass → return once the FX input is fed. */
+  private fadeIn(ch: FxChannel): void {
+    const p = this.points[ch];
+    const t = this.ctx.currentTime;
+    this.fade(p.send.gain, 1, t, SEND_TC);
+    const lead = p.send.gain.value > 0.99 ? 0 : SEND_LEAD_SEC;
+    this.fade(p.ret.gain, 1, t + lead, FADE_TC);
+    this.fade(p.bypass.gain, 0, t + lead, FADE_TC);
   }
 
   select(ch: FxChannel): void {
-    if (ch === this.current) return;
-    const old = this.current;
-    this.current = ch;
-    const op = this.points[old];
-    op.bypass.gain.cancelScheduledValues(this.ctx.currentTime);
-    op.bypass.gain.setTargetAtTime(1, this.ctx.currentTime, 0.004);
-    this.attach(ch);
-    // Detach the old point once its bypass has faded back in (unless re-selected meanwhile).
-    const timer = setTimeout(() => {
-      this.timers.delete(timer);
-      if (this.current === old) return;
-      try {
-        op.in.disconnect(this.node);
-        this.node.disconnect(op.out);
-      } catch {
-        // already disconnected
-      }
-    }, 40);
-    this.timers.add(timer);
+    if (this.disposed || ch === this.target) return;
+    this.target = ch;
+    if (ch === this.attached) {
+      // Re-selected before the move completed: fade straight back in.
+      this.fadeIn(ch);
+      return;
+    }
+    this.fadeOut(this.attached);
+    if (this.pending) return; // the scheduled move picks up the latest target
+    this.pending = true;
+    this.after(SETTLE_MS, () => this.completeMove());
+  }
+
+  private completeMove(): void {
+    this.pending = false;
+    if (this.disposed || this.target === this.attached) return;
+    const old = this.points[this.attached];
+    this.unwire(this.attached);
+    old.send.gain.cancelScheduledValues(this.ctx.currentTime);
+    old.send.gain.setValueAtTime(0, this.ctx.currentTime);
+    this.attached = this.target;
+    const p = this.points[this.attached];
+    p.send.gain.cancelScheduledValues(this.ctx.currentTime);
+    p.send.gain.setValueAtTime(0, this.ctx.currentTime);
+    p.ret.gain.cancelScheduledValues(this.ctx.currentTime);
+    p.ret.gain.setValueAtTime(0, this.ctx.currentTime);
+    this.wire(this.attached);
+    this.fadeIn(this.attached);
   }
 
   set(type: BeatFxType, divisionBeats: number, depth: number, on: boolean): void {
@@ -77,13 +152,14 @@ export class BeatFxRouter {
   }
 
   dispose(): void {
-    for (const t of this.timers) clearTimeout(t);
-    this.timers.clear();
+    this.disposed = true;
     this.node.port.close();
     this.node.disconnect();
     for (const p of Object.values(this.points)) {
       p.in.disconnect();
       p.bypass.disconnect();
+      p.send.disconnect();
+      p.ret.disconnect();
       p.out.disconnect();
     }
   }

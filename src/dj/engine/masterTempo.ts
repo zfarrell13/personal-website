@@ -32,5 +32,23 @@ export function equalPowerCurves(points = 16): [Float32Array, Float32Array] {
 
 export const MT_FADE_SEC = MT_CROSSFADE_SEC;
 
+/**
+ * Equal-power wet/dry fade that starts from the current wet gain, so flipping the gate
+ * mid-fade continues smoothly instead of jumping to the curve's start. The duration is
+ * the remaining share of the full 20 ms fade (0 when already there).
+ */
+export function mtFadeCurves(currentWet: number, toWet: boolean, points = 8): { wet: Float32Array; dry: Float32Array; durationSec: number } {
+  const x0 = (Math.asin(Math.min(1, Math.max(0, currentWet))) * 2) / Math.PI; // position along the fade, 0 = dry
+  const x1 = toWet ? 1 : 0;
+  const wet = new Float32Array(points);
+  const dry = new Float32Array(points);
+  for (let i = 0; i < points; i++) {
+    const x = x0 + ((x1 - x0) * i) / (points - 1);
+    wet[i] = Math.sin((x * Math.PI) / 2);
+    dry[i] = Math.cos((x * Math.PI) / 2);
+  }
+  return { wet, dry, durationSec: Math.abs(x1 - x0) * MT_FADE_SEC };
+}
+
 /** Only resend semitones when they changed audibly (0.01 st ≈ 0.06 % rate). */
 export const semitonesChanged = (a: number, b: number): boolean => Math.abs(a - b) >= 0.01;

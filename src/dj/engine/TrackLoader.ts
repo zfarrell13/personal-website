@@ -113,6 +113,6 @@ export function pcmForDeck(buffer: AudioBuffer): DeckPcm {
 }
 
 /** Transfer list for a PCM load: each underlying buffer exactly once (a duplicate throws DataCloneError). */
-export function pcmTransferList(pcm: { left: Float32Array; right: Float32Array }): ArrayBufferLike[] {
+export function pcmTransferList(pcm: DeckPcm): ArrayBuffer[] {
   return pcm.left.buffer === pcm.right.buffer ? [pcm.left.buffer] : [pcm.left.buffer, pcm.right.buffer];
 }

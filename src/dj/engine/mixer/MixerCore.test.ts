@@ -13,8 +13,7 @@ import {
   peakOf,
   softClipCurve,
   toNativeQ,
-  trimGain,
-} from './MixerCore';
+  trimGain, limiterMakeupGain } from './MixerCore';
 
 const SR = 48000;
 const rmsOut = (hz: number, gains: { low: number; mid: number; high: number }) => {
@@ -164,5 +163,14 @@ describe('native helpers', () => {
     expect(ladderSegments(10 ** (-15.05 / 20))).toBe(10); // just below meter 0 dB
     expect(ladderSegments(10 ** (-14.95 / 20))).toBe(11); // just above → segments up to "0"
     expect(ladderSegments(1)).toBe(15);
+  });
+});
+
+describe('limiterMakeupGain', () => {
+  it('cancels the automatic makeup gain of a hard-knee DynamicsCompressorNode', () => {
+    // Blink/WebKit: makeup = (1 / gain at 0 dBFS)^0.6; −3 dB, 20:1 → 0 dBFS comes out at −2.85 dB → +1.71 dB makeup.
+    expect(20 * Math.log10(limiterMakeupGain({ threshold: -3, ratio: 20 }))).toBeCloseTo(-1.71, 2);
+    expect(limiterMakeupGain({ threshold: 0, ratio: 20 })).toBe(1);
+    expect(limiterMakeupGain({ threshold: -12, ratio: 1 })).toBe(1);
   });
 });

@@ -1,8 +1,6 @@
-import { equalPowerCurves, MT_FADE_SEC, mtSemitones, semitonesChanged } from '../masterTempo';
+import { mtFadeCurves, mtSemitones, semitonesChanged } from '../masterTempo';
 import { rampCurve } from './params';
 import type { StretchNode } from './stretch';
-
-const [UP, DOWN] = equalPowerCurves(8);
 
 /**
  * Deck worklet output → (dry: DelayNode = stretch latency) + (wet: Signalsmith Stretch)
@@ -32,6 +30,11 @@ export class DeckOutput {
     if (stretch) this.input.connect(stretch).connect(this.wetGain).connect(this.output);
   }
 
+  /** True while the key-locked (stretched) path is selected. */
+  get isWet(): boolean {
+    return this.wet;
+  }
+
   get hasMasterTempo(): boolean {
     return this.stretch !== null;
   }
@@ -40,8 +43,11 @@ export class DeckOutput {
     if (!this.stretch || wet === this.wet) return;
     this.wet = wet;
     const t = this.ctx.currentTime;
-    rampCurve(this.wetGain.gain, wet ? UP : DOWN, t, MT_FADE_SEC);
-    rampCurve(this.dryGain.gain, wet ? DOWN : UP, t, MT_FADE_SEC);
+    // Continue from where the gains are now (the gate can flip mid-fade).
+    const f = mtFadeCurves(this.wetGain.gain.value, wet);
+    if (f.durationSec <= 0) return;
+    rampCurve(this.wetGain.gain, f.wet, t, f.durationSec);
+    rampCurve(this.dryGain.gain, f.dry, t, f.durationSec);
   }
 
   /** Keeps the key constant: shifts by −12·log2(rate) semitones (only when it moves ≥ 0.01 st). */

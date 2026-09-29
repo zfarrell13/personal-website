@@ -1,17 +1,17 @@
 import type { CurveKind, DeckId, FxChannel, HeadphoneMode, XfAssign } from '../../constants';
-import { crossfaderGains, levelGain, peakOf, rmsOf, softClipCurve } from '../mixer/MixerCore';
+import { crossfaderGains, levelGain, limiterMakeupGain, peakOf, rmsOf, softClipCurve } from '../mixer/MixerCore';
 import type { MixerLevels } from '../telemetry';
-import { BeatFxRouter } from './BeatFxRouter';
+import { BeatFxRouter, type Scheduler } from './BeatFxRouter';
 import { ChannelStrip } from './ChannelStrip';
 import { HeadphoneOutput, headphoneRouting } from './HeadphoneOutput';
 import { smooth } from './params';
 
 /** Master limiter: −3 dB threshold, 20:1, hard knee, 1 ms attack. */
-export const LIMITER_OPTIONS: DynamicsCompressorOptions = { threshold: -3, knee: 0, ratio: 20, attack: 0.001, release: 0.12 };
+export const LIMITER_OPTIONS = { threshold: -3, knee: 0, ratio: 20, attack: 0.001, release: 0.12 } satisfies DynamicsCompressorOptions;
 
 /**
  * CH1/CH2 strips → Beat FX insert (CH) → XF assign (A / THRU / B) → crossfader buses
- * (with XF-A / XF-B inserts) → Σ → MASTER insert → MASTER LEVEL → limiter → soft clip → out.
+ * (with XF-A / XF-B inserts) → Σ → MASTER insert → MASTER LEVEL → limiter → makeup trim → soft clip → out.
  */
 export class MixerGraph {
   readonly channels: readonly [ChannelStrip, ChannelStrip];
@@ -34,14 +34,17 @@ export class MixerGraph {
   private deviceActive = false;
   private hpMode: HeadphoneMode = 'STEREO';
 
-  constructor(private readonly ctx: BaseAudioContext) {
+  constructor(
+    private readonly ctx: BaseAudioContext,
+    opts: { schedule?: Scheduler } = {},
+  ) {
     const g = (gain = 1) => {
       const n = new GainNode(ctx, { gain });
       this.nodes.push(n);
       return n;
     };
     this.channels = [new ChannelStrip(ctx), new ChannelStrip(ctx)];
-    this.beatFx = new BeatFxRouter(ctx);
+    this.beatFx = new BeatFxRouter(ctx, opts.schedule);
     this.hp = new HeadphoneOutput(ctx);
     const thru = g();
     this.xfA = g();
@@ -63,9 +66,12 @@ export class MixerGraph {
     sum.connect(this.beatFx.points.MASTER.in);
     this.masterLevel = g(levelGain(0.84));
     const limiter = new DynamicsCompressorNode(ctx, LIMITER_OPTIONS);
+    // Cancels the limiter's automatic makeup gain (+1.7 dB). After the limiter, not before, so the
+    // −3 dB threshold still applies to the MASTER LEVEL output and the cancellation is exact at every level.
+    const makeupTrim = g(limiterMakeupGain(LIMITER_OPTIONS));
     const clip = new WaveShaperNode(ctx, { curve: softClipCurve(), oversample: '2x' });
     this.masterOut = g();
-    this.beatFx.points.MASTER.out.connect(this.masterLevel).connect(limiter).connect(clip).connect(this.masterOut);
+    this.beatFx.points.MASTER.out.connect(this.masterLevel).connect(limiter).connect(makeupTrim).connect(clip).connect(this.masterOut);
     this.nodes.push(limiter, clip);
 
     this.masterOut.connect(this.hp.masterIn);

@@ -3,7 +3,18 @@ import { toNativeQ } from '../mixer/MixerCore';
 import { PROCESSORS, type ColorFxMessage } from '../worklets/messages';
 import { smooth } from './params';
 
-/** A 2.4 s decaying-noise impulse response for SPACE (deterministic, generated once per unit). */
+const spaceIRs = new WeakMap<BaseAudioContext, AudioBuffer>();
+
+/** The 2.4 s decaying-noise impulse response for SPACE: deterministic, generated once per context. */
+function spaceIR(ctx: BaseAudioContext): AudioBuffer {
+  let ir = spaceIRs.get(ctx);
+  if (!ir) {
+    ir = makeSpaceIR(ctx);
+    spaceIRs.set(ctx, ir);
+  }
+  return ir;
+}
+
 function makeSpaceIR(ctx: BaseAudioContext): AudioBuffer {
   const len = Math.round(ctx.sampleRate * 2.4);
   const ir = new AudioBuffer({ length: len, numberOfChannels: 2, sampleRate: ctx.sampleRate });
@@ -54,7 +65,7 @@ export class ColorFxUnit {
     mid.connect(this.output);
 
     this.spaceSend = new GainNode(ctx, { gain: 0 });
-    const conv = new ConvolverNode(ctx, { buffer: makeSpaceIR(ctx), disableNormalization: false });
+    const conv = new ConvolverNode(ctx, { buffer: spaceIR(ctx), disableNormalization: false });
     this.spaceTone = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 20000 });
     this.spaceReturn = new GainNode(ctx, { gain: 0.8 });
     mid.connect(this.spaceSend).connect(conv).connect(this.spaceTone).connect(this.spaceReturn).connect(this.output);

@@ -102,7 +102,7 @@ export class AudioEngine {
     const memoryCuesSec = t.memoryCues.map((beat) => t.firstBeatSec + (beat * 60) / t.bpm);
     this.command(
       { t: 'load', deck, left: pcm.left, right: pcm.right, bpm: t.bpm, firstBeatSec: t.firstBeatSec, memoryCuesSec, hotCuesSec },
-      pcmTransferList(pcm) as Transferable[],
+      pcmTransferList(pcm),
     );
   }
 
@@ -174,6 +174,11 @@ export class AudioEngine {
       this.lastColorBpm = bpm;
       for (const i of [0, 1] as const) this.mixer.channels[i].setColorFx(s.mixer.colorFxType, s.mixer.ch[i].color, s.mixer.colorFxParam, bpm);
     }
+  }
+
+  /** Whether a deck currently plays through the key-locked (Master Tempo) path. */
+  masterTempoWet(deck: DeckId): boolean {
+    return this.outs[deck].isWet;
   }
 
   masterBpm(): number {
