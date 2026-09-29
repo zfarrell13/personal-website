@@ -70,3 +70,26 @@ describe('jog', () => {
     expect(d.atCue).toBe(false);
   });
 });
+
+describe('jog fix round 1', () => {
+  it('scratch released on a paused deck does not leave release smoothing on the next PLAY', () => {
+    const d = makeDeck();
+    d.jog(true, 0.5, false);
+    run(d, 50);
+    d.jog(false, 0, false);
+    run(d, 50);
+    d.play();
+    run(d, 50);
+    expect(d.runningNormally).toBe(true);
+    expect(d.rate).toBe(1);
+  });
+
+  it('a backward scratch held at frame 0 is silent (rate 0)', () => {
+    const d = makeDeck();
+    d.seek(0);
+    d.jog(true, -1, false);
+    run(d, 200);
+    expect(d.pos).toBe(0);
+    expect(d.rate).toBe(0);
+  });
+});

@@ -292,6 +292,7 @@ export class DeckCore {
             this.stopAt(this.cueFrame);
           } else if (this.atCue) {
             this.state = 'CUE_HOLD'; // cue preview
+            this.slipFlags = 0;
             this.motor = 1;
           } else {
             this.cueFrame = this.clampPos(this.q(this.pos));
@@ -314,6 +315,7 @@ export class DeckCore {
     this.motor = 0;
     this.rate = 0;
     this.ended = false;
+    this.slipFlags = 0; // an explicit cue action ends any slip event (incl. slip pause)
   }
 
   hotCue(index: number, down: boolean, shift: boolean): void {
@@ -346,6 +348,7 @@ export class DeckCore {
       this.pos = stored;
       this.ended = false;
       this.state = 'HOTCUE_HOLD';
+      this.slipFlags = 0;
       this.motor = 1;
       this.heldHotCue = index;
     } else {
@@ -368,6 +371,7 @@ export class DeckCore {
     if (this.state === 'PAUSED') {
       this.pos = target;
       this.ended = false;
+      this.slipFlags = 0;
     }
   }
 
@@ -392,7 +396,8 @@ export class DeckCore {
     const fpb = this.grid.framesPerBeat;
     let out = this.pos;
     if (this.settings.quantize) {
-      const beats = Math.max(1, Math.round((this.pos - this.loopIn) / fpb));
+      const res = this.settings.quantizeBeats;
+      const beats = Math.max(res, Math.round((this.pos - this.loopIn) / (fpb * res)) * res);
       out = this.loopIn + beats * fpb;
     }
     if (out <= this.loopIn + 1) return;
@@ -424,6 +429,7 @@ export class DeckCore {
   }
 
   scaleLoop(factor: 0.5 | 2): void {
+    if (!this.loaded) return;
     if (Number.isNaN(this.loopIn) || Number.isNaN(this.loopOut)) return;
     const fpb = this.grid.framesPerBeat;
     const beats = Math.min(LOOP_MAX_BEATS, Math.max(LOOP_MIN_BEATS, ((this.loopOut - this.loopIn) / fpb) * factor));
@@ -453,8 +459,10 @@ export class DeckCore {
 
   beatJump(dir: -1 | 1): void {
     if (!this.loaded) return;
-    const delta = dir * this.settings.beatJumpBeats * this.grid.framesPerBeat;
+    let delta = dir * this.settings.beatJumpBeats * this.grid.framesPerBeat;
     if (this.loopActive) {
+      // keep the whole loop on the track
+      delta = Math.min(Math.max(delta, -this.loopIn), this.lengthFrames - this.loopOut);
       this.loopIn += delta;
       this.loopOut += delta;
     }
@@ -480,7 +488,7 @@ export class DeckCore {
       this.startSlip(SLIP_SCRATCH);
     } else if (!wantScratch && this.scratching) {
       this.scratching = false;
-      this.releasing = true;
+      this.releasing = this.state !== 'PAUSED';
       this.endSlip(SLIP_SCRATCH);
     }
     this.bendTarget = this.scratching ? 0 : Math.max(-BEND_MAX, Math.min(BEND_MAX, revPerSec * BEND_PER_REV));
@@ -522,11 +530,12 @@ export class DeckCore {
         const target = this.jogVel * SCRATCH_SEC_PER_REV;
         // A still, untouched platter is exactly still; a hand-held one eases (no zipper noise).
         this.rate = !this.scratching && target === 0 ? 0 : this.rate + (target - this.rate) * this.scratchAlpha;
+        if (this.rate < 0 && this.pos <= 0) this.rate = 0; // backward at frame 0: silence, not held DC
       } else {
         const target = dir * base * (1 + this.bend) * this.motor;
         if (this.releasing) {
           this.rate += (target - this.rate) * releaseAlpha;
-          if (Math.abs(target - this.rate) < 1e-4) {
+          if (Math.abs(target - this.rate) < 1e-4 * Math.max(1, Math.abs(target))) {
             this.rate = target;
             this.releasing = false;
           }

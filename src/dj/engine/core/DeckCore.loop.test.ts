@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { FIRST, FPB, makeDeck, run, SR } from './testUtil';
+import { DeckCore } from './DeckCore';
+import { FIRST, FPB, makeDeck, rampTrack, run, SR } from './testUtil';
 
 describe('loops', () => {
   it('LOOP IN / OUT (quantized) wraps sample-accurately', () => {
@@ -132,5 +133,80 @@ describe('slip', () => {
     d.set({ slip: false });
     d.reloopExit();
     expect(d.pos).toBe(FIRST + 200);
+  });
+});
+
+describe('fix round 1', () => {
+  it('slip pause -> CUE set -> CUE preview -> PLAY leaves no stale slip flag; loop exit returns correctly', () => {
+    const d = makeDeck({ slip: true });
+    d.play();
+    run(d, 100);
+    d.play(); // slip pause
+    run(d, 50);
+    d.cue(true); // set new cue (pos is off the cue point)
+    d.cue(false);
+    d.cue(true); // preview
+    d.play();
+    expect(d.state).toBe('PLAYING');
+    expect(d.slipFlags).toBe(0);
+    const loopStart = Math.floor(d.pos);
+    d.autoLoop(1);
+    run(d, 3 * FPB + 7);
+    d.reloopExit();
+    expect(d.pos).toBe(loopStart + 3 * FPB + 7);
+  });
+
+  it('hot cue hold while slip-paused, then PLAY, clears the pause slip', () => {
+    const d = makeDeck({ slip: true });
+    d.seek(20);
+    d.hotCue(0, true, false);
+    d.hotCue(0, false, false);
+    d.seek(5);
+    d.play();
+    run(d, 100);
+    d.play(); // slip pause
+    d.hotCue(0, true, false); // paused -> HOTCUE_HOLD
+    d.play();
+    expect(d.slipFlags).toBe(0);
+  });
+
+  it('CALL while slip-paused discards the shadow: PLAY continues from the cue', () => {
+    const d = makeDeck({ slip: true }, rampTrack(60_000, { memoryCuesSec: [10] }));
+    d.play();
+    run(d, 100);
+    d.play();
+    run(d, 50);
+    d.callMemoryCue(1);
+    d.play();
+    expect(d.pos).toBe(10 * SR);
+  });
+
+  it('beat jump never moves the loop off the track', () => {
+    const d = makeDeck({ beatJumpBeats: 64 });
+    d.play();
+    d.autoLoop(2);
+    const len = d.loopOut - d.loopIn;
+    d.beatJump(-1);
+    expect(d.loopIn).toBeGreaterThanOrEqual(0);
+    expect(d.loopOut - d.loopIn).toBe(len);
+    d.beatJump(1);
+    d.beatJump(1);
+    d.beatJump(1);
+    expect(d.loopOut).toBeLessThanOrEqual(d.length);
+    expect(d.loopOut - d.loopIn).toBe(len);
+  });
+
+  it('quantized LOOP OUT respects the quantize resolution like LOOP IN', () => {
+    const d = makeDeck({ quantizeBeats: 4 });
+    d.play();
+    d.loopInPress();
+    run(d, Math.round(1.2 * FPB));
+    d.loopOutPress();
+    expect(d.loopOut - d.loopIn).toBe(4 * FPB);
+  });
+
+  it('scaleLoop is a no-op on an unloaded deck', () => {
+    const d = new DeckCore(SR);
+    expect(() => d.scaleLoop(2)).not.toThrow();
   });
 });
