@@ -4,7 +4,11 @@ import type { DeckId } from '../../constants';
 import { useDj } from '../../DjContext';
 import { captureLost, capturePointer, isPrimary } from '../controls/capture';
 import { JogInput, type JogGeometry } from './jogInput';
+import { TOP_PLATE_FRACTION } from './jogMath';
 import styles from './cdj.module.css';
+
+/** The drawn top-plate edge (CSS `--plate`, radius-relative) is the hit-test boundary. */
+const PLATE_STYLE = { '--plate': `${TOP_PLATE_FRACTION * 100}%` } as React.CSSProperties;
 
 /**
  * Jog wheel. Top plate = touch (scratch in VINYL mode, bend in normal mode, search when paused);
@@ -15,6 +19,8 @@ export function Jog({ deck }: { deck: DeckId }) {
   const { actions, loop, displays } = useDj();
   const host = useRef<HTMLDivElement>(null);
   const plate = useRef<HTMLDivElement>(null);
+  /** Jog geometry, measured once per press (no layout read on every pointermove). */
+  const geom = useRef<JogGeometry | null>(null);
   const input = useMemo(() => new JogInput((touch, v, ring) => actions.jog(deck, touch, v, ring)), [actions, deck]);
 
   useEffect(() => {
@@ -54,6 +60,7 @@ export function Jog({ deck }: { deck: DeckId }) {
     <div
       ref={host}
       className={styles.jog}
+      style={PLATE_STYLE}
       data-testid={`jog-${deck}`}
       role="application"
       aria-label={`Jog wheel deck ${deck + 1}`}
@@ -61,11 +68,15 @@ export function Jog({ deck }: { deck: DeckId }) {
         if (!isPrimary(e)) return;
         // a stale owner (capture lost without an event) must not block the jog forever
         if (input.pointer !== null && captureLost(e.currentTarget, input.pointer)) input.release();
-        if (!input.down(e.pointerId, e.clientX, e.clientY, geometry())) return;
+        const g = geometry();
+        if (!input.down(e.pointerId, e.clientX, e.clientY, g)) return;
+        geom.current = g;
         capturePointer(e.currentTarget, e.pointerId);
         displays[deck].touched = input.touchingTop;
       }}
-      onPointerMove={(e) => input.move(e.pointerId, e.clientX, e.clientY, geometry())}
+      onPointerMove={(e) => {
+        if (geom.current && e.pointerId === input.pointer) input.move(e.pointerId, e.clientX, e.clientY, geom.current);
+      }}
       onPointerUp={release}
       onPointerCancel={release}
       onLostPointerCapture={release}

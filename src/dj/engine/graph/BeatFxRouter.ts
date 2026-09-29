@@ -40,6 +40,8 @@ export class BeatFxRouter {
   private target: FxChannel = 'MASTER';
   private pending = false;
   private disposed = false;
+  /** Context time of the latest fade-out of the attached point (the move waits SETTLE_MS after it). */
+  private fadeOutAt = 0;
 
   constructor(
     private readonly ctx: BaseAudioContext,
@@ -89,6 +91,7 @@ export class BeatFxRouter {
   private fadeOut(ch: FxChannel): void {
     const p = this.points[ch];
     const t = this.ctx.currentTime;
+    this.fadeOutAt = t;
     this.fade(p.ret.gain, 0, t, FADE_TC);
     this.fade(p.bypass.gain, 1, t, FADE_TC);
   }
@@ -120,6 +123,14 @@ export class BeatFxRouter {
   private completeMove(): void {
     this.pending = false;
     if (this.disposed || this.target === this.attached) return;
+    // A back-and-forth reselect may have faded the attached point out again after this timer was
+    // armed: wait until that fade has settled too, or unwiring would cut its still-audible return.
+    const waitMs = SETTLE_MS - (this.ctx.currentTime - this.fadeOutAt) * 1000;
+    if (waitMs > 1e-6) {
+      this.pending = true;
+      this.after(waitMs, () => this.completeMove());
+      return;
+    }
     const old = this.points[this.attached];
     this.unwire(this.attached);
     old.send.gain.cancelScheduledValues(this.ctx.currentTime);

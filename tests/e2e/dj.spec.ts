@@ -73,7 +73,7 @@ test('phone landscape: three swipeable full-size panels, playable by touch', asy
   await boot(page);
   // starts on the mixer panel
   expect(await page.evaluate(() => window.__dj!.state().ui.mobilePanel)).toBe(1);
-  await expect(page.getByTestId('fader-ch-0')).toBeInViewport();
+  await expect(page.getByTestId('trim-0')).toBeInViewport(); // top of the mixer panel (the panel scrolls vertically)
   await page.getByRole('button', { name: 'Deck 1' }).click();
   await expect.poll(() => page.evaluate(() => window.__dj!.state().ui.mobilePanel)).toBe(0);
   const play = await page.getByTestId('play-0').boundingBox();
@@ -87,6 +87,7 @@ test('phone landscape: three swipeable full-size panels, playable by touch', asy
 });
 
 test('phone landscape: a horizontal touch swipe changes the visible panel', async ({ page }) => {
+  const errors = trackConsoleErrors(page);
   await page.setViewportSize({ width: 844, height: 390 });
   await boot(page);
   expect(await page.evaluate(() => window.__dj!.state().ui.mobilePanel)).toBe(1);
@@ -99,6 +100,7 @@ test('phone landscape: a horizontal touch swipe changes the visible panel', asyn
   await touch('touchEnd', 120);
   await expect.poll(() => page.evaluate(() => window.__dj!.state().ui.mobilePanel)).toBe(2);
   await expect(page.getByTestId('browse-1')).toBeInViewport(); // top of the deck 2 panel (the panel scrolls vertically)
+  expect(errors()).toEqual([]);
 });
 
 test('jog scratch moves a paused deck by ~1.8 s per revolution', async ({ page }) => {
@@ -154,5 +156,78 @@ test('hot cue pad lights in its colour, loops light RELOOP/EXIT, and hot cues pe
   await load(page, 0, 'test-tidal');
   await expect(page.getByTestId('hotcue-0-A')).toHaveAttribute('data-lit', 'true');
   expect(await page.evaluate(() => window.__dj!.state().decks[0].hotCues[0])).toEqual(stored);
+  expect(errors()).toEqual([]);
+});
+
+test('mixer panel: meters, isolator, colour FX, beat FX, headphones and output settings', async ({ page }) => {
+  const errors = trackConsoleErrors(page);
+  await boot(page);
+  const mixer = page.getByTestId('mixer');
+  // every control sits inside the mixer panel (nothing overflows the 420 × 900 layout)
+  const box = (await mixer.boundingBox())!;
+  for (const el of await mixer.locator('[data-testid], [role="slider"], button').all()) {
+    const b = (await el.boundingBox())!;
+    expect(b.x).toBeGreaterThanOrEqual(box.x - 1);
+    expect(b.y).toBeGreaterThanOrEqual(box.y - 1);
+    expect(b.x + b.width).toBeLessThanOrEqual(box.x + box.width + 1);
+    expect(b.y + b.height).toBeLessThanOrEqual(box.y + box.height + 1);
+  }
+
+  await load(page, 0, 'test-tidal');
+  await page.getByTestId('play-0').click();
+  const fader = (await page.getByRole('slider', { name: 'CH 1' }).boundingBox())!;
+  await page.mouse.move(fader.x + fader.width / 2, fader.y + fader.height - 2);
+  await page.mouse.down();
+  await page.mouse.move(fader.x + fader.width / 2, fader.y + 2, { steps: 5 });
+  await page.mouse.up();
+  const lit = (label: string) => page.getByRole('img', { name: label }).locator('[data-on="true"]').count();
+  await expect.poll(() => lit('Channel 1 level')).toBeGreaterThan(3);
+  await expect.poll(() => lit('Master level')).toBeGreaterThan(3);
+  expect(await lit('Channel 2 level')).toBe(0);
+
+  // LOW kill: drag the knob all the way down
+  const low = (await page.getByTestId('low-0').boundingBox())!;
+  await page.mouse.move(low.x + low.width / 2, low.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(low.x + low.width / 2, low.y + 400, { steps: 8 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => window.__dj!.state().mixer.ch[0].low)).toBe(0);
+
+  await page.getByTestId('colorfx-SPACE').click();
+  await expect(page.getByTestId('colorfx-SPACE')).toHaveAttribute('data-lit', 'true');
+  await expect(page.getByTestId('colorfx-FILTER')).toHaveAttribute('data-lit', 'false');
+
+  const lcd = page.getByTestId('beat-fx-lcd');
+  await expect(lcd).toHaveText('ECHO 1');
+  await page.getByTestId('beat-fx-next').click();
+  await page.getByTestId('beat-up').click();
+  await expect(lcd).toHaveText('PING PONG 2');
+  for (let i = 0; i < 8; i++) await page.getByTestId('beat-down').click();
+  await expect(lcd).toHaveText('PING PONG 1/8');
+  await page.getByTestId('beat-fx-channel').click(); // MASTER → 1
+  await expect(page.getByTestId('beat-fx-channel')).toHaveText('1');
+  await page.getByTestId('beat-fx-on').click();
+  await expect(page.getByTestId('beat-fx-on')).toHaveAttribute('data-blink', 'slow');
+
+  await page.getByTestId('xf-assign-0').click();
+  await expect(page.getByTestId('xf-assign-0')).toHaveText('B');
+  await page.getByTestId('chcue-0').click();
+  await page.getByTestId('hp-mode').click();
+  const mx = await page.evaluate(() => window.__dj!.state().mixer);
+  expect(mx.colorFxType).toBe('SPACE');
+  expect(mx.beatFx).toMatchObject({ type: 'PING_PONG', divisionIndex: 0, channel: '1', on: true });
+  expect(mx.ch[0]).toMatchObject({ xf: 'B', cue: true });
+  expect(mx.hpMode).toBe('SPLIT');
+
+  await mixer.screenshot({ path: test.info().outputPath('mixer.png') });
+
+  await page.getByTestId('settings-toggle').click();
+  const settings = page.getByTestId('settings');
+  await expect(settings).toBeVisible();
+  // Chromium supports setSinkId: the output picker is offered (Off = SPLIT on the main output)
+  await expect(settings.getByRole('combobox', { name: 'Headphones output device' })).toHaveValue('');
+  await page.screenshot({ path: test.info().outputPath('settings.png') });
+  await settings.getByRole('button', { name: 'CLOSE' }).click();
+  await expect(settings).toHaveCount(0);
   expect(errors()).toEqual([]);
 });

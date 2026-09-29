@@ -57,7 +57,8 @@
   height: 220px;
   border-radius: 50%;
   touch-action: none;
-  background: radial-gradient(circle, #2a2e36 0%, #16181d 62%, #0c0d10 63%, #2b2f38 78%, #121317 100%);
+  /* closest-side: stops are fractions of the radius. The plate edge is --plate (set from TOP_PLATE_FRACTION in Jog.tsx). */
+  background: radial-gradient(circle closest-side, #2a2e36 0%, #16181d calc(var(--plate) - 1%), #0c0d10 var(--plate), #2b2f38 calc(var(--plate) + 12%), #121317 100%);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.7), inset 0 0 0 2px #0a0b0e;
   cursor: grab;
 }

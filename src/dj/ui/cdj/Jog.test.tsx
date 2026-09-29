@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { DjProvider, type DjRuntime } from '../../DjContext';
 import { FrameLoop } from '../../frameLoop';
 import { Jog } from './Jog';
+import { TOP_PLATE_FRACTION } from './jogMath';
 
 function setup() {
   const jog = vi.fn();
@@ -84,5 +87,25 @@ describe('<Jog> release paths', () => {
     fireEvent.pointerUp(s.el, { pointerId: 9 });
     expect(s.displays[1].touched).toBe(true);
     expect(s.jog.mock.calls.at(-1)![1]).toBe(true);
+  });
+});
+
+describe('<Jog> geometry', () => {
+  it('reads the layout once per press, not on every pointer move', () => {
+    const s = setup();
+    const rect = vi.mocked(Element.prototype.getBoundingClientRect);
+    rect.mockClear();
+    fireEvent.pointerDown(s.el, { pointerId: 5, clientX: 150, clientY: 100 });
+    for (let i = 0; i < 5; i++) fireEvent.pointerMove(s.el, { pointerId: 5, clientX: 150 - i * 10, clientY: 100 + i * 10 });
+    expect(rect).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws the top plate edge exactly where the hit test switches from plate to ring', () => {
+    const s = setup();
+    expect(s.el.style.getPropertyValue('--plate')).toBe(`${TOP_PLATE_FRACTION * 100}%`);
+    // the gradient must be sized to the radius (closest-side), and the plate edge must come from --plate
+    const css = readFileSync(join(process.cwd(), 'src/dj/ui/cdj/cdj.module.css'), 'utf8');
+    const jogRule = /\.jog\s*\{([^}]*)\}/.exec(css)![1]!;
+    expect(jogRule).toMatch(/radial-gradient\(circle closest-side,[^;]*var\(--plate\)/);
   });
 });

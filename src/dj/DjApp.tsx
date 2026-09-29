@@ -14,6 +14,7 @@ import { Hud } from './Hud';
 import { useDjStore } from './store/djStore';
 import { Booth } from './ui/Booth';
 import { DeckDisplay } from './ui/cdj/DeckDisplay';
+import { Settings } from './ui/Settings';
 import styles from './dj.module.css';
 
 /** The DJ booth. The AudioContext is created on the TAP TO START gesture (autoplay policy). */
@@ -28,6 +29,7 @@ export default function DjApp() {
   const mounted = useRef(false);
   /** Synchronous re-entry guard: one engine per mount even on a double tap. */
   const busy = useRef(false);
+  const settingsOpen = useDjStore((s) => s.ui.settingsOpen);
 
   useEffect(() => {
     let alive = true;
@@ -116,6 +118,7 @@ export default function DjApp() {
         <DjProvider value={runtime}>
           <Booth />
           <Hud />
+          {settingsOpen ? <Settings /> : null}
         </DjProvider>
       ) : (
         <div className={styles.start}>

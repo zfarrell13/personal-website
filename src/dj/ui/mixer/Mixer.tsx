@@ -1,25 +1,36 @@
 'use client';
+import type { CurveKind } from '../../constants';
 import { useDjStore } from '../../store/djStore';
 import { Fader } from '../controls/Fader';
+import { LedButton } from '../controls/LedButton';
+import { ChannelColumn } from './ChannelColumn';
+import { FxSection } from './FxSection';
 import styles from './mixer.module.css';
 
-/** First playable mixer: channel faders + crossfader (the full mixer panel replaces this in Task 16). */
+const CURVES: readonly CurveKind[] = [0, 1, 2];
+const CURVE_NEXT = (c: CurveKind): CurveKind => CURVES[(c + 1) % CURVES.length]!;
+/** Curve glyphs: 0 = smooth, 1 = linear, 2 = sharp cut. */
+const CURVE_GLYPH = ['◠', '╱', '⌐'] as const;
+
+/** Two-channel club mixer: channel strips, FX/master/headphones column, crossfader with curve selectors. */
 export function Mixer() {
-  const ch = useDjStore((s) => s.mixer.ch);
   const crossfader = useDjStore((s) => s.mixer.crossfader);
-  const setChannel = useDjStore((s) => s.setChannel);
+  const chCurve = useDjStore((s) => s.mixer.chCurve);
+  const xfCurve = useDjStore((s) => s.mixer.xfCurve);
   const setMixer = useDjStore((s) => s.setMixer);
   return (
     <section className={styles.mixer} aria-label="Mixer" data-testid="mixer">
-      {([0, 1] as const).map((i) => (
-        <div key={i} className={styles.channel}>
-          <span className={styles.chName}>CH {i + 1}</span>
-          <Fader label={`CH ${i + 1}`} value={ch[i].fader} onChange={(v) => setChannel(i, { fader: v })} length={200} testId={`fader-ch-${i}`} />
-        </div>
-      ))}
-      <div />
+      <ChannelColumn ch={0} />
+      <ChannelColumn ch={1} />
+      <FxSection />
       <div className={styles.xfRow}>
-        <Fader label="CROSSFADER" orientation="horizontal" value={crossfader} defaultValue={0.5} length={260} onChange={(v) => setMixer({ crossfader: v })} testId="crossfader" />
+        <LedButton label={`CHANNEL FADER CURVE ${chCurve + 1}`} onPress={() => setMixer({ chCurve: CURVE_NEXT(chCurve) })} testId="ch-curve">
+          CH {CURVE_GLYPH[chCurve]}
+        </LedButton>
+        <Fader label="CROSSFADER" orientation="horizontal" value={crossfader} defaultValue={0.5} length={220} onChange={(v) => setMixer({ crossfader: v })} testId="crossfader" />
+        <LedButton label={`CROSSFADER CURVE ${xfCurve + 1}`} onPress={() => setMixer({ xfCurve: CURVE_NEXT(xfCurve) })} testId="xf-curve">
+          XF {CURVE_GLYPH[xfCurve]}
+        </LedButton>
       </div>
     </section>
   );
