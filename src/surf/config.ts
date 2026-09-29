@@ -57,6 +57,8 @@ export const SURF_CONFIG = {
     /** Upward normal speed at the crest needed to launch (m/s). */
     launchSpeed: 3,
     snapWindow: 0.4,
+    /** A climb whose apex is above this fraction of the crest height arms a snap (open face; spec: "at the crest"). */
+    snapTopFrac: 0.85,
     /** Snap requires the heading to turn at least this much at the crest (deg). */
     snapAngle: 110,
     ollieImpulse: 4,

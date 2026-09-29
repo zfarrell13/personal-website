@@ -348,17 +348,26 @@ describe('Surfer — floater and kick-out', () => {
     expect(h.events.some((e) => e.type === 'kickedOut')).toBe(true);
   });
 
-  it('snaps when carving through a reversal at the crest', () => {
+  // x = 15: the open face (apex-armed snap near the top); x = 4: the steep section by the curl (armed at the face edge).
+  it.each([15, 4])('snaps when carving through a reversal at the crest (x = %d)', (x) => {
     const h = setup();
-    // x = 4 has the section the old 45 m hollowness fade had at x = 15 (hollowness 0.74): on the
-    // open face beyond x ≈ 5.5 the crest is too gentle for a 110° reversal inside the snap window.
-    h.surfer.reset(4, 0.4);
-    const n = h.wave.normal(4, 0.4);
+    h.surfer.reset(x, 0.4);
+    const n = h.wave.normal(x, 0.4);
     const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
     h.s.v.set(3, 0, 0).addScaledVector(up, 3); // reaches the crest below launch speed
     h.run(1.5, () => ({ carve: 1 }));
     expect(h.events.some((e) => e.type === 'launched')).toBe(false);
     expect(h.events.some((e) => e.type === 'snap')).toBe(true);
+  });
+
+  it('does not snap on a climb that stays low on the face', () => {
+    const h = setup();
+    h.surfer.reset(15, 0.3);
+    const n = h.wave.normal(15, 0.3);
+    const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
+    h.s.v.set(3, 0, 0).addScaledVector(up, 1); // turns well below the top band
+    h.run(1.5, () => ({ carve: 1 }));
+    expect(h.events.some((e) => e.type === 'snap')).toBe(false);
   });
 });
 

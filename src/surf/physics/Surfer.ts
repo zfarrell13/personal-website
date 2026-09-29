@@ -131,6 +131,10 @@ export class Surfer {
   private atCrest = false;
   private crestTime = -Infinity;
   private snapArmed = false;
+  /** In the top band of the face (y ≥ snapTopFrac × crest height). */
+  private nearTop = false;
+  /** Entered the top band; the snap arms at the apex of the climb. */
+  private topPending = false;
   private tubeStart = 0;
   private floatStart = 0;
   private slowTime = 0;
@@ -207,6 +211,8 @@ export class Surfer {
     this.prevHeading.copy(s.heading);
     this.atCrest = false;
     this.snapArmed = false;
+    this.nearTop = false;
+    this.topPending = false;
     this.slowTime = 0;
     this.carveAccum = 0;
     this.carveDir = 0;
@@ -364,6 +370,25 @@ export class Surfer {
     }
     if (s.v.lengthSq() > c.minSpeed * c.minSpeed) s.heading.copy(s.v).normalize();
 
+    // --- snap arming on the open face: the climb tops out near the crest without reaching the face
+    // edge (lift fades to zero there), so the apex of a climb into the top band arms it too.
+    const topY = c.snapTopFrac * this.crestAt(s.param.x).y;
+    if (!s.floating && s.p.y >= topY) {
+      if (!this.nearTop) {
+        this.crestHeading.copy(s.heading);
+        this.topPending = true;
+      }
+      this.nearTop = true;
+      if (this.topPending && !this.snapArmed && s.v.dot(this.eUp) <= 0) {
+        this.topPending = false;
+        this.crestTime = s.time;
+        this.snapArmed = true;
+      }
+    } else if (s.p.y < topY - 0.1) {
+      this.nearTop = false;
+      this.topPending = false;
+    }
+
     // --- snap: heading reversal at the crest within the window, while carving ---
     if (this.snapArmed) {
       if (s.time - this.crestTime > c.snapWindow) this.snapArmed = false;
@@ -500,6 +525,8 @@ export class Surfer {
     s.stalling = false;
     this.atCrest = false;
     this.snapArmed = false;
+    this.nearTop = false;
+    this.topPending = false;
     this.grabs = [];
     const hx = s.v.x;
     const hz = s.v.z;
