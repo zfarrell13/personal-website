@@ -32,7 +32,7 @@ export const SURF_CONFIG = {
     gravity: 9.81,
     /** Face lift gain; equilibrium depth fraction = gravity / lift (0.5 → mid-face). */
     lift: 19.62,
-    /** Damps oscillation up/down the face (1/s). */
+    /** Damps sliding back down the face (1/s), settling oscillation; climbing is undamped so speed carries you to the lip. */
     faceDamping: 1.5,
     /** Wave drive gain along +x, multiplied by local steepness (m/s²). */
     drive: 3.25,
@@ -54,7 +54,9 @@ export const SURF_CONFIG = {
     /** Snap requires the heading to turn at least this much at the crest (deg). */
     snapAngle: 110,
     ollieImpulse: 4,
-    /** Cap on the vertical speed of a crest launch (m/s). */
+    /** Crest launch: speed off the face along the normal = up-face speed × airGain, in [launchSpeed, maxAirSpeed]. */
+    airGain: 0.75,
+    /** Cap on the pop speed of a crest launch (m/s). */
     maxAirSpeed: 9,
     spinRate: 540,
     landTolerance: 40,

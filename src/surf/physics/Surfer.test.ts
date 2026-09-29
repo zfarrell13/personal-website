@@ -97,60 +97,86 @@ describe('Surfer — air', () => {
     h.s.v.copy(up).multiplyScalar(speed);
   }
 
-  // (x = 20 at 8 m/s never reaches the top of the face with launch speed: gravity bleeds it, so it
-  // clamps and slides back — covered by the 'too slow' test below.)
-  const AIR_CASES = [2, 10, 20].flatMap((x) => [8, 12, 18].filter((v) => !(x === 20 && v === 8)).map((v) => [x, v] as const));
+  /** One tick; returns how far p moved beyond |v|·dt (the larger of |v| before / after). */
+  function tick(h: ReturnType<typeof setup>, input: Partial<SurferInput> = {}) {
+    const before = h.s.p.clone();
+    const vBefore = h.s.v.length();
+    h.run(DT, () => input);
+    return h.s.p.distanceTo(before) - Math.max(vBefore, h.s.v.length()) * DT;
+  }
 
-  it.each(AIR_CASES)('crest air is a real, local air (x=%d, %d m/s)', (x, speed) => {
+  /** Climb at `speed` until the first crest air lands (or 5 s pass). */
+  function crestAir(x: number, speed: number, input: (airTick: number) => Partial<SurferInput> = () => ({})) {
     const h = setup();
     climbFast(h, x, speed);
-    const closest = { x: 0, t: 0 };
-    const S = new Vector3();
-    const n = new Vector3();
-    let maxAir = 0;
-    let launchedAt = -1;
-    let landedJump = 0;
-    let minSigned = Infinity;
-    for (let i = 0; i < 4 * 120; i++) {
-      const before = h.s.p.clone();
-      const modeBefore = h.s.mode;
-      h.run(DT);
-      maxAir = Math.max(maxAir, h.s.airTime);
-      if (launchedAt < 0 && h.s.mode === 'airborne') launchedAt = i;
-      if (h.s.mode === 'airborne') {
-        closest.x = h.s.param.x;
-        closest.t = h.s.param.t;
-        h.wave.closestParam(h.s.p, closest, closest);
-        h.wave.profile(closest.x, closest.t, S);
-        h.wave.normal(closest.x, closest.t, n);
-        minSigned = Math.min(minSigned, S.negate().add(h.s.p).dot(n));
-      }
-      if (modeBefore === 'airborne' && h.s.mode === 'riding') {
-        landedJump = h.s.p.distanceTo(before) - h.s.v.length() * DT;
-        break;
-      }
+    let worstStep = -Infinity;
+    let airTicks = 0;
+    for (let i = 0; i < 5 * 120; i++) {
+      const wasAir = h.s.mode === 'airborne';
+      worstStep = Math.max(worstStep, tick(h, wasAir ? input(airTicks++) : {}));
+      if (wasAir && h.s.mode !== 'airborne') break;
     }
-    expect(launchedAt).toBeGreaterThanOrEqual(0);
-    expect(h.s.mode).toBe('riding');
-    expect(maxAir).toBeGreaterThanOrEqual(0.3);
-    expect(landedJump).toBeLessThanOrEqual(0.1);
-    expect(minSigned).toBeGreaterThanOrEqual(-0.05);
-    expect(h.events.some((e) => e.type === 'landed')).toBe(true);
+    const landed = h.events.find((e) => e.type === 'landed');
+    return { h, worstStep, landed: landed?.type === 'landed' ? landed : undefined };
+  }
+
+  const AIR_X = [0, 2, 5, 10, 15, 20, 25, 30];
+  const AIR_V = [8, 12, 18];
+
+  it.each(AIR_X.flatMap((x) => AIR_V.map((v) => [x, v] as const)))(
+    'crest air launches, stays continuous and lands riding (x=%d, %d m/s)',
+    (x, speed) => {
+      const { h, worstStep, landed } = crestAir(x, speed);
+      expect(h.events.some((e) => e.type === 'launched' && e.kind === 'crest')).toBe(true);
+      expect(h.s.mode).toBe('riding');
+      expect(landed).toBeDefined();
+      expect(h.events.some((e) => e.type === 'kickedOut' || e.type === 'wipeout')).toBe(false);
+      expect(worstStep).toBeLessThanOrEqual(0.05);
+      if (speed === 12 && x <= 20) expect(landed!.airTime).toBeGreaterThanOrEqual(0.9);
+    },
+  );
+
+  it.each(AIR_X)('crest air time grows with speed (x=%d)', (x) => {
+    const times = AIR_V.map((v) => crestAir(x, v).landed?.airTime ?? 0);
+    for (let i = 1; i < times.length; i++) expect(times[i]!).toBeGreaterThanOrEqual(times[i - 1]!);
   });
 
-  it('a crest launch on the flat shoulder carries you over the back: kicked out, not a wipeout', () => {
-    const h = setup();
-    climbFast(h, 40, 18);
-    h.run(3);
+  it('a crest air on the flat shoulder comes back down onto the face (never kicked out over the back)', () => {
+    const { h, landed } = crestAir(40, 18);
     expect(h.events.some((e) => e.type === 'launched' && e.kind === 'crest')).toBe(true);
-    expect(h.s.mode).toBe('kickedOut');
-    expect(h.events.some((e) => e.type === 'kickedOut')).toBe(true);
-    expect(h.events.some((e) => e.type === 'wipeout')).toBe(false);
+    expect(landed).toBeDefined();
+    expect(h.s.mode).toBe('riding');
+    expect(h.events.some((e) => e.type === 'kickedOut')).toBe(false);
+  });
+
+  it('a 360 is achievable off the crest (x=10, 12 m/s) and lands clean when released aligned', () => {
+    const ticks360 = Math.round((360 / SURF_CONFIG.physics.spinRate) * 120);
+    const { h, landed } = crestAir(10, 12, (i) => ({ spin: i < ticks360 ? 1 : 0 }));
+    expect(h.s.mode).toBe('riding');
+    expect(landed).toBeDefined();
+    expect(landed!.spinDeg).toBeGreaterThanOrEqual(320);
+    expect(landed!.revert).toBe(false);
+  });
+
+  it.each([0.3, 0.5, 0.6])('ollie adds exactly ollieImpulse along the normal, even moving down the face (x=10, t=%d)', (t) => {
+    const h = setup();
+    h.surfer.reset(10, t); // DROP-IN velocity: moving down the face
+    const n = h.s.normal.clone();
+    expect(h.s.v.y).toBeLessThan(0);
+    const vn0 = h.s.v.dot(n);
+    h.run(DT, () => ({ ollie: true }));
+    expect(h.s.mode).toBe('airborne');
+    expect(h.s.v.dot(n) - vn0).toBeCloseTo(h.cfg.physics.ollieImpulse, 6);
+    let i = 0;
+    while (h.s.mode === 'airborne' && i++ < 600) h.run(DT);
+    const landed = h.events.find((e) => e.type === 'landed');
+    expect(landed && landed.type === 'landed' && landed.airTime).toBeCloseTo((2 * h.cfg.physics.ollieImpulse) / h.cfg.physics.gravity, 1);
+    expect(h.s.mode).toBe('riding');
   });
 
   it('too slow at the top of the face: no launch, clamps and slides back down', () => {
     const h = setup();
-    climbFast(h, 15, 8);
+    climbFast(h, 15, 4);
     let maxT = 0;
     for (let i = 0; i < 4 * 120; i++) {
       h.run(DT);
@@ -165,21 +191,29 @@ describe('Surfer — air', () => {
     expect(slow.events.some((e) => e.type === 'launched')).toBe(false);
   });
 
-  it('never rides where the surface normal points down', () => {
+  it('never rides where the surface normal points down (floating keeps an upward frame)', () => {
     const nrm = new Vector3();
-    for (const x of [0, 2, 5, 10, 20, 40]) {
+    let floatingTicks = 0;
+    for (const x of [-4, -3, -2, -1, -0.5, 0, 2, 5, 10, 20, 40]) {
       for (const speed of [4, 8, 12, 18]) {
-        const h = setup();
-        climbFast(h, x, speed);
-        for (let i = 0; i < 4 * 120; i++) {
-          h.run(DT);
-          // x < 0 is the floater domain: climbing the overhang there is the approach to a floater.
-          if (h.s.mode === 'riding' && !h.s.floating && h.s.param.x >= h.cfg.physics.floaterMaxX) {
-            expect(h.wave.normal(h.s.param.x, h.s.param.t, nrm).y, `x=${x} v=${speed} tick=${i}`).toBeGreaterThanOrEqual(0);
+        // Straight up the face, and with +4 m/s along the wave (the floater approach where x < 0).
+        for (const along of [0, 4]) {
+          const h = setup();
+          climbFast(h, x, speed);
+          h.s.v.x += along;
+          for (let i = 0; i < 4 * 120; i++) {
+            h.run(DT);
+            if (h.s.mode !== 'riding') continue;
+            const at = `x=${x} v=${speed} along=${along} tick=${i}`;
+            if (h.s.floating) {
+              floatingTicks++;
+              expect(h.s.normal.y, at).toBeGreaterThan(0);
+            } else expect(h.wave.normal(h.s.param.x, h.s.param.t, nrm).y, at).toBeGreaterThanOrEqual(0);
           }
         }
       }
     }
+    expect(floatingTicks).toBeGreaterThan(0);
   });
 
   function bigOllie(spinTicks: number) {
@@ -261,28 +295,44 @@ describe('Surfer — floater and kick-out', () => {
     h.surfer.reset(15, 0.4);
     const n = h.wave.normal(15, 0.4);
     const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
-    h.s.v.set(3, 0, 0).addScaledVector(up, 5); // reaches the crest below launch speed
+    h.s.v.set(3, 0, 0).addScaledVector(up, 3); // reaches the crest below launch speed
     h.run(1.5, () => ({ carve: 1 }));
+    expect(h.events.some((e) => e.type === 'launched')).toBe(false);
     expect(h.events.some((e) => e.type === 'snap')).toBe(true);
   });
 });
 
 describe('Surfer — floater continuity', () => {
   const CASES = [-1, -3].flatMap((x) => [8, 12, 18].map((v) => [x, v] as const));
-  it.each(CASES)('floater at x=%d, %d m/s never teleports and keeps an upward frame', (x, speed) => {
+  it.each(CASES)('floater at x=%d, %d m/s: continuous, upright, ends back on the face; spin/grab in the dismount is ignored', (x, speed) => {
     const h = setup();
     h.surfer.reset(x, 0.6);
     const n = h.wave.normal(x, 0.6);
     const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
     h.s.v.set(4, 0, 0).addScaledVector(up, speed);
+    const onFace = new Vector3();
+    const nrm = new Vector3();
+    let endChecked = false;
+    h.bus.on('floaterEnd', (e) => {
+      expect(e.landed).toBe(true);
+      expect(h.s.mode).toBe('riding');
+      expect(h.s.floating).toBe(false);
+      h.wave.profile(h.s.param.x, h.s.param.t, onFace);
+      expect(onFace.distanceTo(h.s.p)).toBeLessThan(1e-6);
+      expect(h.wave.normal(h.s.param.x, h.s.param.t, nrm).y).toBeGreaterThanOrEqual(0);
+      endChecked = true;
+    });
     let worst = 0;
     let floatedTicks = 0;
+    let started = false;
     for (let i = 0; i < 4 * 120; i++) {
+      started ||= h.events.some((e) => e.type === 'floaterStart');
+      // Mash spin + grab from the floater start until it has ended (covers the dismount).
+      const mash: Partial<SurferInput> = started && !endChecked ? { spin: 1, grab: 'indy' } : {};
       const before = h.s.p.clone();
       const vBefore = h.s.v.length();
-      h.run(DT);
-      const step = h.s.p.distanceTo(before) - Math.max(vBefore, h.s.v.length()) * DT;
-      worst = Math.max(worst, step);
+      h.run(DT, () => mash);
+      worst = Math.max(worst, h.s.p.distanceTo(before) - Math.max(vBefore, h.s.v.length()) * DT);
       if (h.s.floating) {
         floatedTicks++;
         expect(h.s.normal.y, `tick ${i}`).toBeGreaterThan(0);
@@ -291,6 +341,9 @@ describe('Surfer — floater continuity', () => {
     }
     expect(h.events.some((e) => e.type === 'floaterStart')).toBe(true);
     expect(floatedTicks).toBeGreaterThan(0);
+    expect(endChecked).toBe(true);
+    expect(h.events.some((e) => e.type === 'wipeout')).toBe(false);
+    expect(h.events.some((e) => e.type === 'landed' || e.type === 'grabStart')).toBe(false);
     expect(worst).toBeLessThanOrEqual(0.05);
   });
 });
