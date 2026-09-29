@@ -65,4 +65,63 @@ describe('ColorFxCore', () => {
     expect(goertzel(x, 1400)).toBeLessThan(0.001);
     expect(goertzel(run(fx, x), 1400)).toBeGreaterThan(0.02);
   });
+
+  it('bypasses in place for native types (outL === inL)', () => {
+    const fx = new ColorFxCore(SR);
+    fx.set('SPACE', 1, 0.5);
+    const l = sine(440);
+    const r = sine(660);
+    const l0 = l.slice();
+    const r0 = r.slice();
+    fx.process(l, r, l, r, N);
+    expect(l).toEqual(l0);
+    expect(r).toEqual(r0);
+  });
+
+  it('processes the right channel and gives NOISE independent channels', () => {
+    const fx = new ColorFxCore(SR);
+    fx.set('NOISE', 0.7, 0.5);
+    const outL = new Float32Array(N);
+    const outR = new Float32Array(N);
+    const z = new Float32Array(N);
+    fx.process(z, z, outL, outR, N);
+    expect(rms(outR)).toBeGreaterThan(0.005);
+    expect(outL).not.toEqual(outR);
+  });
+
+  it('CRUSH reaches exactly 3.5 bits at full knob and PARAMETER', () => {
+    const fx = new ColorFxCore(SR);
+    fx.set('CRUSH', 1, 1);
+    run(fx, sine(440));
+    expect(fx.bitDepth).toBeCloseTo(3.5, 10);
+  });
+
+  it('does not replay stale state when re-engaging from bypass', () => {
+    for (const [type, knob] of [['SWEEP', 1], ['SWEEP', -1], ['CRUSH', 0.8], ['NOISE', 0]] as const) {
+      const fx = new ColorFxCore(SR);
+      fx.set(type, knob, 0.5);
+      run(fx, sine(300, 0.9));
+      fx.set(type, 0, 0.5);
+      run(fx, new Float32Array(N));
+      fx.set(type, knob === 0 ? 0 : knob, 0.5);
+      const o = new Float32Array(128);
+      fx.process(new Float32Array(128), new Float32Array(128), o, new Float32Array(128), 128);
+      let peak = 0;
+      for (let i = 0; i < 16; i++) peak = Math.max(peak, Math.abs(o[i]!));
+      expect(peak).toBeLessThan(1e-6);
+    }
+  });
+
+  it('smooths knob steps instead of jumping per block', () => {
+    const fx = new ColorFxCore(SR);
+    fx.set('SWEEP', 0.2, 0.5);
+    const z = new Float32Array(128);
+    fx.process(z, z, new Float32Array(128), new Float32Array(128), 128);
+    fx.set('SWEEP', 1, 0.5);
+    fx.process(z, z, new Float32Array(128), new Float32Array(128), 128);
+    expect(fx.smoothedKnob).toBeGreaterThan(0.2);
+    expect(fx.smoothedKnob).toBeLessThan(0.5);
+    for (let i = 0; i < 40; i++) fx.process(z, z, new Float32Array(128), new Float32Array(128), 128);
+    expect(fx.smoothedKnob).toBeGreaterThan(0.99);
+  });
 });

@@ -18,4 +18,20 @@ describe('BeatClock', () => {
     const c = new BeatClock(48000);
     expect(c.beatAt(24000)).toBe(1);
   });
+  it('keeps beat continuity across a tempo change', () => {
+    const c = new BeatClock(48000);
+    c.update(0, 0, 120);
+    c.update(24000, 1, 90);
+    expect(c.beatAt(24000)).toBeCloseTo(1, 12);
+    expect(c.beatAt(24000 + 32000)).toBeCloseTo(2, 12);
+  });
+  it('ignores non-finite updates', () => {
+    const c = new BeatClock(48000);
+    c.update(0, 0, 120);
+    c.update(NaN, 5, 100);
+    c.update(100, Infinity, 100);
+    c.update(100, 5, NaN);
+    expect(c.bpm).toBe(120);
+    expect(c.beatAt(24000)).toBeCloseTo(1, 12);
+  });
 });

@@ -14,6 +14,7 @@ export class BeatClock {
   constructor(readonly sampleRate: number) {}
 
   update(frame: number, beat: number, bpm: number): void {
+    if (!Number.isFinite(frame) || !Number.isFinite(beat) || !Number.isFinite(bpm)) return;
     this.frame0 = frame;
     this.beat0 = beat;
     this.bpm = bpm > 0 ? bpm : 120;

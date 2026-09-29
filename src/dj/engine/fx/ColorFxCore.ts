@@ -18,7 +18,8 @@ export class ColorFxCore {
 
   private readonly bpL = new Biquad();
   private readonly bpR = new Biquad();
-  private readonly nf = new Biquad();
+  private readonly nfL = new Biquad();
+  private readonly nfR = new Biquad();
   private readonly postL = new Biquad();
   private readonly postR = new Biquad();
   private env = 0;
@@ -30,6 +31,9 @@ export class ColorFxCore {
   private lastType: ColorFxType | null = null;
   private lastKnob = NaN;
   private lastParam = NaN;
+  private active = false;
+  private sk = 0;
+  private sp = 0.5;
 
   constructor(readonly sampleRate: number) {}
 
@@ -49,40 +53,76 @@ export class ColorFxCore {
     return (this.seed / 4294967296) * 2 - 1;
   }
 
+  /** Knob value after ~20 ms smoothing (what the DSP actually uses). */
+  get smoothedKnob(): number {
+    return this.sk;
+  }
+
+  /** Effective CRUSH bit depth for the current smoothed knob/param (16 at rest, 3.5 at full). */
+  get bitDepth(): number {
+    return 16 - Math.abs(this.sk) * 12.5 * (0.5 + 0.5 * this.sp);
+  }
+
+  private resetState(): void {
+    for (const b of [this.bpL, this.bpR, this.nfL, this.nfR, this.postL, this.postR]) b.reset();
+    this.env = 0;
+    this.gateGain = 0;
+    this.holdL = 0;
+    this.holdR = 0;
+    this.holdCount = 0;
+    this.lastType = null;
+  }
+
   private updateCoefs(): void {
-    if (this.type === this.lastType && this.knob === this.lastKnob && this.param === this.lastParam) return;
+    if (this.type === this.lastType && this.sk === this.lastKnob && this.sp === this.lastParam) return;
     this.lastType = this.type;
-    this.lastKnob = this.knob;
-    this.lastParam = this.param;
-    const a = Math.abs(this.knob);
+    this.lastKnob = this.sk;
+    this.lastParam = this.sp;
+    const a = Math.abs(this.sk);
     const sr = this.sampleRate;
-    if (this.type === 'SWEEP' && this.knob > 0) {
+    if (this.type === 'SWEEP' && this.sk > 0) {
       const f = 200 * 2 ** (a * 5.6);
-      this.bpL.design('bandpass', f, sr, 0.7 + this.param * 6);
-      this.bpR.design('bandpass', f, sr, 0.7 + this.param * 6);
+      this.bpL.design('bandpass', f, sr, 0.7 + this.sp * 6);
+      this.bpR.design('bandpass', f, sr, 0.7 + this.sp * 6);
     } else if (this.type === 'NOISE') {
-      const f = this.knob < 0 ? 12000 * 2 ** (-a * 6) : 150 * 2 ** (a * 6);
-      this.nf.design(this.knob < 0 ? 'lowpass' : 'highpass', f, sr, 0.9);
+      const f = this.sk < 0 ? 12000 * 2 ** (-a * 6) : 150 * 2 ** (a * 6);
+      this.nfL.design(this.sk < 0 ? 'lowpass' : 'highpass', f, sr, 0.9);
+      this.nfR.design(this.sk < 0 ? 'lowpass' : 'highpass', f, sr, 0.9);
     } else if (this.type === 'CRUSH') {
-      const f = this.knob < 0 ? 16000 * 2 ** (-a * 5) : 60 * 2 ** (a * 5);
-      const kind = this.knob < 0 ? 'lowpass' : 'highpass';
+      const f = this.sk < 0 ? 16000 * 2 ** (-a * 5) : 60 * 2 ** (a * 5);
+      const kind = this.sk < 0 ? 'lowpass' : 'highpass';
       this.postL.design(kind, f, sr, 0.8);
       this.postR.design(kind, f, sr, 0.8);
     }
   }
 
   process(inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array, n: number): void {
-    const a = Math.abs(this.knob);
-    if (a < 0.02 || (this.type !== 'SWEEP' && this.type !== 'NOISE' && this.type !== 'CRUSH')) {
+    const native = this.type !== 'SWEEP' && this.type !== 'NOISE' && this.type !== 'CRUSH';
+    if (native || (Math.abs(this.knob) < 0.02 && Math.abs(this.sk) < 0.02)) {
+      this.active = false;
+      this.sk = this.knob;
+      this.sp = this.param;
       if (outL !== inL) outL.set(inL.subarray(0, n));
       if (outR !== inR) outR.set(inR.subarray(0, n));
       return;
     }
+    if (!this.active) {
+      // bypass -> active: drop stale filter/gate/hold state and snap the smoothers
+      this.active = true;
+      this.sk = this.knob;
+      this.sp = this.param;
+      this.resetState();
+    } else {
+      const k = 1 - Math.exp(-n / (0.02 * this.sampleRate));
+      this.sk += (this.knob - this.sk) * k;
+      this.sp += (this.param - this.sp) * k;
+    }
+    const a = Math.abs(this.sk);
     this.updateCoefs();
     const sr = this.sampleRate;
     switch (this.type) {
       case 'SWEEP': {
-        if (this.knob > 0) {
+        if (this.sk > 0) {
           for (let i = 0; i < n; i++) {
             const l = inL[i]!;
             const r = inR[i]!;
@@ -95,7 +135,7 @@ export class ColorFxCore {
           const envA = 1 - Math.exp(-1 / (0.002 * sr));
           const envR = 1 - Math.exp(-1 / (0.05 * sr));
           const gA = 1 - Math.exp(-1 / (0.001 * sr));
-          const gR = 1 - Math.exp(-1 / ((0.005 + (1 - this.param) * 0.1) * sr));
+          const gR = 1 - Math.exp(-1 / ((0.005 + (1 - this.sp) * 0.1) * sr));
           for (let i = 0; i < n; i++) {
             const l = inL[i]!;
             const r = inR[i]!;
@@ -110,18 +150,17 @@ export class ColorFxCore {
         break;
       }
       case 'NOISE': {
-        const level = a * (0.1 + 0.3 * this.param);
+        const level = a * (0.1 + 0.3 * this.sp);
         for (let i = 0; i < n; i++) {
-          const z = this.nf.process(this.noise()) * level;
-          outL[i] = inL[i]! + z;
-          outR[i] = inR[i]! + z;
+          outL[i] = inL[i]! + this.nfL.process(this.noise()) * level;
+          outR[i] = inR[i]! + this.nfR.process(this.noise()) * level;
         }
         break;
       }
       case 'CRUSH': {
-        const bits = 16 - a * 13 * (0.5 + 0.5 * this.param); // → 3.5 bits at full
+        const bits = this.bitDepth; // 16 → 3.5 bits at full knob and PARAMETER
         const steps = 2 ** bits / 2;
-        const hold = Math.max(1, Math.round(1 + a * 31 * (0.5 + 0.5 * this.param)));
+        const hold = Math.max(1, Math.round(1 + a * 31 * (0.5 + 0.5 * this.sp)));
         for (let i = 0; i < n; i++) {
           if (this.holdCount <= 0) {
             this.holdL = Math.round(inL[i]! * steps) / steps;
