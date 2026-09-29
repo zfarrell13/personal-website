@@ -36,6 +36,8 @@ export interface DeckSettings {
   motorStopSec: number;
 }
 
+const NO_EVENTS: readonly DeckEvent[] = Object.freeze([]);
+
 export const DEFAULT_DECK_SETTINGS: DeckSettings = {
   tempoPct: 0,
   reverse: false,
@@ -110,6 +112,7 @@ export class DeckCore {
     this.rate = 0;
     this.ended = false;
     this.heldHotCue = -1;
+    this.events = [];
     // Auto cue: first downbeat.
     this.cueFrame = Math.max(0, this.grid.frameAt(0));
     this.pos = this.cueFrame;
@@ -157,7 +160,8 @@ export class DeckCore {
     return this.state !== 'PAUSED' && this.motor >= 1 && !this.settings.reverse;
   }
 
-  drainEvents(): DeckEvent[] {
+  drainEvents(): readonly DeckEvent[] {
+    if (this.events.length === 0) return NO_EVENTS;
     const e = this.events;
     this.events = [];
     return e;
@@ -223,8 +227,7 @@ export class DeckCore {
             this.motor = 1;
           } else {
             this.cueFrame = this.clampPos(this.q(this.pos));
-            this.pos = this.cueFrame;
-            this.ended = false;
+            this.stopAt(this.cueFrame); // also kills a motor that is still braking
             this.events.push({ kind: 'cue', sec: this.cueFrame / this.sampleRate });
           }
           break;
@@ -330,6 +333,7 @@ export class DeckCore {
       if (this.motor < motorTarget) this.motor = Math.min(1, this.motor + startStep);
       else if (this.motor > motorTarget) this.motor = Math.max(0, this.motor - stopStep);
       this.rate = dir * base * this.motor;
+      if (this.rate < 0 && this.pos <= 0) this.rate = 0; // reverse at frame 0: silence, not held DC
 
       // read (Hermite), declicked
       if (this.rate !== 0) this.outGain = 1;
@@ -353,10 +357,13 @@ export class DeckCore {
       let next = p + this.rate;
       if (next >= n) {
         next = n;
-        if (this.state !== 'PAUSED') {
+        if (this.state === 'PLAYING') {
           this.state = 'PAUSED';
           this.motor = 0;
           this.rate = 0;
+        }
+        // CUE_HOLD / HOTCUE_HOLD stay parked at the end so the release returns to the cue / pad.
+        if (!this.ended) {
           this.ended = true;
           this.events.push({ kind: 'ended' });
         }

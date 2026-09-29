@@ -158,3 +158,48 @@ describe('memory cues (CALL)', () => {
     expect(d.pos).toBe(FIRST + 100);
   });
 });
+
+describe('fix round 1 regressions', () => {
+  it('CUE while the motor is still braking sets the cue and stops dead', () => {
+    const d = makeDeck({ motorStopSec: 0.2 });
+    d.play();
+    run(d, 1000);
+    d.play(); // pause: motor braking
+    d.cue(true);
+    const cue = d.cueFrame;
+    run(d, 200);
+    expect(d.pos).toBe(cue);
+    expect(d.atCue).toBe(true);
+  });
+
+  it('reaching the end in CUE_HOLD returns to the cue on release', () => {
+    const d = makeDeck({}, rampTrack(1000));
+    d.cue(true);
+    run(d, 800);
+    expect(d.ended).toBe(true);
+    expect(d.drainEvents()).toEqual([{ kind: 'ended' }]);
+    d.cue(false);
+    expect(d.state).toBe('PAUSED');
+    expect(d.pos).toBe(FIRST);
+    expect(d.ended).toBe(false);
+  });
+
+  it('reaching the end in HOTCUE_HOLD returns to the pad on release', () => {
+    const d = makeDeck({}, rampTrack(1000, { hotCuesSec: [0.5, null, null, null, null, null, null, null] }));
+    d.hotCue(0, true, false);
+    run(d, 800);
+    expect(d.ended).toBe(true);
+    d.hotCue(0, false, false);
+    expect(d.state).toBe('PAUSED');
+    expect(d.pos).toBe(500);
+  });
+
+  it('load clears pending events; drainEvents with none is allocation-free', () => {
+    const d = makeDeck();
+    d.seek(1);
+    d.cue(true);
+    d.load(rampTrack());
+    expect(d.drainEvents()).toEqual([]);
+    expect(d.drainEvents()).toBe(d.drainEvents());
+  });
+});

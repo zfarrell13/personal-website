@@ -82,4 +82,15 @@ describe('DeckCore playback', () => {
     d.play();
     expect(d.state).toBe('PAUSED'); // PLAY does nothing at the end
   });
+
+  it('reverse reaching frame 0 outputs silence, not a held sample', () => {
+    const ones = new Float32Array(60_000).fill(1); // non-zero at frame 0 (a ramp would hide held DC)
+    const d = makeDeck({}, rampTrack(60_000, { left: ones, right: ones }));
+    d.seek(0.2);
+    d.play();
+    d.set({ reverse: true });
+    const out = run(d, 600);
+    expect(d.pos).toBe(0);
+    expect(out[599]).toBe(0);
+  });
 });
