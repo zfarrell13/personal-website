@@ -4,7 +4,7 @@ import type { AudioEngine } from './engine/AudioEngine';
 import type { DeckEvent } from './engine/core/DeckCore';
 import { useDjStore } from './store/djStore';
 import { loadHotCues, saveHotCues } from './store/hotcueStorage';
-import { quantizeTempo, trackSyncedTempo, type SyncContext } from './store/tempoLogic';
+import { trackSyncedTempo, type SyncContext } from './store/tempoLogic';
 import { isOnAir, loadDecision } from './ui/browse/browseLogic';
 
 export type LoadResult = 'loading' | 'confirm' | 'missing';
@@ -76,8 +76,10 @@ export function createDjActions({ engine, tracks, store = useDjStore, storage = 
     userRange[d] = null;
     // Undo a WIDE promotion only when the current tempo fits the user's range (no audible jump).
     const range = saved !== null && deck.range === 100 && Math.abs(deck.tempoPct) <= saved ? saved : deck.range;
-    const tempoPct = quantizeTempo(deck.tempoPct, range);
-    store.getState().setDeck(d, { sync: false, range, tempoPct, tempoFader: tempoPct / range });
+    // Keep the exact synced tempo (re-quantizing could jump up to half a grid step and drift);
+    // the fader sits at that tempo and the next fader touch returns to the range's grid.
+    const tempoPct = Math.max(-range, Math.min(range, deck.tempoPct));
+    store.getState().setDeck(d, { sync: false, range, tempoPct, tempoFader: tempoPct / range, tempoHeld: true });
   };
 
   const actions: DjActions = {
@@ -114,12 +116,16 @@ export function createDjActions({ engine, tracks, store = useDjStore, storage = 
 
     cycleRange(d) {
       const deck = store.getState().decks[d];
-      const range = TEMPO_RANGES[(TEMPO_RANGES.indexOf(deck.range) + 1) % TEMPO_RANGES.length]!;
+      const next = (r: TempoRange) => TEMPO_RANGES[(TEMPO_RANGES.indexOf(r) + 1) % TEMPO_RANGES.length]!;
       if (isFollower(d)) {
-        userRange[d] = range; // the user's new choice; SYNC may promote it again
+        // Cycle the user's own range, not a WIDE promotion (100 → 6 → promoted back to 100 would look dead);
+        // SYNC promotes it again only when the master's tempo doesn't fit.
+        const range = next(userRange[d] ?? deck.range);
+        userRange[d] = range;
         store.getState().setDeck(d, { range });
       } else {
-        store.getState().setDeck(d, { range, tempoPct: deck.tempoFader * range });
+        const range = next(deck.range);
+        store.getState().setDeck(d, { range, tempoPct: deck.tempoFader * range, tempoHeld: false });
       }
       retrack();
     },

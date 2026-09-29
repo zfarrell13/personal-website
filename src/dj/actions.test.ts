@@ -3,7 +3,8 @@ import type { TrackEntry } from '@/shared/tracks';
 import { createDjActions } from './actions';
 import type { AudioEngine } from './engine/AudioEngine';
 import { createTelemetry } from './engine/telemetry';
-import { useDjStore } from './store/djStore';
+import { deckSettingsFromState, useDjStore } from './store/djStore';
+import { effectiveTempoPct } from './store/tempoLogic';
 import { hotCueKey } from './store/hotcueStorage';
 
 const track = (id: string, bpm: number) => ({ id, title: id.toUpperCase(), bpm, memoryCues: [], firstBeatSec: 0.25 }) as unknown as TrackEntry;
@@ -124,6 +125,47 @@ describe('DjActions', () => {
     a.toggleSync(1);
     expect(deckState(1)).toMatchObject({ sync: false, range: 100 });
     expect(deckState(1).tempoFader).toBeCloseTo(0.28, 2);
+  });
+
+  it('SYNC off on WIDE keeps the exact off-grid synced tempo until the next fader touch', () => {
+    const engine = fakeEngine();
+    engine.telemetry.master = 0;
+    // master 128 BPM at −0.13 % (±6) → follower (100 BPM) needs +27.8336 %, far off the 0.5 % WIDE grid
+    useDjStore.getState().setDeck(0, { trackId: 'a', range: 6, tempoFader: -0.13 / 6, tempoPct: -0.13 });
+    useDjStore.getState().setDeck(1, { trackId: 'b', range: 10 });
+    const a = createDjActions({ engine: engine as unknown as AudioEngine, tracks });
+    a.toggleSync(1);
+    const synced = effectiveTempoPct(deckState(1));
+    expect(synced).toBeCloseTo(27.8336, 9);
+    a.toggleSync(1);
+    expect(deckState(1)).toMatchObject({ sync: false, range: 100 });
+    expect(effectiveTempoPct(deckState(1))).toBe(synced); // no re-quantize → no tempo jump, no drift
+    expect(deckSettingsFromState(deckState(1)).tempoPct).toBe(synced);
+    // the next fader touch goes back to the WIDE grid
+    a.tempoFader(1, 0.3);
+    expect(effectiveTempoPct(deckState(1))).toBe(30);
+  });
+
+  it('TEMPO RANGE on a WIDE-promoted follower cycles the user range, not WIDE', () => {
+    const engine = fakeEngine();
+    engine.telemetry.master = 0;
+    useDjStore.getState().setDeck(0, { trackId: 'a' });
+    useDjStore.getState().setDeck(1, { trackId: 'c', range: 6 });
+    const a = createDjActions({ engine: engine as unknown as AudioEngine, tracks });
+    a.toggleSync(1); // needs +6.67 % → promoted to WIDE
+    expect(deckState(1).range).toBe(100);
+    a.cycleRange(1); // user range 6 → 10: the tempo fits, so ±10 shows
+    expect(deckState(1).range).toBe(10);
+    a.cycleRange(1);
+    expect(deckState(1).range).toBe(16);
+    a.cycleRange(1);
+    expect(deckState(1).range).toBe(100);
+    a.cycleRange(1); // back to ±6: promoted to WIDE again, and the next press moves on
+    expect(deckState(1).range).toBe(100);
+    a.cycleRange(1);
+    expect(deckState(1).range).toBe(10);
+    a.toggleSync(1); // SYNC off restores the user's latest choice
+    expect(deckState(1)).toMatchObject({ sync: false, range: 10 });
   });
 
   it('a MASTER change re-tracks the new follower', () => {

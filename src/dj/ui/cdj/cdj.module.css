@@ -41,6 +41,8 @@
   cursor: pointer;
 }
 .pads { grid-area: pads; display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+/* eight pads share the 432 px row (the default 52 px pad minimum would overflow the deck) */
+.pads > button[data-shape='pad'] { min-width: 0; }
 .left { grid-area: left; display: grid; align-content: start; gap: 6px; }
 .right { grid-area: right; display: grid; justify-items: center; align-content: start; gap: 8px; }
 .jogArea { grid-area: jog; display: grid; place-items: center; }
@@ -50,8 +52,9 @@
 .tempoValue { font: 18px var(--font-mono), monospace; color: #ffcf40; }
 .jog {
   position: relative;
-  width: 250px;
-  height: 250px;
+  /* fills the jog column: 460 − 2 × 14 padding − 2 × 96 side columns − 2 × 10 gaps */
+  width: 220px;
+  height: 220px;
   border-radius: 50%;
   touch-action: none;
   background: radial-gradient(circle, #2a2e36 0%, #16181d 62%, #0c0d10 63%, #2b2f38 78%, #121317 100%);

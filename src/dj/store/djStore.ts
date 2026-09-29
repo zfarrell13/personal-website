@@ -17,6 +17,7 @@ import { emptySlots, type HotCueSlots } from './hotcueStorage';
 import { applyTempoFader, effectiveTempoPct, type SyncContext, type TempoControls } from './tempoLogic';
 
 export interface DeckState extends TempoControls {
+  tempoHeld: boolean;
   trackId: string | null;
   loading: boolean;
   masterTempo: boolean;
@@ -109,6 +110,7 @@ export const initialDeck = (): DeckState => ({
   range: 10,
   tempoReset: false,
   sync: false,
+  tempoHeld: false,
   masterTempo: false,
   reverse: false,
   slip: false,

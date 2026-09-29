@@ -8,6 +8,8 @@ export interface TempoControls {
   range: TempoRange;
   tempoReset: boolean;
   sync: boolean;
+  /** The exact tempo SYNC left behind plays unquantized until the next fader touch (no jump, no drift). */
+  tempoHeld?: boolean;
 }
 
 export interface SyncContext {
@@ -26,11 +28,12 @@ export const quantizeTempo = (pct: number, range: TempoRange): number => {
 
 /**
  * The tempo the engine should use for a deck. TEMPO RESET plays at the original tempo.
- * A synced deck's tempo is the exact match for the master, so it is clamped but never quantized.
+ * A synced deck's tempo is the exact match for the master, so it is clamped but never quantized;
+ * so is the tempo a deck keeps after SYNC goes off, until the fader is touched.
  */
 export const effectiveTempoPct = (d: TempoControls): number => {
   if (d.tempoReset) return 0;
-  return d.sync ? clampPct(d.tempoPct, d.range) : quantizeTempo(d.tempoPct, d.range);
+  return d.sync || d.tempoHeld ? clampPct(d.tempoPct, d.range) : quantizeTempo(d.tempoPct, d.range);
 };
 
 /** SYNC promotes the range to WIDE when the needed tempo doesn't fit. */
@@ -76,6 +79,7 @@ export function applyTempoFader<T extends TempoControls>(decks: readonly [T, T],
   const deltaPct = (f - d.tempoFader) * d.range;
   d.tempoFader = f;
   d.tempoPct = f * d.range;
+  d.tempoHeld = false;
   const m = ctx.master;
   if (d.sync && m !== -1 && m !== deck && ctx.trackBpm[deck] > 0 && ctx.trackBpm[m] > 0) {
     const master = next[m];

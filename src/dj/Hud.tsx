@@ -11,19 +11,23 @@ export function Hud() {
   const setUi = useDjStore((s) => s.setUi);
 
   useEffect(() => {
+    // SHIFT is written only when it changes (held Shift auto-repeats keydown ~30×/s).
+    const setShift = (on: boolean) => {
+      if (useDjStore.getState().ui.shift !== on) useDjStore.getState().setUi({ shift: on });
+    };
     const down = (e: KeyboardEvent) => {
       if (e.key === 'Tab') {
         e.preventDefault();
         const v = useDjStore.getState().ui.view;
         useDjStore.getState().setUi({ view: v === 'closeup' ? 'room' : 'closeup' });
-      } else if (e.key === 'Shift') {
-        useDjStore.getState().setUi({ shift: true });
+      } else if (e.key === 'Shift' && !e.repeat) {
+        setShift(true);
       }
     };
     const up = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') useDjStore.getState().setUi({ shift: false });
+      if (e.key === 'Shift') setShift(false);
     };
-    const blur = () => useDjStore.getState().setUi({ shift: false });
+    const blur = () => setShift(false);
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     window.addEventListener('blur', blur);

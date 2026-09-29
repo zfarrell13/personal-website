@@ -552,5 +552,5 @@ export function drawJog(
   ctx.font = jogFont;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(v.vinyl ? "VINYL" : "CDJ", c, s * 0.93);
+  ctx.fillText(v.vinyl ? "VINYL" : "NORMAL", c, s * 0.93); // generic name: no trademarks on screen
 }

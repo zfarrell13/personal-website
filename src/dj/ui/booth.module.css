@@ -33,7 +33,9 @@
   scroll-snap-align: center;
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  /* contain only the vertical scroll: a horizontal swipe must chain to .panels (both axes blocked the swipe) */
+  overscroll-behavior-x: auto;
+  overscroll-behavior-y: contain;
   scrollbar-width: none;
 }
 .panel::-webkit-scrollbar { display: none; }

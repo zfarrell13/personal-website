@@ -53,6 +53,12 @@ export class JogTracker {
     this.accum = 0;
   }
 
+  /** Forget any rotation and velocity (the hand stopped): the next sample starts from rest. */
+  halt(): void {
+    this.accum = 0;
+    this.velocity = 0;
+  }
+
   get isActive(): boolean {
     return this.active;
   }

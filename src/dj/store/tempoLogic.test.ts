@@ -24,6 +24,15 @@ describe('tempo logic', () => {
     expect(effectiveTempoPct(deck({ tempoPct: 4 }))).toBe(4);
   });
 
+  it('a held tempo (SYNC just turned off) plays exactly until the next fader touch', () => {
+    const held = deck({ tempoPct: 27.8336, tempoFader: 0.278336, range: 100, tempoHeld: true });
+    expect(effectiveTempoPct(held)).toBe(27.8336);
+    expect(effectiveTempoPct({ ...held, tempoHeld: false })).toBe(28);
+    const [a] = applyTempoFader([held, deck()], 0, 0.3, { master: -1, trackBpm: [100, 120] });
+    expect(a.tempoHeld).toBe(false);
+    expect(effectiveTempoPct(a)).toBe(30);
+  });
+
   it('an unsynced deck follows the fader absolutely', () => {
     const [a] = applyTempoFader([deck(), deck()], 0, 0.5, { master: -1, trackBpm: [120, 124] });
     expect(a.tempoPct).toBe(5);
