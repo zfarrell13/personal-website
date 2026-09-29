@@ -80,6 +80,10 @@ export class BeatFxCore {
   /** Frames written into dL/dR since the last effect switch; taps older than this read as silence (a logical clear). */
   private dFill = 0;
   private pendingType: BeatFxType | null = null;
+  /** Multiplies the whole wet contribution (tails included); ramps to 0 around an effect switch. */
+  private swGain = 1;
+  private readonly swAlpha: number;
+  private touched = false;
   private onGain = 0;
   private readonly onAlpha: number;
   private spiralT = 0;
@@ -149,6 +153,7 @@ export class BeatFxCore {
     this.xfFrames = Math.ceil(0.003 * sampleRate);
     this.rollCap = this.max - this.xfFrames - 8;
     this.declickStep = 1 / this.xfFrames;
+    this.swAlpha = 1 - Math.exp(-1 / (0.003 * sampleRate));
     this.paramAlpha = 1 - Math.exp(-1 / (0.01 * sampleRate));
     this.onAlpha = 1 - Math.exp(-1 / (0.005 * sampleRate));
     this.spiralAlpha = 1 - Math.exp(-1 / (0.25 * sampleRate));
@@ -156,8 +161,8 @@ export class BeatFxCore {
   }
 
   /**
-   * Switches effect. While the effect is audible the switch is deferred to the end of a 5 ms-style fade-out
-   * (applied in `process`), so it never cuts in or out. Nothing large is cleared: the delay buffers are
+   * Switches effect. Once audio has run, the switch is deferred until the wet output (tails included) has faded
+   * out (applied in `process`), then it fades back in, so it never cuts in or out. Nothing large is cleared: the delay buffers are
    * logically emptied by resetting `dFill`.
    */
   setType(t: BeatFxType): void {
@@ -165,13 +170,14 @@ export class BeatFxCore {
       this.pendingType = null;
       return;
     }
-    if (this.onGain > FADE_EPS) this.pendingType = t;
+    if (this.touched) this.pendingType = t;
     else this.applyType(t);
   }
 
   private applyType(t: BeatFxType): void {
     this.type = t;
     this.pendingType = null;
+    this.touched = false;
     this.dFill = 0;
     for (let i = 0; i < this.combs.length; i++) this.combs[i]!.clear();
     for (let i = 0; i < this.allpasses.length; i++) this.allpasses[i]!.clear();
@@ -268,7 +274,9 @@ export class BeatFxCore {
     const m = this.max;
     const T = this.delayFrames();
     const depthTarget = this.depth;
-    if (this.pendingType !== null && this.onGain < FADE_EPS) this.applyType(this.pendingType);
+    if (this.pendingType !== null && this.swGain < FADE_EPS) this.applyType(this.pendingType);
+    this.touched = true;
+    const swTarget = this.pendingType === null ? 1 : 0;
     const target = this.on && this.pendingType === null ? 1 : 0;
 
     // edge + division handling (block rate)
@@ -305,6 +313,7 @@ export class BeatFxCore {
       const xL = inL[i]!;
       const xR = inR[i]!;
       this.onGain += (target - this.onGain) * this.onAlpha;
+      this.swGain += (swTarget - this.swGain) * this.swAlpha;
       this.depthS += (depthTarget - this.depthS) * this.paramAlpha;
       this.roomS += (roomTarget - this.roomS) * this.paramAlpha;
       const depth = this.depthS;
@@ -505,7 +514,8 @@ export class BeatFxCore {
             let p = this.helixPos + r;
             if (p >= len) p -= len;
             this.helixPos = p;
-            this.fillSlice(this.rollPre + Math.ceil(p) + 3);
+            // copy at least a frame per output frame so the copy outpaces the ring writer even at ratio < 1
+            this.fillSlice(Math.max(this.rollPre + Math.ceil(p) + 3, this.sliceFilled + 1));
             let hl = this.sliceInterp(this.dL, this.rollPre + p);
             let hr = this.sliceInterp(this.dR, this.rollPre + p);
             const tail = len - this.rollXf;
@@ -520,6 +530,8 @@ export class BeatFxCore {
           break;
         }
       }
+      yL = xL + (yL - xL) * this.swGain;
+      yR = xR + (yR - xR) * this.swGain;
       if (this.declickArm) {
         this.declickL = this.lastL - yL;
         this.declickR = this.lastR - yR;

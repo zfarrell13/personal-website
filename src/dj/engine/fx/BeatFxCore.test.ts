@@ -427,4 +427,50 @@ describe('Beat FX fix round 1', () => {
     fx.on = true;
     expect(peaks(run(impulse(6000)).outL, 0.01)).toEqual([AT + 1800]);
   });
+
+  it('HELIX at 16 beats / 60 BPM / depth 0 reads only inside its slice when held 20 s', () => {
+    const { fx, run } = setup('HELIX', 16, 60, 0);
+    const E = 800000; // engage frame; the slice is frames E-768000 .. E
+    const ramp = new Float32Array(E + 960000).map((_, i) => i / 2e6);
+    run(ramp.subarray(0, E));
+    fx.on = true;
+    const { outL } = run(ramp.subarray(E));
+    const anchor = E - 768000;
+    for (const sec of [1.5, 5, 10, 15, 19]) {
+      const j = Math.round(sec * SR);
+      const wet = (outL[j]! - 0.3 * ramp[E + j]!) / 0.7;
+      // ratio 0.5: the read pointer has moved (j + 1) / 2 frames into the slice
+      expect(Math.abs(wet * 2e6 - (anchor + (j + 1) / 2))).toBeLessThan(3);
+    }
+  });
+
+  describe.each([
+    ['ECHO', 'TRANS'],
+    ['PING_PONG', 'FILTER'],
+    ['DELAY', 'FILTER'],
+    ['REVERB', 'TRANS'],
+    ['SPIRAL', 'TRANS'],
+  ] as const)('switching %s -> %s with a live tail', (from, to) => {
+    it.each([true, false])('does not chop the tail (on=%s)', (stayOn) => {
+      const { fx, run } = setup(from, 1 / 4, 120, 1);
+      fx.on = true;
+      run(tone(6000, 200, 0.9));
+      if (!stayOn) fx.on = false;
+      const b = run(new Float32Array(2000)); // frame 8000: mid-tail
+      fx.setType(to);
+      const c = run(new Float32Array(7000));
+      const joined = new Float32Array(2200 + 7000);
+      joined.set(b.outL.subarray(1800));
+      joined.set(c.outL, 200);
+      const joinedR = new Float32Array(2200 + 7000);
+      joinedR.set(b.outR.subarray(1800));
+      joinedR.set(c.outR, 200);
+      // the tail must still be sounding at the switch, otherwise this test proves nothing
+      let tail = 0;
+      for (let i = 0; i < 200; i++) tail = Math.max(tail, Math.abs(joined[i]!), Math.abs(joinedR[i]!));
+      expect(tail).toBeGreaterThan(0.1);
+      expect(maxStep(joined, 0, joined.length)).toBeLessThan(0.05);
+      expect(maxStep(joinedR, 0, joinedR.length)).toBeLessThan(0.05);
+    });
+  });
 });
