@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   channelFaderGain,
+  levelGain,
+  rmsOf,
+  SOFT_CLIP_KNEE,
   crossfaderGains,
   cueMixGains,
   eqGain,
@@ -34,7 +37,7 @@ const open = { low: 1, mid: 1, high: 1 };
 
 describe('isolator', () => {
   it('sums flat when all bands are at 0 dB', () => {
-    for (const hz of [50, 250, 1000, 3000, 10000]) {
+    for (let hz = 20; hz <= 20000; hz *= 2 ** (1 / 3)) {
       expect(Math.abs(gainToDb(rmsOut(hz, open) / ref))).toBeLessThan(0.1);
     }
   });
@@ -99,6 +102,30 @@ describe('fader curves', () => {
   });
 });
 
+describe('more gain laws and meters', () => {
+  it('levelGain: 0 at 0, ≈0 dB at 0.84, ≈+3 dB at 1', () => {
+    expect(levelGain(0)).toBe(0);
+    expect(Math.abs(gainToDb(levelGain(0.84)))).toBeLessThan(0.05);
+    expect(gainToDb(levelGain(1))).toBeCloseTo(3, 1);
+  });
+  it('rmsOf: sine is 1/√2, empty is 0', () => {
+    const b = new Float32Array(4800);
+    for (let i = 0; i < b.length; i++) b[i] = Math.sin((2 * Math.PI * 100 * i) / 48000);
+    expect(rmsOf(b)).toBeCloseTo(Math.SQRT1_2, 3);
+    expect(rmsOf(new Float32Array(0))).toBe(0);
+  });
+  it('crossfader curve 1 (no dip) and 2 (scratch cut) at intermediate positions', () => {
+    expect(crossfaderGains(0.25, 1)).toEqual([1, 0.5]);
+    expect(crossfaderGains(0.75, 1)).toEqual([0.5, 1]);
+    const [a, b] = crossfaderGains(1 / 64, 2);
+    expect(a).toBe(1);
+    expect(b).toBeCloseTo(0.5, 9);
+    const [a2, b2] = crossfaderGains(1 - 1 / 64, 2);
+    expect(a2).toBeCloseTo(0.5, 9);
+    expect(b2).toBe(1);
+  });
+});
+
 describe('native helpers', () => {
   it('converts a linear Q to Web Audio dB Q for lowpass/highpass only', () => {
     expect(toNativeQ('lowpass', Math.SQRT1_2)).toBeCloseTo(-3.0103, 4);
@@ -107,14 +134,35 @@ describe('native helpers', () => {
   it('soft clip curve is odd, bounded and monotonic', () => {
     const c = softClipCurve(1025);
     expect(c[512]).toBeCloseTo(0, 9);
-    expect(c[0]).toBeCloseTo(-1, 9);
-    expect(c[1024]).toBeCloseTo(1, 9);
+    expect(c[0]).toBeCloseTo(-c[1024]!, 9);
+    expect(c[1024]!).toBeLessThanOrEqual(1);
+    expect(c[1024]!).toBeCloseTo(0.5 + 0.5 * Math.tanh(1), 6);
     for (let i = 1; i < c.length; i++) expect(c[i]!).toBeGreaterThan(c[i - 1]!);
+  });
+  it('soft clip is unity below the knee (no fixed boost)', () => {
+    const n = 4097;
+    const c = softClipCurve(n);
+    const at = (x: number) => c[Math.round(((x + 1) / 2) * (n - 1))]!;
+    for (const db of [-12, -20]) {
+      const x = 10 ** (db / 20);
+      expect(Math.abs(at(x) - x)).toBeLessThan(1e-3);
+    }
+  });
+  it('soft clip is continuous in value and slope at the knee', () => {
+    const n = 200001;
+    const c = softClipCurve(n);
+    const step = 2 / (n - 1);
+    const idx = Math.round(((SOFT_CLIP_KNEE + 1) / 2) * (n - 1));
+    const slope = (i: number) => (c[i + 1]! - c[i]!) / step;
+    expect(Math.abs(c[idx]! - SOFT_CLIP_KNEE)).toBeLessThan(1e-5);
+    expect(Math.abs(slope(idx - 50) - slope(idx + 50))).toBeLessThan(0.01);
+    expect(slope(idx - 50)).toBeCloseTo(1, 2);
   });
   it('meters: peak and LED ladder', () => {
     expect(peakOf(new Float32Array([0.1, -0.7, 0.3]))).toBeCloseTo(0.7, 6);
     expect(ladderSegments(0)).toBe(0);
-    expect(ladderSegments(10 ** (-15 / 20))).toBe(11); // −15 dBFS = meter 0 dB → segments up to "0"
+    expect(ladderSegments(10 ** (-15.05 / 20))).toBe(10); // just below meter 0 dB
+    expect(ladderSegments(10 ** (-14.95 / 20))).toBe(11); // just above → segments up to "0"
     expect(ladderSegments(1)).toBe(15);
   });
 });

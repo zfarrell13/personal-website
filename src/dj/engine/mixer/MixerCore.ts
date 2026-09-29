@@ -65,7 +65,7 @@ export function cueMixGains(knob: number): [number, number] {
 /**
  * The biquad sections per isolator band (LR4 = two cascaded Butterworth sections).
  * The low band also gets the 3 kHz LR4 all-pass so low + mid + high sums flat
- * (LP²·AP₂ + HP²·(LP₂² + HP₂²) = AP₁·AP₂). The native graph uses exactly these.
+ * (approximately flat; see the flat-sum test for the measured deviation). The native graph uses exactly these.
  */
 export interface IsolatorSection {
   type: 'lowpass' | 'highpass' | 'allpass';
@@ -98,14 +98,24 @@ export function toNativeQ(type: IsolatorSection['type'] | 'bandpass', qLinear: n
   return type === 'lowpass' || type === 'highpass' ? 20 * Math.log10(qLinear) : qLinear;
 }
 
-/** Master soft clip transfer curve for a WaveShaperNode: odd, monotonic, |y| ≤ 1, ~linear below −6 dBFS. */
+/** Linear region of the soft clip (0.5 = −6 dBFS). */
+export const SOFT_CLIP_KNEE = 0.5;
+
+/**
+ * Master soft clip transfer curve for a WaveShaperNode: odd, monotonic, |y| < 1.
+ * Exactly unity (y = x) up to the knee, then a tanh shoulder with unity slope at the knee
+ * (C1-continuous) that saturates towards ±1. Because the slope is 1 at the knee and the
+ * shoulder is concave, it cannot reach 1 by |x| = 1: full scale maps to
+ * knee + (1 − knee)·tanh(1) ≈ 0.88.
+ */
 export function softClipCurve(points = 4096): Float32Array {
   const out = new Float32Array(points);
-  const k = 1.2;
-  const norm = Math.tanh(k);
+  const k = SOFT_CLIP_KNEE;
   for (let i = 0; i < points; i++) {
     const x = (i / (points - 1)) * 2 - 1;
-    out[i] = Math.tanh(k * x) / norm;
+    const a = Math.abs(x);
+    const y = a <= k ? a : k + (1 - k) * Math.tanh((a - k) / (1 - k));
+    out[i] = Math.sign(x) * y;
   }
   return out;
 }
