@@ -15,9 +15,14 @@ const QR = new Quaternion();
 
 /** Character-space rotation from body angles (degrees): yaw · pitch · roll. */
 export function bodyQuat(a: BodyAngles, out = new Quaternion()): Quaternion {
-  QY.setFromAxisAngle(UP, a[1] * DEG);
-  QP.setFromAxisAngle(LEFT, a[0] * DEG);
-  QR.setFromAxisAngle(FWD, a[2] * DEG);
+  return bodyQuatPYR(a[0], a[1], a[2], out);
+}
+
+/** Non-allocating `bodyQuat` taking the three angles (degrees) directly. */
+export function bodyQuatPYR(pitch: number, yaw: number, roll: number, out: Quaternion): Quaternion {
+  QY.setFromAxisAngle(UP, yaw * DEG);
+  QP.setFromAxisAngle(LEFT, pitch * DEG);
+  QR.setFromAxisAngle(FWD, roll * DEG);
   return out.copy(QY).multiply(QP).multiply(QR);
 }
 
@@ -161,7 +166,7 @@ export class PoseLayer {
     const { bones, restLocal, restChar } = this.rig;
     for (const b of DRIVEN_BONES) {
       const s = this.springs[b];
-      bodyQuat([s.p.x, s.y.x, s.r.x], this.dq);
+      bodyQuatPYR(s.p.x, s.y.x, s.r.x, this.dq);
       this.tmp.copy(restChar[b]).invert().multiply(this.dq).multiply(restChar[b]);
       bones[b].quaternion.copy(restLocal[b]).multiply(this.tmp);
     }
