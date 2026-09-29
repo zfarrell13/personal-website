@@ -101,27 +101,95 @@ describe('SyncCore', () => {
     decks[1].play();
     step(0.5);
     expect(errMs()).toBeLessThan(1);
-    expect(Math.abs(sync.trim[1])).toBeLessThan(0.005);
+    expect(Math.abs(sync.trim[1])).toBeLessThan(0.001);
   });
 
-  it('the PLL pulls a 5 ms error below 1 ms within 2 s and holds it for 10 minutes', () => {
+  it('the PLL pulls a 5 ms error below 1 ms within 2 s and holds it for 10 minutes against real drift', () => {
     const { decks, sync, step, errMs } = setup(124, 120, 3.37);
     decks[0].play();
     step(0.2);
     sync.setSync(decks, 1, true);
     decks[1].play();
     step(0.2);
-    decks[1].seek(decks[1].pos / SR - 0.005 * (decks[1].rate)); // knock the follower 5 ms behind
+    decks[1].seek(decks[1].pos / SR - 0.005 * decks[1].rate); // knock the follower 5 ms behind
     expect(errMs()).toBeGreaterThan(4);
     step(2);
     expect(errMs()).toBeLessThan(1);
+    // A follower whose ratio is 0.01 % off would drift ~60 ms over 10 minutes if unsynced.
+    const trueRatio = () => decks[0].bpm * decks[0].tempoRate / decks[1].bpm;
     let worst = 0;
+    let worstTrim = 0;
+    let t = 0;
     step(600, () => {
+      t += 128 / SR;
+      if (t > 300 && decks[0].tempoRate === 1 + 3.37 / 100) decks[0].set({ tempoPct: 4.1 }); // master tempo change mid-run
       worst = Math.max(worst, errMs());
+      worstTrim = Math.max(worstTrim, Math.abs(sync.trim[1]));
     });
+    expect(trueRatio()).toBeGreaterThan(1);
     expect(worst).toBeLessThan(1);
-    expect(Math.abs(sync.trim[1])).toBeLessThanOrEqual(0.005);
+    expect(worstTrim).toBeLessThanOrEqual(0.005);
+    expect(Math.abs(sync.trim[1])).toBeLessThan(1e-4);
   }, 60_000);
+
+  it('an unsynced follower with a 0.01 % tempo error would drift over 1 ms in 10 minutes', () => {
+    const { decks, step } = setup(120, 120);
+    decks[1].set({ tempoPct: 0.01 });
+    decks[0].play();
+    decks[1].play();
+    step(1);
+    const e0 = decks[0].beat - decks[1].beat;
+    step(600);
+    const drift = (Math.abs(decks[0].beat - decks[1].beat - e0) * 60_000) / 120;
+    expect(drift).toBeGreaterThan(1);
+  }, 60_000);
+
+  it('realigns a synced follower right after a jump', () => {
+    const { decks, sync, step, errMs } = setup(128, 120);
+    decks[0].play();
+    step(0.1); // deck 1 becomes master
+    sync.setSync(decks, 1, true);
+    decks[1].play();
+    step(1);
+    expect(errMs()).toBeLessThan(1);
+    decks[1].seek(decks[1].pos / SR + 0.2);
+    expect(errMs()).toBeGreaterThan(10);
+    step(0.05);
+    expect(errMs()).toBeLessThan(1);
+  });
+
+  it('realigns after the master exits a sub-beat loop', () => {
+    const { decks, sync, step, errMs } = setup(120, 120);
+    decks[0].play();
+    step(0.1);
+    sync.setSync(decks, 1, true);
+    decks[1].play();
+    step(1);
+    decks[0].autoLoop(1 / 4);
+    step(1.3);
+    decks[0].reloopExit();
+    step(0.05);
+    expect(errMs()).toBeLessThan(1);
+  });
+
+  it('keeps the slip shadow playhead consistent when SYNC realigns the follower', () => {
+    const { decks, sync, step } = setup(120, 120);
+    decks[1].set({ slip: true });
+    decks[0].play();
+    step(0.1);
+    decks[1].seek(5.1);
+    decks[1].play();
+    step(0.5);
+    decks[1].autoLoop(4); // slip loop: the shadow keeps running while the playhead loops
+    step(0.7);
+    expect(decks[1].slipFlags).not.toBe(0);
+    decks[1].pos += 500; // knock the follower off the grid
+    const lead = decks[1].shadowPos - decks[1].pos;
+    const p0 = decks[1].pos;
+    sync.alignPhase(decks[0], decks[1]);
+    expect(Math.abs(decks[1].pos - p0)).toBeGreaterThan(1);
+    expect(decks[1].shadowPos - decks[1].pos).toBeCloseTo(lead, 6);
+  });
 
   it('turning SYNC off releases the follower to its own tempo', () => {
     const { decks, sync, step } = setup();

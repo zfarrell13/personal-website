@@ -5,6 +5,8 @@ import { wrapHalf } from './grid';
 /** PLL time constant (s) and integral gain. Tuned in SyncCore.test.ts. */
 const PLL_TAU = 0.25;
 const PLL_KI = 2;
+/** Phase errors beyond this (beats, ≈ 10 ms at 120 BPM) are realigned by a seek; smaller ones are left to the PLL. */
+const REALIGN_BEATS = 0.02;
 
 /**
  * BEAT SYNC: master selection, tempo match and a phase-locked loop that trims
@@ -15,6 +17,8 @@ export class SyncCore {
   master: DeckId | -1 = -1;
   readonly synced: [boolean, boolean] = [false, false];
   readonly trim: [number, number] = [0, 0];
+  /** Tempo-match ratio (master BPM / follower BPM) last applied to each follower, before the PLL trim. */
+  readonly ratio: [number, number] = [1, 1];
   private readonly integ: [number, number] = [0, 0];
   /** Whether master and follower were both running normally on the previous block. */
   private readonly wasLocked: [boolean, boolean] = [false, false];
@@ -49,7 +53,10 @@ export class SyncCore {
   /** Moves the follower by less than half a beat so its beat phase equals the master's. */
   alignPhase(master: DeckCore, follower: DeckCore): void {
     const err = wrapHalf(master.beat - follower.beat);
+    const shadowLead = follower.shadowPos - follower.pos;
+    const slipping = follower.slipFlags !== 0;
     follower.seek((follower.pos + err * follower.frameGrid.framesPerBeat) / follower.sampleRate);
+    if (slipping) follower.shadowPos = follower.pos + shadowLead; // the slip shadow keeps its lead over the playhead
   }
 
   /** Phase error of `follower` against the master in beats, in [-0.5, 0.5). */
@@ -62,7 +69,7 @@ export class SyncCore {
     this.pickMaster(decks);
     const m = this.masterDeck(decks);
     const dt = frames / this.sampleRate;
-    for (const id of [0, 1] as const) {
+    for (let id: DeckId = 0; id < 2; id = (id + 1) as DeckId) {
       const f = decks[id];
       const isFollower = this.synced[id] && m !== null && id !== this.master && f.loaded;
       if (!isFollower) {
@@ -74,15 +81,16 @@ export class SyncCore {
       }
       const locked = m.runningNormally && f.runningNormally;
       // (Re)align once both decks run normally: after play + motor spin-up, a scratch, reverse, or a jump.
-      if (locked && !this.wasLocked[id]) {
+      const masterBpm = m.bpm * m.tempoRate;
+      const ratio = masterBpm / f.bpm;
+      const subBeatLoop = (m.loopActive && m.loopBeats < 1) || (f.loopActive && f.loopBeats < 1);
+      // Also realign after any jump or loop exit: an error the PLL would take tens of seconds to trim out.
+      const jumped = locked && !subBeatLoop && Math.abs(wrapHalf(m.beat - f.beat)) > REALIGN_BEATS;
+      if (locked && (!this.wasLocked[id] || jumped)) {
         this.alignPhase(m, f);
         this.integ[id] = 0;
       }
       this.wasLocked[id] = locked;
-
-      const masterBpm = m.bpm * m.tempoRate;
-      const ratio = masterBpm / f.bpm;
-      const subBeatLoop = m.loopActive && m.loopBeats < 1;
       if (locked && !subBeatLoop) {
         const errSec = (wrapHalf(m.beat - f.beat) * 60) / masterBpm;
         const iMax = MAX_SYNC_TRIM / PLL_KI;
@@ -92,17 +100,15 @@ export class SyncCore {
       } else {
         this.trim[id] = 0;
       }
+      this.ratio[id] = ratio;
       f.externalRate = ratio * (1 + this.trim[id]);
     }
   }
 
   private pickMaster(decks: readonly [DeckCore, DeckCore]): void {
     if (this.master !== -1 && !decks[this.master].loaded) this.master = -1;
-    const playing = ([0, 1] as const).filter((i) => decks[i].loaded && decks[i].playing);
-    if (this.master === -1) {
-      if (playing.length > 0) this.master = playing[0]!;
-    } else if (!decks[this.master].playing && playing.length > 0) {
-      this.master = playing[0]!; // hand over from a stopped master
-    }
+    const first: DeckId | -1 = decks[0].loaded && decks[0].playing ? 0 : decks[1].loaded && decks[1].playing ? 1 : -1;
+    if (first === -1) return;
+    if (this.master === -1 || !decks[this.master].playing) this.master = first; // first player, or hand over from a stopped master
   }
 }

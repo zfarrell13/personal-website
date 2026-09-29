@@ -41,4 +41,32 @@ describe('DeckEngineCore', () => {
     e.command({ t: 'hotcue', deck: 1, index: 2, down: true, shift: false });
     expect(e.drainEvents()).toEqual([{ deck: 1, e: { kind: 'hotcue', index: 2, sec: 0.25 } }]);
   });
+
+  it('routes sync and master commands, hides the PLL trim from baseRate, and exposes the master clock', () => {
+    const e = new DeckEngineCore(SR);
+    expect(e.masterClock()).toBeNull();
+    e.command(load(0, 120));
+    e.command(load(1, 124));
+    e.command({ t: 'set', deck: 0, patch: { motorStartSec: 0, motorStopSec: 0, tempoPct: 2 } });
+    e.command({ t: 'set', deck: 1, patch: { motorStartSec: 0, motorStopSec: 0 } });
+    e.command({ t: 'master', deck: 0 });
+    expect(e.sync.master).toBe(0);
+    e.command({ t: 'sync', deck: 1, on: true });
+    expect(e.sync.synced[1]).toBe(true);
+    e.command({ t: 'play', deck: 0 });
+    e.command({ t: 'play', deck: 1 });
+    const bufs = [0, 0, 0, 0].map(() => new Float32Array(128)) as [Float32Array, Float32Array, Float32Array, Float32Array];
+    for (let i = 0; i < 4; i++) e.process(...bufs, 128);
+    e.decks[1].seek(e.decks[1].pos / SR + 0.004); // small error → PLL trim, not a realign
+    e.process(...bufs, 128);
+    const tel = new Float64Array(TEL_SIZE);
+    e.writeTelemetry(tel, 0);
+    expect(tel[TEL_STRIDE + TEL.trim]).not.toBe(0);
+    expect(tel[TEL_STRIDE + TEL.synced]).toBe(1);
+    expect(tel[TEL_STRIDE + TEL.baseRate]).toBe((120 * 1.02) / 124);
+    expect(e.masterClock()).toEqual({ beat: e.decks[0].beat, bpm: 120 * 1.02 });
+    e.command({ t: 'sync', deck: 1, on: false });
+    e.command({ t: 'master', deck: 1 });
+    expect(e.sync.master).toBe(1);
+  });
 });

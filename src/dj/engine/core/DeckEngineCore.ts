@@ -3,6 +3,8 @@ import { DeckCore, type DeckEvent } from './DeckCore';
 import { STATE_CODES, TEL, TEL_FRAME, TEL_MASTER, TEL_SIZE, TEL_STRIDE, type DeckCommand } from './protocol';
 import { SyncCore } from './SyncCore';
 
+const NO_ENGINE_EVENTS: ReadonlyArray<{ deck: DeckId; e: DeckEvent }> = Object.freeze([]);
+
 /** Both decks + sync, driven block by block. The decks worklet is a thin wrapper around this. */
 export class DeckEngineCore {
   readonly decks: readonly [DeckCore, DeckCore];
@@ -77,23 +79,28 @@ export class DeckEngineCore {
     this.decks[1].render(out1L, out1R, 0, frames);
   }
 
-  drainEvents(): Array<{ deck: DeckId; e: DeckEvent }> {
+  drainEvents(): ReadonlyArray<{ deck: DeckId; e: DeckEvent }> {
+    const a = this.decks[0].drainEvents();
+    const b = this.decks[1].drainEvents();
+    if (a.length === 0 && b.length === 0) return NO_ENGINE_EVENTS; // no allocation in the common case
     const out: Array<{ deck: DeckId; e: DeckEvent }> = [];
-    for (const deck of [0, 1] as const) for (const e of this.decks[deck].drainEvents()) out.push({ deck, e });
+    for (const e of a) out.push({ deck: 0, e });
+    for (const e of b) out.push({ deck: 1, e });
     return out;
   }
 
   /** Writes telemetry into `out` (length TEL_SIZE). */
   writeTelemetry(out: Float64Array, frame: number): void {
     const sr = this.sampleRate;
-    for (const id of [0, 1] as const) {
+    for (let id: DeckId = 0; id < 2; id = (id + 1) as DeckId) {
       const d = this.decks[id];
       const o = id * TEL_STRIDE;
       out[o + TEL.loaded] = d.loaded ? 1 : 0;
       out[o + TEL.state] = STATE_CODES.indexOf(d.state);
       out[o + TEL.posSec] = d.pos / sr;
       out[o + TEL.rate] = d.rate;
-      out[o + TEL.baseRate] = d.baseRate;
+      // Display rate excludes the PLL trim ("invisible on the tempo display").
+      out[o + TEL.baseRate] = d.externalRate !== null && this.sync.synced[id] ? this.sync.ratio[id] : d.baseRate;
       out[o + TEL.beat] = d.beat;
       out[o + TEL.cueSec] = d.cueFrame / sr;
       out[o + TEL.atCue] = d.atCue ? 1 : 0;
