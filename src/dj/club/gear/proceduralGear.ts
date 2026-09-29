@@ -68,6 +68,10 @@ class Parts {
   }
 }
 
+/** Screen plane height above the CDJ top face; must clear the bezel (BEZEL_TOP) or the screen is occluded. */
+export const SCREEN_LIFT = 0.002;
+export const BEZEL_TOP = 0.0012;
+
 const BODY = '#1a1c22';
 const PLATE = '#262932';
 const BEZEL = '#08090c';
@@ -132,10 +136,10 @@ function djmBody(): THREE.BufferGeometry {
   p.box(w, h - 0.004, d, 0, -0.002, 0, '#15171c');
   p.box(w - 0.008, 0.004, d - 0.008, 0, top - 0.002, 0, '#20232b');
   p.box(w + 0.004, 0.02, d - 0.03, 0, -top + 0.03, 0, RUBBER);
-  for (const [ci, u] of D.channelU.entries()) {
+  for (const u of D.channelU) {
     const c0 = at(u, 0.03);
     const c1 = at(u, 0.98);
-    p.box(0.07, 0.0012, c1.z - c0.z, c0.x, top + 0.0006, (c0.z + c1.z) / 2, ci === 0 ? '#1c2028' : '#1c2028'); // channel strip
+    p.box(0.07, 0.0012, c1.z - c0.z, c0.x, top + 0.0006, (c0.z + c1.z) / 2, '#1c2028'); // channel strip
     for (const [key, v] of Object.entries(D.knobsV) as [keyof typeof LABEL, number][]) {
       const k = at(u, v);
       p.cyl(0.0145, 0.0016, k.x, top + 0.0008, k.z, LABEL[key], 16); // colour-coded ring under each knob
@@ -205,7 +209,7 @@ export function buildOverlays(canvases: readonly DeckCanvases[], topY: { cdj: nu
     const sp = unitPoint(cx, CDJ_SIZE, L.screen.u, L.screen.v);
     const screen = new THREE.Mesh(screenGeo, new THREE.MeshBasicMaterial({ map: screenTex, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
     screen.rotation.x = -Math.PI / 2;
-    screen.position.set(sp.x, y, sp.z);
+    screen.position.set(sp.x, topY.cdj + SCREEN_LIFT, sp.z);
     screen.name = `screen-${deck}`;
     const jp = unitPoint(cx, CDJ_SIZE, L.jog.u, L.jog.v);
     const platter = new THREE.Mesh(platterGeo, platterMat);

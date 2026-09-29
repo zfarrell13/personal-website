@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { createTelemetry } from '../../engine/telemetry';
 import { initialDjData } from '../../store/djStore';
 import { applyBindings } from './bindings';
-import { buildProceduralGear, markTexturesDirty } from './proceduralGear';
+import { BEZEL_TOP, buildProceduralGear, markTexturesDirty } from './proceduralGear';
+import { CDJ_SIZE, TABLE_Y } from './layout';
 
 const canvas = () => ({ width: 4, height: 4 }) as unknown as HTMLCanvasElement;
 const canvases = [
@@ -65,8 +66,25 @@ describe('procedural gear', () => {
     const texSpy = vi.spyOn(g.textures[0]!, 'dispose');
     const geo = (g.group.getObjectByName('djm') as THREE.Mesh).geometry;
     const geoSpy = vi.spyOn(geo, 'dispose');
+    const mat = (g.group.getObjectByName('djm') as THREE.Mesh).material as THREE.Material;
+    const matSpy = vi.spyOn(mat, 'dispose');
+    const screenMat = (g.group.getObjectByName('screen-0') as THREE.Mesh).material as THREE.Material;
+    const screenMatSpy = vi.spyOn(screenMat, 'dispose');
     g.dispose();
+    expect(matSpy).toHaveBeenCalled();
+    expect(screenMatSpy).toHaveBeenCalled();
     expect(texSpy).toHaveBeenCalled();
     expect(geoSpy).toHaveBeenCalled();
+  });
+
+  it('lays display planes above the static surfaces beneath them (no occlusion)', () => {
+    const g = buildProceduralGear(canvases);
+    const topY = TABLE_Y + CDJ_SIZE.h;
+    for (const deck of [0, 1]) {
+      const screen = g.group.getObjectByName(`screen-${deck}`)!;
+      expect(screen.position.y - topY).toBeGreaterThan(BEZEL_TOP);
+      // jog display sits on the platter (top = topY + 0.001 + 0.012)
+      expect(g.group.getObjectByName(`jog-${deck}`)!.position.y - topY).toBeGreaterThan(0.013);
+    }
   });
 });

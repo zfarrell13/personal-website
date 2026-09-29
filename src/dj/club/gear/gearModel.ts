@@ -11,6 +11,8 @@ export interface ModelsManifest {
 
 /** Rotation applied to the downloaded model so its screens face the crowd (−z). Tune after a visual check. */
 export const MODEL_ROTATION_Y = 0;
+const UP = new THREE.Vector3(0, 1, 0);
+const YAW = new THREE.Quaternion();
 const CDJ_NAME = /cdj/i;
 const DJM_NAME = /djm|mixer|900/i;
 
@@ -45,7 +47,7 @@ export function stripBranding(root: THREE.Object3D): void {
 
 /** Uniformly scales `obj` so its width is `width`, centres it at x = `cx`, z = 0, and stands it on the table. Returns the top y. */
 export function fitToFootprint(obj: THREE.Object3D, width: number, cx: number): number {
-  obj.rotation.y = MODEL_ROTATION_Y;
+  obj.quaternion.premultiply(YAW.setFromAxisAngle(UP, MODEL_ROTATION_Y));
   obj.updateMatrixWorld(true);
   let box = new THREE.Box3().setFromObject(obj);
   const size = box.getSize(new THREE.Vector3());
@@ -74,15 +76,19 @@ export function arrangeModel(scene: THREE.Object3D): { group: THREE.Group; topY:
     if (!djm && DJM_NAME.test(o.name) && !CDJ_NAME.test(o.name)) djm = o;
   });
   if (cdj && djm) {
-    const left = cdj.clone();
-    const right = cdj.clone();
-    const mixer = djm.clone();
-    for (const o of [left, right, mixer]) {
+    scene.updateMatrixWorld(true);
+    // Clones detach from their parents, so bake each node's world rotation/scale (e.g. a
+    // Z-up → Y-up wrapper node) into the clone; only the translation is dropped.
+    const bake = (src: THREE.Object3D): THREE.Object3D => {
+      const o = src.clone();
+      src.matrixWorld.decompose(o.position, o.quaternion, o.scale);
       o.position.set(0, 0, 0);
-      o.rotation.set(0, 0, 0);
-      o.scale.set(1, 1, 1);
       group.add(o);
-    }
+      return o;
+    };
+    const left = bake(cdj);
+    const right = bake(cdj);
+    const mixer = bake(djm);
     const cdjTop = Math.max(fitToFootprint(left, CDJ_SIZE.w, UNIT_X.cdj0), fitToFootprint(right, CDJ_SIZE.w, UNIT_X.cdj1));
     const djmTop = fitToFootprint(mixer, DJM_SIZE.w, UNIT_X.djm);
     return { group, topY: { cdj: cdjTop, djm: djmTop } };
