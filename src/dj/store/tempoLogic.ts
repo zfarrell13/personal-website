@@ -24,8 +24,14 @@ export const quantizeTempo = (pct: number, range: TempoRange): number => {
   return clampPct(Math.round(pct / res) * res, range);
 };
 
-/** The tempo the engine should use for a deck. TEMPO RESET plays at the original tempo. */
-export const effectiveTempoPct = (d: TempoControls): number => (d.tempoReset ? 0 : quantizeTempo(d.tempoPct, d.range));
+/**
+ * The tempo the engine should use for a deck. TEMPO RESET plays at the original tempo.
+ * A synced deck's tempo is the exact match for the master, so it is clamped but never quantized.
+ */
+export const effectiveTempoPct = (d: TempoControls): number => {
+  if (d.tempoReset) return 0;
+  return d.sync ? clampPct(d.tempoPct, d.range) : quantizeTempo(d.tempoPct, d.range);
+};
 
 /** SYNC promotes the range to WIDE when the needed tempo doesn't fit. */
 export const syncRangeFor = (neededPct: number, range: TempoRange): TempoRange => (Math.abs(neededPct) > range ? 100 : range);
@@ -46,7 +52,7 @@ export function trackSyncedTempo<T extends TempoControls>(decks: readonly [T, T]
   const m = ctx.master;
   const out: [T, T] = [decks[0], decks[1]];
   if (m === -1 || ctx.trackBpm[m] <= 0) return out;
-  const masterPct = decks[m].tempoReset ? 0 : decks[m].tempoPct;
+  const masterPct = effectiveTempoPct(decks[m]); // what the master actually plays
   for (const i of [0, 1] as const) {
     const d = decks[i];
     if (i === m || !d.sync || ctx.trackBpm[i] <= 0) continue;

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { applyTempoFader, effectiveTempoPct, neededSyncPct, quantizeTempo, syncRangeFor, trackSyncedTempo, type TempoControls } from './tempoLogic';
 
 const deck = (over: Partial<TempoControls> = {}): TempoControls => ({ tempoFader: 0, tempoPct: 0, range: 10, tempoReset: false, sync: false, ...over });
-const bpm = (bpms: readonly [number, number], d: TempoControls, i: 0 | 1) => bpms[i] * (1 + d.tempoPct / 100);
+/** The BPM a deck actually plays (effective tempo: quantized unless synced). */
+const bpm = (bpms: readonly [number, number], d: TempoControls, i: 0 | 1) => bpms[i] * (1 + effectiveTempoPct(d) / 100);
 
 describe('tempo logic', () => {
   it('quantizes to the range resolution', () => {
@@ -84,5 +85,20 @@ describe('tempo logic', () => {
     const [m, f] = applyTempoFader([deck({ tempoPct: 9, range: 10 }), deck({ sync: true, tempoPct: 9 })], 1, 1, ctx);
     expect(m.tempoPct).toBe(10);
     expect(bpm(ctx.trackBpm, f, 1)).toBeCloseTo(bpm(ctx.trackBpm, m, 0), 9);
+  });
+
+  it('a synced deck plays its needed tempo clamped, not quantized', () => {
+    expect(effectiveTempoPct(deck({ sync: true, tempoPct: 3.337, range: 10 }))).toBe(3.337);
+    expect(effectiveTempoPct(deck({ sync: true, tempoPct: 250, range: 100 }))).toBe(100);
+    expect(effectiveTempoPct(deck({ sync: true, tempoPct: 3.337, tempoReset: true }))).toBe(0);
+  });
+
+  it('followers track the tempo the master actually plays (effectiveTempoPct)', () => {
+    const ctx = { master: 0 as const, trackBpm: [120, 120] as const };
+    // master tempoPct 12 on a ±10 range plays at +10 %
+    const [, f] = trackSyncedTempo([deck({ tempoPct: 12, range: 10 }), deck({ sync: true, range: 16 })], ctx);
+    expect(f.tempoPct).toBeCloseTo(10, 9);
+    const [, g] = trackSyncedTempo([deck({ tempoPct: 1.234, range: 10 }), deck({ sync: true, range: 16 })], ctx);
+    expect(g.tempoPct).toBeCloseTo(1.25, 9);
   });
 });

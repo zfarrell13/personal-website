@@ -20,3 +20,9 @@ export const isCompact = (viewW: number, viewH: number): boolean => viewW < 900 
 /** Which panel is centred after a horizontal scroll (scroll-snap). */
 export const panelAt = (scrollLeft: number, panelWidth: number): 0 | 1 | 2 =>
   Math.min(2, Math.max(0, Math.round(scrollLeft / Math.max(1, panelWidth)))) as 0 | 1 | 2;
+
+/**
+ * Phone panels stay at native size so every control keeps a full-size touch target; a panel only
+ * shrinks when it is wider than the screen. Taller panels scroll vertically inside their slot.
+ */
+export const compactPanelScale = (panelW: number, viewW: number, margin = 8): number => Math.min(1, (viewW - margin * 2) / panelW);

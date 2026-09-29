@@ -23,7 +23,8 @@
   user-select: none;
   display: inline-grid;
   justify-items: center;
-  gap: 4px;
+  /* the cap overhangs the track end by ~13 px: keep the label clear of it at min/max */
+  gap: 16px;
 }
 .track {
   position: relative;

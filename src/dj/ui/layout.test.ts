@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BOOTH_H, BOOTH_W, fitScale, isCompact, panelAt } from './layout';
+import { BOOTH_H, BOOTH_W, compactPanelScale, fitScale, isCompact, panelAt } from './layout';
 
 describe('layout', () => {
   it('fits the booth into the viewport', () => {
@@ -14,5 +14,9 @@ describe('layout', () => {
     expect(panelAt(0, 800)).toBe(0);
     expect(panelAt(790, 800)).toBe(1);
     expect(panelAt(5000, 800)).toBe(2);
+  });
+  it('keeps phone panels at full size (touch targets), shrinking only to fit the width', () => {
+    expect(compactPanelScale(460, 844)).toBe(1);
+    expect(compactPanelScale(460, 390)).toBeCloseTo((390 - 16) / 460, 6);
   });
 });

@@ -1,0 +1,66 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 3, 8, 0.55);
+}
+.panel {
+  width: min(70vw, 1100px);
+  height: 70vh;
+  min-width: min(96vw, 560px);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: #070a10;
+  border: 2px solid #2b3240;
+  border-radius: 10px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #10141c;
+  font-family: var(--font-mono), monospace;
+  font-size: 22px;
+  color: #e8ecf5;
+}
+.head h2 { margin: 0 auto 0 0; font-size: 22px; font-weight: 600; letter-spacing: 0.08em; }
+.sort, .close {
+  font: 16px var(--font-mono), monospace;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid #2b3240;
+  background: #161b25;
+  color: #cfd6e3;
+  cursor: pointer;
+}
+.sort[aria-pressed='true'] { background: #1f6bff; color: #fff; border-color: #1f6bff; }
+.list { overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.row {
+  width: 100%;
+  height: 96px;
+  display: grid;
+  grid-template-columns: 80px 1fr 90px 60px 70px auto;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  border: none;
+  border-bottom: 1px solid #141925;
+  background: transparent;
+  color: #e8ecf5;
+  text-align: left;
+  cursor: pointer;
+  font-family: system-ui, sans-serif;
+}
+.row:hover, .row:focus-visible { background: #121a2a; outline: none; }
+.row[data-confirm='true'] { background: #3a1010; box-shadow: inset 0 0 0 2px #ff3b3b; }
+.art { width: 80px; height: 80px; border-radius: 4px; object-fit: cover; background: #1a2233; }
+.title { font-size: 22px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.artist { font-size: 16px; color: #9aa6bb; }
+.num { font: 22px var(--font-mono), monospace; color: #cfd6e3; }
+.badge { font: 14px var(--font-mono), monospace; padding: 4px 8px; border-radius: 4px; background: #1f6bff; color: #fff; }
+.warn { font: 16px var(--font-mono), monospace; color: #ff6b6b; }
