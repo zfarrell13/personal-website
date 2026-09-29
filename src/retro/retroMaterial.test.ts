@@ -43,6 +43,21 @@ describe('retroMaterial', () => {
     expect(ka).toContain('custom-a');
     expect(kb).toContain('retro-snap');
   });
+  it('cache keys differ when only the pre-existing onBeforeCompile hooks differ', () => {
+    const a = new THREE.MeshBasicMaterial();
+    a.onBeforeCompile = (s) => {
+      s.vertexShader += '//A';
+    };
+    const b = new THREE.MeshBasicMaterial();
+    b.onBeforeCompile = (s) => {
+      s.vertexShader += '//B';
+    };
+    const ka = retroMaterial(a).customProgramCacheKey();
+    const kb = retroMaterial(b).customProgramCacheKey();
+    expect(ka).not.toBe(kb);
+    expect(ka.endsWith('|retro-snap')).toBe(true);
+    expect(kb.endsWith('|retro-snap')).toBe(true);
+  });
   it('leaves shader unchanged when the include is missing', () => {
     const shader = compile(retroMaterial(new THREE.MeshBasicMaterial()), 'void main() {}');
     expect(shader.vertexShader).toBe('void main() {}');

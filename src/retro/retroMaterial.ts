@@ -30,7 +30,15 @@ let warned = false;
 export function retroMaterial<M extends THREE.Material>(material: M, opts: { snap?: boolean } = {}): M {
   if (opts.snap === false) return material;
   const prev = material.onBeforeCompile;
-  const prevKey = material.customProgramCacheKey.bind(material);
+  // three's default key is onBeforeCompile.toString(); capture it from the ORIGINAL hook,
+  // since the wrapper installed below would otherwise make every material's key identical.
+  const prevKey =
+    material.customProgramCacheKey === THREE.Material.prototype.customProgramCacheKey
+      ? (() => {
+          const base = prev.toString();
+          return () => base;
+        })()
+      : material.customProgramCacheKey.bind(material);
   material.onBeforeCompile = (shader, renderer) => {
     prev.call(material, shader, renderer);
     if (!shader.vertexShader.includes(INCLUDE)) {
