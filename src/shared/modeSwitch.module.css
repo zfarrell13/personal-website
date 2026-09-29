@@ -1,0 +1,17 @@
+.switch {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 50;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: rgba(8, 12, 40, 0.55);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.switch:focus-visible { outline: 3px solid #ffe16b; outline-offset: 3px; }
+.sun { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle, #fff6b0, #ffb300); box-shadow: 0 0 10px #ffcf40; }
+.moon { width: 22px; height: 22px; border-radius: 50%; box-shadow: inset -7px -3px 0 0 #e8e4ff; }

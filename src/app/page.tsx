@@ -1,3 +1,5 @@
+import Portal from '@/portal/Portal';
+
 export default function Home() {
-  return <main style={{ padding: 32 }}>ZF — scaffold</main>;
+  return <Portal />;
 }
