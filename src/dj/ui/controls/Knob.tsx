@@ -1,8 +1,8 @@
 'use client';
-import { useRef } from 'react';
-import { applyDetent, dragValue, valueToAngle, wheelValue } from './knobMath';
+import { useId, useRef } from 'react';
+import { applyDetent, dragValue, stepValue, valueToAngle } from './knobMath';
 import styles from './controls.module.css';
-import { capturePointer } from './capture';
+import { captureLost, capturePointer, isPrimary } from './capture';
 
 export interface KnobProps {
   label: string;
@@ -24,8 +24,9 @@ export function Knob({ label, value, onChange, min = 0, max = 1, defaultValue = 
   const r = { min, max };
   const drag = useRef<{ id: number; y: number; v: number; fine: boolean; last: number } | null>(null);
   const det = detent === undefined ? defaultValue : detent;
-  const set = (v: number) => {
-    const next = applyDetent(v, det, r);
+  const gradId = `knobCap${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  const step = (dir: number, fine: boolean) => {
+    const next = stepValue(value, dir * (max - min) * (fine ? 0.002 : 0.02), det, r, fine);
     if (next !== value) onChange(next);
   };
   const endDrag = (e: React.PointerEvent) => {
@@ -53,7 +54,9 @@ export function Knob({ label, value, onChange, min = 0, max = 1, defaultValue = 
       aria-valuenow={Number(value.toFixed(3))}
       data-testid={testId}
       onPointerDown={(e) => {
-        if (drag.current) return; // one finger per knob; other pointers can drive other controls
+        if (!isPrimary(e)) return;
+        // one finger per knob (other pointers drive other controls) unless the owner lost its capture
+        if (drag.current && !captureLost(e.currentTarget, drag.current.id)) return;
         capturePointer(e.currentTarget, e.pointerId);
         drag.current = { id: e.pointerId, y: e.clientY, v: value, fine: e.shiftKey, last: value };
       }}
@@ -73,18 +76,18 @@ export function Knob({ label, value, onChange, min = 0, max = 1, defaultValue = 
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onLostPointerCapture={endDrag}
-      onWheel={(e) => set(wheelValue(value, e.deltaY, r, e.shiftKey))}
+      onWheel={(e) => step(-Math.sign(e.deltaY || e.deltaX), e.shiftKey)}
       onDoubleClick={() => onChange(defaultValue)}
       onKeyDown={(e) => {
-        if (e.key === 'ArrowUp' || e.key === 'ArrowRight') set(wheelValue(value, -1, r, e.shiftKey));
-        if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') set(wheelValue(value, 1, r, e.shiftKey));
+        if (e.key === 'ArrowUp' || e.key === 'ArrowRight') step(1, e.shiftKey);
+        if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') step(-1, e.shiftKey);
       }}
     >
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
         <circle cx={size / 2} cy={size / 2} r={rad} fill="#15171c" stroke="#2c3039" strokeWidth={2} />
-        <circle cx={size / 2} cy={size / 2} r={rad - 5} fill="url(#knobCap)" />
+        <circle cx={size / 2} cy={size / 2} r={rad - 5} fill={`url(#${gradId})`} />
         <defs>
-          <radialGradient id="knobCap" cx="40%" cy="35%">
+          <radialGradient id={gradId} cx="40%" cy="35%">
             <stop offset="0%" stopColor="#50545d" />
             <stop offset="100%" stopColor="#1d1f24" />
           </radialGradient>

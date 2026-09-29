@@ -1,8 +1,8 @@
 'use client';
 import { useRef } from 'react';
-import { positionToValue, valueToFraction } from './knobMath';
+import { clampTo, positionToValue, valueToFraction } from './knobMath';
 import styles from './controls.module.css';
-import { capturePointer } from './capture';
+import { captureLost, capturePointer, isPrimary } from './capture';
 
 export interface FaderProps {
   label: string;
@@ -54,7 +54,8 @@ export function Fader({ label, value, onChange, min = 0, max = 1, orientation = 
         aria-valuemax={max}
         aria-valuenow={Number(value.toFixed(3))}
         onPointerDown={(e) => {
-          if (active.current !== null) return; // one finger per fader
+          if (!isPrimary(e)) return;
+          if (active.current !== null && !captureLost(e.currentTarget, active.current)) return; // one finger per fader
           capturePointer(e.currentTarget, e.pointerId);
           active.current = e.pointerId;
           onChange(fromPointer(e));
@@ -68,8 +69,9 @@ export function Fader({ label, value, onChange, min = 0, max = 1, orientation = 
         onDoubleClick={() => defaultValue !== undefined && onChange(defaultValue)}
         onKeyDown={(e) => {
           const step = (max - min) * (e.shiftKey ? 0.005 : 0.05);
-          if (e.key === 'ArrowUp' || e.key === 'ArrowRight') onChange(Math.min(max, value + (invert ? -step : step)));
-          if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') onChange(Math.max(min, value - (invert ? -step : step)));
+          const up = e.key === 'ArrowUp' || e.key === 'ArrowRight';
+          const down = e.key === 'ArrowDown' || e.key === 'ArrowLeft';
+          if (up || down) onChange(clampTo(value + (up ? step : -step) * (invert ? -1 : 1), r));
         }}
       >
         <div className={styles.cap} style={vertical ? { top: `${along * 100}%` } : { left: `${along * 100}%` }} />

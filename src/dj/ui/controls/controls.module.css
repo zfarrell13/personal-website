@@ -7,7 +7,7 @@
   cursor: ns-resize;
 }
 .knob svg { display: block; }
-.knobLabel, .faderLabel, .btnLabel {
+.knobLabel, .faderLabel {
   font-family: var(--font-mono), monospace;
   font-size: 12px;
   letter-spacing: 0.06em;
@@ -15,7 +15,7 @@
   text-transform: uppercase;
   white-space: nowrap;
 }
-.knob:focus-visible, .fader:focus-visible, .btn:focus-visible { outline: 2px solid #4fc3ff; outline-offset: 2px; }
+.knob:focus-visible, .track:focus-visible, .btn:focus-visible { outline: 2px solid #4fc3ff; outline-offset: 2px; }
 
 .fader {
   position: relative;

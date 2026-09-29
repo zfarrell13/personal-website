@@ -172,3 +172,83 @@ describe('Fader jump', () => {
     expect(onChange).toHaveBeenCalledWith(0.75); // top = max
   });
 });
+
+describe('fix round 1', () => {
+  it('wheel and arrows leave the centre detent on a bipolar knob', () => {
+    const onChange = vi.fn();
+    render(<Knob label="EQ" value={0} min={-1} max={1} onChange={onChange} />);
+    const k = screen.getByRole('slider', { name: 'EQ' });
+    fireEvent.wheel(k, { deltaY: -100 });
+    expect(onChange).toHaveBeenLastCalledWith(expect.toSatisfy((v: number) => v > 0.04));
+    fireEvent.wheel(k, { deltaY: 100 });
+    expect(onChange).toHaveBeenLastCalledWith(expect.toSatisfy((v: number) => v < -0.04));
+    fireEvent.keyDown(k, { key: 'ArrowUp' });
+    expect(onChange).toHaveBeenLastCalledWith(expect.toSatisfy((v: number) => v > 0.04));
+    fireEvent.keyDown(k, { key: 'ArrowDown' });
+    expect(onChange).toHaveBeenLastCalledWith(expect.toSatisfy((v: number) => v < -0.04));
+  });
+  it('wheel through the centre snaps to it', () => {
+    const onChange = vi.fn();
+    render(<Knob label="EQ" value={0.03} min={-1} max={1} onChange={onChange} />);
+    fireEvent.wheel(screen.getByRole('slider', { name: 'EQ' }), { deltaY: 100 }); // 0.03 - 0.04 = -0.01
+    expect(onChange).toHaveBeenLastCalledWith(0);
+  });
+  it('SHIFT+wheel works when the browser reports deltaX', () => {
+    const onChange = vi.fn();
+    render(<Knob label="HI" value={0.2} onChange={onChange} />);
+    fireEvent.wheel(screen.getByRole('slider', { name: 'HI' }), { deltaX: -100, deltaY: 0, shiftKey: true });
+    expect(onChange).toHaveBeenLastCalledWith(expect.closeTo(0.202, 6));
+  });
+  it('ignores non-primary mouse buttons', () => {
+    const onChange = vi.fn();
+    render(<Knob label="HI" value={0.2} onChange={onChange} />);
+    const k = screen.getByRole('slider', { name: 'HI' });
+    fireEvent.pointerDown(k, { pointerId: 1, clientY: 300, pointerType: 'mouse', button: 2 });
+    fireEvent.pointerMove(k, { pointerId: 1, clientY: 200 });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+  it('gives each knob gradient a unique id', () => {
+    const { container } = render(
+      <>
+        <Knob label="A" value={0} onChange={() => {}} />
+        <Knob label="B" value={0} onChange={() => {}} />
+      </>,
+    );
+    const ids = [...container.querySelectorAll('radialGradient')].map((g) => g.id);
+    expect(new Set(ids).size).toBe(2);
+  });
+  it('inverted fader keyboard clamps both bounds', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<Fader label="T" value={1} onChange={onChange} invert />);
+    const t = screen.getByRole('slider', { name: 'T' });
+    fireEvent.keyDown(t, { key: 'ArrowDown' }); // invert: down = +
+    expect(onChange).toHaveBeenLastCalledWith(1);
+    fireEvent.keyDown(t, { key: 'ArrowUp' });
+    expect(onChange).toHaveBeenLastCalledWith(expect.closeTo(0.95, 6));
+    rerender(<Fader label="T" value={0} onChange={onChange} invert />);
+    fireEvent.keyDown(t, { key: 'ArrowUp' });
+    expect(onChange).toHaveBeenLastCalledWith(0);
+  });
+  it('button releases on blur and unmount while held, but not otherwise', () => {
+    const onRelease = vi.fn();
+    const { unmount } = render(<LedButton label="CUE" onRelease={onRelease} testId="b" />);
+    const b = screen.getByTestId('b');
+    fireEvent.keyDown(b, { key: ' ' });
+    fireEvent.blur(b);
+    expect(onRelease).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(b, { key: ' ', repeat: false });
+    unmount();
+    expect(onRelease).toHaveBeenCalledTimes(2);
+    cleanup();
+    const r2 = vi.fn();
+    const u = render(<LedButton label="X" onRelease={r2} />);
+    u.unmount();
+    expect(r2).not.toHaveBeenCalled();
+  });
+  it('aria-pressed only on toggle buttons', () => {
+    render(<LedButton label="A" testId="a" />);
+    render(<LedButton label="B" testId="b" toggle lit />);
+    expect(screen.getByTestId('a').hasAttribute('aria-pressed')).toBe(false);
+    expect(screen.getByTestId('b').getAttribute('aria-pressed')).toBe('true');
+  });
+});

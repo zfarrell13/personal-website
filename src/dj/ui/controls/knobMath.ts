@@ -41,3 +41,16 @@ export function positionToValue(pos: number, trackStart: number, trackLength: nu
 export function valueToFraction(value: number, r: Range): number {
   return (clampTo(value, r) - r.min) / (r.max - r.min);
 }
+
+/**
+ * Wheel/keyboard step with the magnetic detent: entering the window snaps to the detent, but a step
+ * that starts on the detent always leaves it (just past the window) so the knob cannot get trapped.
+ * Fine steps ignore the detent.
+ */
+export function stepValue(value: number, delta: number, detent: number | null, r: Range, fine: boolean): number {
+  const target = clampTo(value + delta, r);
+  if (detent === null || fine) return target;
+  const window = (r.max - r.min) * DETENT_FRACTION;
+  if (value === detent && Math.abs(target - detent) <= window) return clampTo(detent + Math.sign(delta) * window * 1.01, r);
+  return applyDetent(target, detent, r);
+}
