@@ -270,6 +270,7 @@ export class Surfer {
   /**
    * The board points along its motion through the water: the world velocity v + vp·x̂ (the wave frame
    * only translates, so world directions are frame directions). Kept when that is too slow to tell.
+   * (Airborne, setPeelSpeed shifts the path's x-velocity by −Δ, which assumes the launch tangent ≈ x̂.)
    */
   private headingFromMotion(out: Vector3, horizontal = false): void {
     const v = this.state.v;
@@ -352,6 +353,8 @@ export class Surfer {
     // runs through it with rel = v − water, which is its world velocity (and its heading). ---
     // The water slides along the surface at constant t (e1), never up or down the face: projecting
     // −vp·x̂ instead would give it an up-face part wherever the face is skewed in x (a hidden lift).
+    // (worldSpeed / the heading use x̂ for the frame translation: they differ from e1 only by the
+    // tangent's tilt, which is small on the open face; the rail, drag and carve all use rel.)
     const water = this.water.copy(this.e1).multiplyScalar(-this.vp);
     const rel = this.rel.subVectors(s.v, water);
     const a = this.acc.set(0, -c.gravity, 0);
@@ -362,7 +365,8 @@ export class Surfer {
       // up); the part along the line turns height into speed and back, the slip lets it sag.
       const grip = c.railGrip * clamp((speed0 - c.minSpeed) / (c.gripSpeed - c.minSpeed), 0, 1);
       const line = this.tmp2.copy(rel).multiplyScalar(1 / speed0);
-      a.multiplyScalar(1 - grip).addScaledVector(line, a.dot(line) * grip);
+      const along = a.dot(line);
+      a.multiplyScalar(1 - grip).addScaledVector(line, along * grip);
     }
     const steep = w.steepness(s.param.x, s.param.t);
     a.addScaledVector(this.e1, c.drive * steep);

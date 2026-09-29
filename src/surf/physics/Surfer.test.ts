@@ -61,6 +61,44 @@ describe('Surfer — riding', () => {
     expect(h.s.wipeoutReason).toBe('swallowed');
   });
 
+  it('drops turn height into speed: with no drag or drive, world energy along a fall-line drop is conserved', () => {
+    const h = setup({ drag: 0, drive: 0 });
+    h.surfer.reset(15, 0.5);
+    const up = new Vector3().crossVectors(h.s.normal, new Vector3(1, 0, 0)).normalize();
+    h.s.v.set(-h.surfer.peelSpeed, 0, 0).addScaledVector(up, -6); // world velocity: 6 m/s straight down the fall line
+    h.s.v.addScaledVector(h.s.normal, -h.s.v.dot(h.s.normal));
+    const energy = () => 0.5 * h.surfer.worldSpeed(h.surfer.peelSpeed) ** 2 + h.cfg.physics.gravity * h.s.p.y;
+    const e0 = energy();
+    const y0 = h.s.p.y;
+    h.run(0.4);
+    expect(y0 - h.s.p.y).toBeGreaterThan(0.5); // a real drop
+    expect(Math.abs(energy() - e0)).toBeLessThan(0.2);
+  });
+
+  it.each([
+    [0.3, 1],
+    [0.5, 0.6],
+  ])('a line climbing at slope %d with a pump every %d s stays ahead of the curl for 30 s', (slope, pumpEvery) => {
+    for (const [low, high] of [[0.35, 0.6], [0.2, 0.7]]) {
+      const h = setup();
+      const bot = lineBot(h.surfer, h.wave, { pumpEvery, slope, low, high });
+      for (let i = 0; i < 30 * 120; i++) {
+        h.surfer.step(bot(DT), DT);
+        if (h.s.mode === 'wipeout' || h.s.mode === 'kickedOut') break;
+      }
+      expect(h.s.mode === 'riding' || h.s.mode === 'airborne').toBe(true);
+      expect(h.s.time).toBeGreaterThan(29.9);
+    }
+  });
+
+  it('pumping alone (no carving) loses the wave in under 7 s', () => {
+    const h = setup();
+    h.run(10, (i) => ({ pump: i % 72 === 0 }));
+    const lost = h.events.find((e) => e.type === 'wipeout');
+    expect(lost).toBeDefined();
+    expect(lost!.time).toBeLessThan(7);
+  });
+
   /** Lines + pumps for 20 s with a 1.4× fast section from 8 s (0.5 s ramps, 4 s hold). */
   function fastSection(pumpEvery: number) {
     const h = setup();
@@ -493,18 +531,32 @@ describe('Surfer — floater and kick-out', () => {
     expect(h.events.some((e) => e.type === 'kickedOut')).toBe(true);
   });
 
-  // x = 15: the open face (apex-armed snap near the top); x = 4: the steep section by the curl (armed at the face edge).
-  // The climb is given as world motion (along the line, up the face) and arrives below launch speed.
-  it.each([
-    [15, 3, 3],
-    [4, 2, 4],
-  ])('snaps when carving through a reversal at the crest (x = %d)', (x, along, upFace) => {
+  // The steep section by the curl (armed at the face edge). The climb is given as world motion and arrives below launch speed.
+  it('snaps when carving through a reversal at the crest (x = 4, steep section by the curl)', () => {
     const h = setup();
-    h.surfer.reset(x, 0.4);
-    const n = h.wave.normal(x, 0.4);
+    h.surfer.reset(4, 0.4);
+    const n = h.wave.normal(4, 0.4);
     const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
-    h.s.v.set(along - h.surfer.peelSpeed, 0, 0).addScaledVector(up, upFace);
+    h.s.v.set(2 - h.surfer.peelSpeed, 0, 0).addScaledVector(up, 4);
     h.run(1.5, () => ({ carve: 1 }));
+    expect(h.events.some((e) => e.type === 'launched')).toBe(false);
+    expect(h.events.some((e) => e.type === 'snap')).toBe(true);
+  });
+
+  // The open face (apex-armed snap near the top), from riding speed: a hard climb from the trough at
+  // 10 m/s world speed (what the lines reach with pumps), coasted up the face, then carved through the top.
+  it.each([15, 20, 25])('snaps (not launches) on a hard climb at riding speed, carved through at the top (x = %d)', (x) => {
+    const h = setup();
+    h.surfer.reset(x, 0.15);
+    const d = 10 - h.surfer.peelSpeed;
+    h.s.v.set(d, 0, 0).addScaledVector(h.s.normal, -d * h.s.normal.x);
+    let phase = 'turn';
+    for (let i = 0; i < 3 * 120 && h.s.mode === 'riding'; i++) {
+      const frac = h.s.p.y / h.wave.crestY(h.s.param.x);
+      if (phase === 'turn' && h.s.heading.y >= 0.5) phase = 'coast';
+      if (phase === 'coast' && frac >= 0.6) phase = 'through';
+      h.run(DT, () => ({ carve: phase === 'coast' ? 0 : 1 }));
+    }
     expect(h.events.some((e) => e.type === 'launched')).toBe(false);
     expect(h.events.some((e) => e.type === 'snap')).toBe(true);
   });

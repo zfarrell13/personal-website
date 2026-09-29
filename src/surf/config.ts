@@ -40,9 +40,9 @@ export const SURF_CONFIG = {
     railGrip: 0.85,
     gripSpeed: 5,
     /** Wave drive gain along +x, multiplied by local steepness (m/s²). */
-    drive: 1.8,
+    drive: 2.2,
     /** Quadratic drag against the water (moving at −Vp in the frame). */
-    drag: 0.03,
+    drag: 0.04,
     stallDragMultiplier: 4,
     /** Carve yaw rate = carveRate / (1 + speed / carveHalfSpeed) (rad/s); turn radius = speed / rate grows with speed. */
     carveRate: 4,
