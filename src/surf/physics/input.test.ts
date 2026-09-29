@@ -4,11 +4,11 @@ import { EventBus, type SurfEvent } from './events';
 import { carveFromKeys, readSurferInput, SURF_BINDINGS, type SurfAction } from './input';
 
 describe('carveFromKeys (screen-relative)', () => {
-  it('→ turns toward the lip on a RIGHT and away on a LEFT', () => {
-    expect(carveFromKeys(false, true, 'right')).toBe(1);
-    expect(carveFromKeys(false, true, 'left')).toBe(-1);
-    expect(carveFromKeys(true, false, 'right')).toBe(-1);
-    expect(carveFromKeys(true, true, 'right')).toBe(0);
+  it('→ turns toward the lip on a LEFT and away on a RIGHT', () => {
+    expect(carveFromKeys(false, true, 'left')).toBe(1);
+    expect(carveFromKeys(false, true, 'right')).toBe(-1);
+    expect(carveFromKeys(true, false, 'left')).toBe(-1);
+    expect(carveFromKeys(true, true, 'left')).toBe(0);
   });
 });
 
@@ -21,24 +21,24 @@ describe('readSurferInput', () => {
     a.keyDown('KeyD');
     a.keyDown('ArrowDown');
     a.tick();
-    const i = readSurferInput(a, 'right');
+    const i = readSurferInput(a, 'left');
     expect(i).toEqual({ carve: 1, spin: 1, pump: false, stall: true, ollie: true, grab: 'stalefish' });
     a.tick();
-    expect(readSurferInput(a, 'left').ollie).toBe(false);
-    expect(readSurferInput(a, 'left').carve).toBe(-1);
+    expect(readSurferInput(a, 'right').ollie).toBe(false);
+    expect(readSurferInput(a, 'right').carve).toBe(-1);
   });
 
   it('spin is screen-relative like carving: → spins the same way on screen on both sides', () => {
     const a = new ActionState<SurfAction>(SURF_BINDINGS);
     a.keyDown('ArrowRight');
     a.tick();
-    expect(readSurferInput(a, 'right').spin).toBe(1);
-    expect(readSurferInput(a, 'left').spin).toBe(-1);
+    expect(readSurferInput(a, 'left').spin).toBe(1);
+    expect(readSurferInput(a, 'right').spin).toBe(-1);
     a.keyUp('ArrowRight');
     a.keyDown('ArrowLeft');
     a.tick();
-    expect(readSurferInput(a, 'right').spin).toBe(-1);
-    expect(readSurferInput(a, 'left').spin).toBe(1);
+    expect(readSurferInput(a, 'left').spin).toBe(-1);
+    expect(readSurferInput(a, 'right').spin).toBe(1);
   });
 });
 

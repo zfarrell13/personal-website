@@ -24,6 +24,15 @@ describe('mirror', () => {
     const p = new Vector3(12, 1.4, 2.2);
     const viaMatrix = p.clone().applyMatrix4(new Matrix4().makeScale(sideSign('left'), 1, 1));
     expect(frameToView(p, 'left', new Vector3()).equals(viaMatrix)).toBe(true);
-    expect(sideSign('right')).toBe(1);
+    expect(frameToView(p, 'right', new Vector3()).equals(p.clone().applyMatrix4(new Matrix4().makeScale(sideSign('right'), 1, 1)))).toBe(true);
+    expect(sideSign('left')).toBe(1);
+    expect(sideSign('right')).toBe(-1);
+  });
+  it("a RIGHT peels to the surfer's right as they face the beach (standard naming), a LEFT to their left", () => {
+    // The rider travels +x in the canonical frame; facing shore (+z) with +y up, their right hand is forward × up.
+    const travel = new Vector3(1, 0, 0);
+    const rightHand = new Vector3(0, 0, 1).cross(new Vector3(0, 1, 0));
+    expect(frameToView(travel, 'right', new Vector3()).dot(rightHand)).toBeGreaterThan(0);
+    expect(frameToView(travel, 'left', new Vector3()).dot(rightHand)).toBeLessThan(0);
   });
 });
