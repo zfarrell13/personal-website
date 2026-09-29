@@ -170,6 +170,29 @@ describe('SurfGame', () => {
     game.dispose();
   });
 
+  it('auto-pauses when the tab is hidden while playing; resume stays manual', async () => {
+    const ctx = new Proxy({}, { get: () => () => {}, set: () => true });
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: 'visible',
+      createElement: () => ({ width: 0, height: 0, getContext: () => ctx }),
+    });
+    vi.stubGlobal('document', doc);
+    const { game, store } = await playing();
+    frame();
+    doc.visibilityState = 'hidden';
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(store.getState().phase).toBe('paused');
+    doc.visibilityState = 'visible';
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(store.getState().phase).toBe('paused');
+    game.dispose();
+    // The listener is gone after dispose: hiding no longer touches the (disposed) game.
+    const pause = vi.spyOn(game, 'pause');
+    doc.visibilityState = 'hidden';
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(pause).not.toHaveBeenCalled();
+  });
+
   it('survives non-finite and backwards frame times', async () => {
     const { game } = await playing();
     frame();

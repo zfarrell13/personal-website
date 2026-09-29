@@ -167,6 +167,19 @@ describe('menu keyboard behaviour', () => {
     expect(onStart).not.toHaveBeenCalled();
   });
 
+  it('ignores held arrow auto-repeat on Results until a fresh keydown', () => {
+    render(<Results run={run} onAgain={vi.fn()} onTitle={vi.fn()} />);
+    const initials = () => screen.getByTestId('initials').textContent;
+    expect(initials()).toBe('AAA');
+    fireEvent.keyDown(window, { key: 'ArrowUp', repeat: true });
+    fireEvent.keyDown(window, { key: 'ArrowRight', repeat: true });
+    expect(initials()).toBe('AAA');
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    expect(initials()).toBe('BAA');
+    fireEvent.keyDown(window, { key: 'ArrowUp', repeat: true });
+    expect(initials()).toBe('CAA');
+  });
+
   it('labels the initials widget', () => {
     render(<Results run={run} onAgain={vi.fn()} onTitle={vi.fn()} />);
     expect(screen.getByLabelText(/initials/i)).toBeTruthy();

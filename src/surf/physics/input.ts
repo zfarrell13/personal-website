@@ -31,7 +31,7 @@ export const SURF_BINDINGS: Bindings<SurfAction> = {
 export interface SurferInput {
   /** −1…1; +1 turns toward the lip (up the face), −1 toward the trough. */
   carve: number;
-  /** −1…1 air spin direction. */
+  /** −1…1 air spin direction (screen-relative, like carve). */
   spin: number;
   /** Edge: pump pressed this tick. */
   pump: boolean;
@@ -74,7 +74,7 @@ export function readSurferInput(actions: Readable, side: Side, out: SurferInput 
   const l = actions.isDown('carveLeft');
   const r = actions.isDown('carveRight');
   out.carve = carveFromKeys(l, r, side);
-  out.spin = (r ? 1 : 0) - (l ? 1 : 0);
+  out.spin = carveFromKeys(l, r, side);
   out.pump = actions.pressedThisFrame('pump');
   out.stall = actions.isDown('stall');
   out.ollie = actions.pressedThisFrame('ollie');

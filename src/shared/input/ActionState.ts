@@ -1,3 +1,13 @@
+/** Keys aimed at a focused form control belong to that control (Space on a button, arrows on a slider), except Escape. */
+function isFormTarget(t: EventTarget | null, code: string): boolean {
+  if (code === 'Escape') return false;
+  const el = t as { tagName?: string; isContentEditable?: boolean } | null;
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName?.toUpperCase();
+  return tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+}
+
 export type Bindings<A extends string> = Record<A, readonly string[]>;
 
 /**
@@ -85,12 +95,13 @@ export class ActionState<A extends string> {
 
   attach(target: Window = window): () => void {
     const down = (e: KeyboardEvent) => {
-      if (!this.keyToActions.has(e.code)) return;
+      if (!this.keyToActions.has(e.code) || isFormTarget(e.target, e.code)) return;
       e.preventDefault();
       if (!e.repeat) this.keyDown(e.code);
     };
     const up = (e: KeyboardEvent) => {
-      if (this.keyUp(e.code)) e.preventDefault();
+      // Always release (a key pressed on the canvas may come up over a button), but leave the event alone there.
+      if (this.keyUp(e.code) && !isFormTarget(e.target, e.code)) e.preventDefault();
     };
     const blur = () => this.reset();
     target.addEventListener('keydown', down);

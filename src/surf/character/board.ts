@@ -76,24 +76,38 @@ export function makeDeckTexture(look: SurferLook): Texture {
   canvas.width = 128;
   canvas.height = 256;
   const g = canvas.getContext('2d')!;
-  g.fillStyle = look.boardDeck;
-  g.fillRect(0, 0, 128, 256);
-  g.fillStyle = look.boardStripe;
-  g.fillRect(58, 0, 12, 256);
-  g.fillRect(0, 196, 128, 10);
-  g.save();
-  g.translate(64, 110);
-  g.rotate(-Math.PI / 2);
-  g.font = 'italic bold 56px "Russo One", sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.lineWidth = 6;
-  g.strokeStyle = '#0a1a5c';
-  g.strokeText(look.boardText, 0, 0);
-  g.fillStyle = '#ffe16b';
-  g.fillText(look.boardText, 0, 0);
-  g.restore();
-  return retroTexture(new CanvasTexture(canvas));
+  const draw = (): void => {
+    g.fillStyle = look.boardDeck;
+    g.fillRect(0, 0, 128, 256);
+    g.fillStyle = look.boardStripe;
+    g.fillRect(58, 0, 12, 256);
+    g.fillRect(0, 196, 128, 10);
+    g.save();
+    g.translate(64, 110);
+    g.rotate(-Math.PI / 2);
+    g.font = 'italic bold 56px "Russo One", sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.lineWidth = 6;
+    g.strokeStyle = '#0a1a5c';
+    g.strokeText(look.boardText, 0, 0);
+    g.fillStyle = '#ffe16b';
+    g.fillText(look.boardText, 0, 0);
+    g.restore();
+  };
+  draw();
+  const texture = retroTexture(new CanvasTexture(canvas));
+  // The deck font may not be loaded yet: redraw once it is.
+  if (typeof document !== 'undefined' && document.fonts) {
+    document.fonts.load('56px "Russo One"').then(
+      () => {
+        draw();
+        texture.needsUpdate = true;
+      },
+      () => {},
+    );
+  }
+  return texture;
 }
 
 export function buildBoard(look: SurferLook, deck: Texture | null): Mesh {

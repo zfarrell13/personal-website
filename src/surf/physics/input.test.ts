@@ -27,6 +27,19 @@ describe('readSurferInput', () => {
     expect(readSurferInput(a, 'left').ollie).toBe(false);
     expect(readSurferInput(a, 'left').carve).toBe(-1);
   });
+
+  it('spin is screen-relative like carving: → spins the same way on screen on both sides', () => {
+    const a = new ActionState<SurfAction>(SURF_BINDINGS);
+    a.keyDown('ArrowRight');
+    a.tick();
+    expect(readSurferInput(a, 'right').spin).toBe(1);
+    expect(readSurferInput(a, 'left').spin).toBe(-1);
+    a.keyUp('ArrowRight');
+    a.keyDown('ArrowLeft');
+    a.tick();
+    expect(readSurferInput(a, 'right').spin).toBe(-1);
+    expect(readSurferInput(a, 'left').spin).toBe(1);
+  });
 });
 
 describe('EventBus', () => {

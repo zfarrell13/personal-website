@@ -54,8 +54,10 @@ buttons. All inputs go through the shared action layer.
     mound (foam material), height decaying further behind.
   - `−D ≤ x ≤ 0`: the tube — full barrel; the lip reaches over and lands in
     the trough at `x − D`.
-  - `0 < x < Ls` (shoulder length 45 m): `h` smoothsteps 1 → 0; the face
-    softens.
+  - `0 < x < Ls` (shoulder length 45 m): `h` smoothsteps 1 → 0 over
+    `wave.hollowLength` ≈ 12 m, not the whole shoulder, so the open face
+    beyond the curl stays visible on the pocket line (implementation note).
+    `shoulderLength` still drives the zone, the height taper and the drive.
   - `x ≥ Ls`: unbroken swell, height tapering to 40% at 90 m.
 - Wave height `H` default 2.4 m (overhead). All shape constants live in
   `surf/config.ts`.
@@ -67,8 +69,8 @@ buttons. All inputs go through the shared action layer.
   `steepness(x, t)`.
 
 ### Mesh and effects
-- CPU grid 160 (x, spanning −30 m…+90 m, denser near the curl) × 64 (t),
-  rebuilt only when shape parameters change; per-frame vertex work limited
+- CPU grid 160 (x, spanning −30 m…+90 m, denser near the curl) × 64 (t);
+  phones (coarse pointer) use 112 × 44 (implementation note). Rebuilt only when shape parameters change; per-frame vertex work limited
   to small ripple displacement + UV scrolling (foam flows with `Vp`).
 - Vertex colors: deep teal trough → translucent-looking green face (fake
   subsurface via a view-angle term) → white crest/foam.
@@ -100,12 +102,18 @@ buttons. All inputs go through the shared action layer.
     `min(1, timeSinceLastPump / 0.6 s)`.
   - Stall: extra drag coefficient ×4 and the board visually tilts tail-down.
     The frame-relative x-velocity goes negative, so the curl catches you.
-- **Crest:** reaching `crestT` with upward normal velocity > 3 m/s launches
-  you (airborne). Otherwise position clamps below the crest, and a heading
-  reversal within 0.4 s at the crest scores a **Snap**.
+- **Crest:** reaching the end of the rideable face (`t ≥ crestT − ε` or
+  `normal.y < 0.2`) with up-face speed `u` > 3 m/s launches you (airborne)
+  with `vUp = clamp(u · airGain, 3, maxAirSpeed)`. Otherwise position clamps
+  below the crest, and a heading reversal within 0.4 s at the crest scores a
+  **Snap**. The snap is also armed at the apex of a climb above
+  `physics.snapTopFrac` (0.85) of crest height (implementation note).
 - **Ollie** (Space while riding): +4 m/s along the surface normal → airborne.
-- **Airborne:** ballistic in the wave frame (the frame is inertial and the
-  shape is static, so this is exact). ←→ yaw at 540°/s. Grabs are held poses.
+- **Airborne:** uses a wave-anchored air model (implementation note):
+  position = an anchor point on the face that follows `x`, plus a height along
+  a tilted axis `normalize(lerp(anchorUpNormal, worldUp, 0.5))`. It lands
+  exactly on the face and airs never kick the rider out over the back.
+  ←→ yaw at 540°/s (screen-relative, like carving). Grabs are held poses.
   Landing is tested each tick against the surface.
 - **Landing** is clean when all of these hold:
   - board yaw is within 40° of the velocity direction, or of its reverse (a
@@ -117,6 +125,8 @@ buttons. All inputs go through the shared action layer.
   Being at `x < −D` means the surfer was swallowed, which is a wipeout.
 - **Floater:** at `x < 0` near the crest of the collapsing section, you ride
   over the top and score per second. Dropping back onto the face lands it.
+  Floater mount and dismount are silent anchored transitions (no launched or
+  landed events; implementation note).
 - **Lost the wave:** `x > 70` with frame-relative speed below the minimum for
   2 s ends the run as "Kicked out" (not a wipeout).
 - All tunables live in `surf/config.ts`. A debug panel (`?debug`) exposes them
@@ -148,7 +158,9 @@ buttons. All inputs go through the shared action layer.
 - Default chase: positioned toward the shoulder side, slightly above and
   in front, looking back at the surfer with the curl behind (the classic
   KSPS framing). Critically damped springs on position and look target.
-- Tube: drops low and tight, looks out toward the tube's exit ("the view").
+- Tube: drops low and tight. The camera sits ahead of the rider, looking back
+  through the barrel mouth (implementation note; replaces "looks out toward
+  the exit").
 - Air: pulls back and up by ~40%.
 - Wipeout: a brief underwater cut (a blue filter with bubbles), then fades
   to the results screen.
@@ -177,8 +189,8 @@ buttons. All inputs go through the shared action layer.
 - **Tube:** as tube depth increases, the music and spray crossfade through a
   low-pass (to 800 Hz) plus a short convolution reverb. Exiting ramps back
   with a spit whoosh.
-- **Crowd hoots / trick stingers:** a few CC0 samples (sources credited).
-  They play on big combos and barrels over 2 s.
+- **Crowd hoots / trick stingers:** synthesized at runtime, no samples
+  (implementation note). They play on big combos and barrels over 2 s.
 - The master bus has a compressor.
 
 ## Architecture

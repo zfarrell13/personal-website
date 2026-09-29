@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ActionState } from './ActionState';
 
 type A = 'left' | 'right' | 'jump';
@@ -131,5 +131,65 @@ describe('ActionState', () => {
     expect((listeners.get('keydown') || []).length).toBe(0);
     expect((listeners.get('keyup') || []).length).toBe(0);
     expect((listeners.get('blur') || []).length).toBe(0);
+  });
+
+  describe('attach() and focused form controls', () => {
+    const setup = () => {
+      const s = make();
+      const listeners = new Map<string, (e: any) => void>();
+      const target = {
+        addEventListener: (ev: string, h: (e: any) => void) => listeners.set(ev, h),
+        removeEventListener: () => {},
+      } as any;
+      s.attach(target);
+      return { s, down: listeners.get('keydown')!, up: listeners.get('keyup')! };
+    };
+
+    it.each([
+      ['BUTTON', {}],
+      ['INPUT', {}],
+      ['SELECT', {}],
+      ['TEXTAREA', {}],
+      ['DIV', { isContentEditable: true }],
+    ])('ignores bound keys typed into a %s (no preventDefault, no action)', (tagName, extra) => {
+      const { s, down, up } = setup();
+      const prevent = vi.fn();
+      const ev = { code: 'Space', repeat: false, preventDefault: prevent, target: { tagName, ...extra } };
+      down(ev);
+      s.tick();
+      expect(prevent).not.toHaveBeenCalled();
+      expect(s.isDown('jump')).toBe(false);
+      up(ev);
+      expect(prevent).not.toHaveBeenCalled();
+    });
+
+    it('Escape still works with a button focused (pause menu)', () => {
+      const s = new ActionState<'pause'>({ pause: ['Escape'] });
+      const l = new Map<string, (e: any) => void>();
+      s.attach({ addEventListener: (k: string, h: any) => l.set(k, h), removeEventListener: () => {} } as any);
+      const prevent = vi.fn();
+      l.get('keydown')!({ code: 'Escape', repeat: false, preventDefault: prevent, target: { tagName: 'BUTTON' } });
+      s.tick();
+      expect(prevent).toHaveBeenCalled();
+      expect(s.isDown('pause')).toBe(true);
+    });
+
+    it('still handles bound keys on other targets', () => {
+      const { s, down } = setup();
+      const prevent = vi.fn();
+      down({ code: 'Space', repeat: false, preventDefault: prevent, target: { tagName: 'CANVAS' } });
+      s.tick();
+      expect(prevent).toHaveBeenCalled();
+      expect(s.isDown('jump')).toBe(true);
+    });
+
+    it('a key released over a form control still releases a held action', () => {
+      const { s, down, up } = setup();
+      down({ code: 'Space', repeat: false, preventDefault: () => {}, target: { tagName: 'CANVAS' } });
+      s.tick();
+      up({ code: 'Space', preventDefault: () => {}, target: { tagName: 'BUTTON' } });
+      s.tick();
+      expect(s.isDown('jump')).toBe(false);
+    });
   });
 });

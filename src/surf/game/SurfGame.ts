@@ -28,6 +28,7 @@ import { Scoring } from '../scoring/Scoring';
 import { pushTicker, ThrottledWriter, type Phase, type SurfStore, type TickerItem } from '../state/store';
 import { sideSign } from '../wave/mirror';
 import { WaveShape } from '../wave/WaveShape';
+import type { SurfDebugHook } from './debugHook';
 import './debugHook';
 import { FixedStepper } from './FixedStepper';
 
@@ -65,6 +66,8 @@ export class SurfGame {
   private readonly writer: ThrottledWriter;
   private readonly input: SurferInput = { ...NO_INPUT };
   private readonly renderP = new Vector3();
+  /** The one debug-hook object, mutated each frame (no per-frame allocation). */
+  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60 };
   private readonly look: SurferLook;
   private character: Character | null = null;
   private audio: SurfAudio | null = null;
@@ -130,6 +133,14 @@ export class SurfGame {
       this.bus.onAny((e) => this.audio?.onEvent(e)),
       this.actions.attach(window),
     );
+    if (typeof document !== 'undefined') {
+      // A hidden tab stops requestAnimationFrame; pause so the ride doesn't resume mid-air. Resume is manual.
+      const onVisibility = () => {
+        if (document.visibilityState === 'hidden') this.pause();
+      };
+      document.addEventListener('visibilitychange', onVisibility);
+      this.cleanups.push(() => document.removeEventListener('visibilitychange', onVisibility));
+    }
     if (opts.debug) this.buildGizmo();
 
     const ro = new ResizeObserver(() => this.resize());
@@ -374,16 +385,16 @@ export class SurfGame {
     }
     if (Number.isFinite(now)) this.writer.tick(now);
     const info = this.retro.renderer.info.render;
-    window.__surf = {
-      frames: this.frames,
-      phase: this.phase,
-      score: this.scoring.score,
-      mode: s.mode,
-      x: s.param.x,
-      calls: info.calls,
-      triangles: info.triangles,
-      fps: Math.round(this.fps),
-    };
+    const hook = this.hook;
+    hook.frames = this.frames;
+    hook.phase = this.phase;
+    hook.score = this.scoring.score;
+    hook.mode = s.mode;
+    hook.x = s.param.x;
+    hook.calls = info.calls;
+    hook.triangles = info.triangles;
+    hook.fps = Math.round(this.fps);
+    window.__surf = hook;
   }
 
   private buildGizmo(): void {

@@ -248,23 +248,25 @@ export class Surfer {
     return m;
   }
 
+  private normalY(x: number, t: number): number {
+    return this.wave.normal(x, t, this.scratch).y;
+  }
+
   /**
    * Largest t ≤ tMax at column x whose surface normal still has n.y ≥ FACE_MIN_NY:
    * the end of the rideable face (before it turns vertical or overhangs).
    */
   private faceEnd(x: number, tMax: number): number {
-    const w = this.wave;
-    const ny = (t: number): number => w.normal(x, t, this.scratch).y;
-    if (ny(tMax) >= FACE_MIN_NY) return tMax;
+    if (this.normalY(x, tMax) >= FACE_MIN_NY) return tMax;
     let hi = tMax;
     let lo = tMax;
-    while (lo > 0 && ny(lo) < FACE_MIN_NY) {
+    while (lo > 0 && this.normalY(x, lo) < FACE_MIN_NY) {
       hi = lo;
       lo = Math.max(0, lo - 0.02);
     }
     for (let i = 0; i < 12; i++) {
       const mid = (lo + hi) / 2;
-      if (ny(mid) >= FACE_MIN_NY) lo = mid;
+      if (this.normalY(x, mid) >= FACE_MIN_NY) lo = mid;
       else hi = mid;
     }
     return lo;

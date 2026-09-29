@@ -15,6 +15,8 @@ import type { SurferState } from '../physics/Surfer';
 import type { WaveShape } from '../wave/WaveShape';
 import { ParticlePool, RateAccumulator } from './ParticlePool';
 
+const ATTRIBUTES = ['position', 'aAlpha', 'aSize', 'aShade'] as const;
+
 const VERT = /* glsl */ `
 attribute float aAlpha;
 attribute float aSize;
@@ -148,7 +150,7 @@ export class Particles {
     }
     this.pool.update(dt);
     const g = this.points.geometry;
-    for (const name of ['position', 'aAlpha', 'aSize', 'aShade']) g.getAttribute(name).needsUpdate = true;
+    for (const name of ATTRIBUTES) g.getAttribute(name).needsUpdate = true;
   }
 
   /** The tube "spit": a fast burst blowing out of the barrel toward the shoulder. */

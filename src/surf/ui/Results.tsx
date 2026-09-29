@@ -25,10 +25,14 @@ export function Results({ run, onAgain, onTitle }: { run: RunSummary; onAgain: (
   const [cursor, setCursor] = useState(0);
   const [rank, setRank] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
+  // Arrow keys held from the run must not spin the initials: wait for a fresh (non-repeat) keydown.
+  const armed = useRef(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!e.repeat) armed.current = true;
       if (entering) {
+        if (e.repeat && !armed.current && e.key.startsWith('Arrow')) return;
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
           e.preventDefault();
           const d = e.key === 'ArrowUp' ? 1 : 25;
