@@ -45,6 +45,15 @@ const CREST_EPS = 0.004;
 const FACE_MIN_NY = 0.2;
 /** A floater mount always has enough pop to rise this far (m) past the top of the lip. */
 const MOUNT_CLEARANCE = 0.1;
+/**
+ * The face end is discontinuous in x (a steep band opening below an upper ledge). Any sudden move of
+ * the air anchor goes into a blend offset that fades at no more than this speed (m/s), so the rider
+ * never teleports.
+ */
+const BLEND_SPEED = 3;
+/** Riding: if clamping to the face end would move the rider this much (m) beyond |v|·dt, drop off instead. */
+const DROP_SLACK = 0.02;
+const WORLD_UP = new Vector3(0, 1, 0);
 const DROP_IN = { x: 4, t: 0.55, along: 2, down: 4 };
 
 /**
@@ -52,14 +61,16 @@ const DROP_IN = { x: 4, t: 0.55, along: 2, down: 4 };
  * the lip top at the start of a floater; 'dismount' = dropping from the lip back onto the face.
  * Mount and dismount are silent: no launched / landed events, spin and grab inputs ignored.
  * A mount rides up the wall onto the lip: it touches down when it reaches the lip top (rising).
+ * 'drop' = silently falling off an upper ledge of the face whose end dropped away under the rider.
  */
-type AirKind = 'jump' | 'mount' | 'dismount';
+type AirKind = 'jump' | 'mount' | 'dismount' | 'drop';
 
 /**
- * Wave-anchored air: p = S(x, tAnchor) + up·h + residual·w, where x integrates the lateral speed,
- * up is the anchor's up-facing normal, h is a 1-D ballistic height and the residual (the launch
- * point's offset from the anchor line) fades out linearly by touchdown. Touchdown is h ≤ 0 on the
- * way down, which is exactly the surface point S(x, tAnchor): landing can never teleport.
+ * Wave-anchored air: p = S(x, tAnchor) + axis·h + residual·w + blend, where x integrates the lateral
+ * speed, axis is the take-off anchor's up normal (tilted halfway to world up for a crest air), h is a
+ * 1-D ballistic height, the residual (the launch point's offset from the anchor line) fades out
+ * linearly by touchdown and the blend absorbs anchor jumps, fading at ≤ BLEND_SPEED. Touchdown is
+ * h ≤ 0 on the way down with the blend gone, which is exactly the surface point S(x, tAnchor).
  */
 interface AirPath {
   kind: AirKind;
@@ -75,6 +86,7 @@ interface AirPath {
   residual: Vector3;
   /** Time to touchdown; the residual is gone by then. */
   flightTime: number;
+  blend: Vector3;
 }
 
 /**
@@ -98,6 +110,7 @@ export class Surfer {
   private readonly scratch = new Vector3();
   private readonly anchorP = new Vector3();
   private readonly up = new Vector3();
+  private readonly axis = new Vector3();
   private anchorT = 0;
   private crestMemo = { x: NaN, version: -1, t: 0, y: 0 };
   private readonly path: AirPath = {
@@ -110,6 +123,7 @@ export class Surfer {
     vu: 0,
     residual: new Vector3(),
     flightTime: 0,
+    blend: new Vector3(),
   };
   /** Seconds spent on top of the lip by the floater being dismounted. */
   private floatDuration = 0;
@@ -334,6 +348,12 @@ export class Surfer {
       // The rideable face ends at the crest, or earlier where it turns vertical / overhangs.
       const tb = this.faceEnd(s.param.x, Math.min(s.param.t, tc - CREST_EPS));
       if (s.param.t >= tc - CREST_EPS || s.param.t > tb) {
+        if (w.profile(s.param.x, tb, this.tmp).distanceTo(this.prevP) > s.v.length() * dt + DROP_SLACK) {
+          // The face end dropped away under the rider (an upper ledge ended): fall to the face below.
+          this.enterAir(null);
+          this.beginAir('drop', tb, 0);
+          return;
+        }
         if (this.faceEdge(tb, tc)) return;
       } else {
         this.atCrest = false;
@@ -489,21 +509,22 @@ export class Surfer {
     if (kind) this.emit({ type: 'launched', time: s.time, kind });
   }
 
-  /**
-   * Anchor surface point at column x for the current air (fills anchorP, up, anchorT): the lip top for
-   * a floater mount, otherwise the launch t, lowered to the end of the rideable face at this x.
-   */
-  private anchorAt(x: number): Vector3 {
+  /** Anchor t at column x for the current air: the lip top for a mount, else the launch t lowered to the face end. */
+  private anchorTarget(x: number): number {
     const a = this.path;
     const tc = this.crestAt(x).t;
-    this.anchorT = a.kind === 'mount' ? tc : this.faceEnd(x, Math.min(a.tAnchor, tc - CREST_EPS));
-    this.wave.profile(x, this.anchorT, this.anchorP);
-    this.wave.normal(x, this.anchorT, this.up);
+    return a.kind === 'mount' ? tc : this.faceEnd(x, Math.min(a.tAnchor, tc - CREST_EPS));
+  }
+
+  /** Fill anchorP and up (the up-facing normal) at (x, t). */
+  private anchorFrame(x: number, t: number): Vector3 {
+    this.wave.profile(x, t, this.anchorP);
+    this.wave.normal(x, t, this.up);
     if (this.up.y < 0) this.up.negate();
     return this.anchorP;
   }
 
-  /** Start an anchored air from the current position with speed `vUp` along the anchor's up normal. */
+  /** Start an anchored air from the current position with speed `vUp` along the air axis. */
   private beginAir(kind: AirKind, tAnchor: number, vUp: number): void {
     const s = this.state;
     const a = this.path;
@@ -515,30 +536,47 @@ export class Surfer {
     a.vx = a.va / Math.max(this.sx.length(), 1e-6);
     a.kind = kind;
     a.tAnchor = tAnchor;
-    const off = this.tmp.subVectors(s.p, this.anchorAt(s.param.x));
-    a.h0 = off.dot(this.up);
-    a.residual.copy(off).addScaledVector(this.up, -a.h0);
+    a.blend.set(0, 0, 0);
+    this.anchorT = this.anchorTarget(s.param.x);
+    const off = this.tmp.subVectors(s.p, this.anchorFrame(s.param.x, this.anchorT));
+    // The air axis is fixed at take-off (a rotating axis would swing the rider sideways): the anchor's
+    // up normal, tilted halfway to world up for a crest air so hollow-section airs go up, not out.
+    this.axis.copy(this.up);
+    if (kind === 'jump' && s.launchKind === 'crest') this.axis.add(WORLD_UP).normalize();
+    a.h0 = off.dot(this.axis);
+    a.residual.copy(off).addScaledVector(this.axis, -a.h0);
     if (kind === 'mount') {
       // Carried up the wall by the speed leaving the face (at least enough to clear the lip top);
       // touchdown is reaching the lip top on the way up.
       a.vUp = Math.max(vUp, Math.sqrt(2 * g * (Math.max(0, -a.h0) + MOUNT_CLEARANCE)));
       a.flightTime = (a.vUp - Math.sqrt(Math.max(0, a.vUp * a.vUp + 2 * g * a.h0))) / g;
     } else {
+      if (a.h0 < 0) {
+        a.blend.addScaledVector(this.axis, a.h0);
+        a.h0 = 0;
+      }
       a.vUp = vUp;
-      a.flightTime = (a.vUp + Math.sqrt(Math.max(0, a.vUp * a.vUp + 2 * g * a.h0))) / g;
+      a.flightTime = (a.vUp + Math.sqrt(a.vUp * a.vUp + 2 * g * a.h0)) / g;
+      // Too short a flight to fade the residual out at a sane speed: blend it instead.
+      if (a.residual.length() > BLEND_SPEED * a.flightTime) {
+        a.blend.add(a.residual);
+        a.residual.set(0, 0, 0);
+      }
     }
     s.param.t = this.anchorT;
     s.normal.copy(this.up);
-    this.airVelocity(0);
+    this.airVelocity(0, a.vUp, 0);
   }
 
-  /** v = d/dt of the anchored position (anchor sliding along x, height, fading residual). */
-  private airVelocity(time: number): void {
+  /** v = d/dt of the anchored position (anchor sliding along x, height, fading residual and blend). */
+  private airVelocity(time: number, hDot: number, blendSpeed: number): void {
     const s = this.state;
     const a = this.path;
     this.wave.tangents(s.param.x, this.anchorT, this.sx, this.st);
-    s.v.copy(this.sx).multiplyScalar(a.vx).addScaledVector(this.up, a.vUp - this.cfg.gravity * time);
+    s.v.copy(this.sx).multiplyScalar(a.vx).addScaledVector(this.axis, hDot);
     if (time < a.flightTime) s.v.addScaledVector(a.residual, -1 / a.flightTime);
+    const b = a.blend.length();
+    if (b > 0) s.v.addScaledVector(a.blend, -blendSpeed / b);
   }
 
   /** Terminal: left behind by the wave. */
@@ -573,19 +611,32 @@ export class Surfer {
     }
 
     const time = s.airTime;
+    const hDot = a.vUp - c.gravity * time;
+    const h = a.h0 + a.vUp * time - 0.5 * c.gravity * time * time;
+    const reached = a.kind === 'mount' ? h >= 0 : h <= 0 && hDot < 0;
+    const hEff = reached ? 0 : h;
     s.param.x = clamp(s.param.x + a.vx * dt, xMin, xMax);
-    const S = this.anchorAt(s.param.x);
+    const tPrev = this.anchorT;
+    this.anchorT = this.anchorTarget(s.param.x);
+    if (this.anchorT !== tPrev) {
+      // Keep p continuous when the anchor moves in t (the face end can jump with x): blend the step.
+      const was = this.tmp.copy(this.anchorFrame(s.param.x, tPrev)).addScaledVector(this.axis, hEff);
+      a.blend.add(was).sub(this.anchorFrame(s.param.x, this.anchorT)).addScaledVector(this.axis, -hEff);
+    } else this.anchorFrame(s.param.x, this.anchorT);
+    const b = a.blend.length();
+    const fade = Math.min(b, BLEND_SPEED * dt);
+    if (b > 0) a.blend.multiplyScalar((b - fade) / b);
     s.param.t = this.anchorT;
     s.normal.copy(this.up);
-    const h = a.h0 + a.vUp * time - 0.5 * c.gravity * time * time;
-    const reached = a.kind === 'mount' ? h >= 0 : h <= 0 && a.vUp - c.gravity * time < 0;
-    if (reached) {
-      s.p.copy(S);
+    if (reached && fade === b) {
+      s.p.copy(this.anchorP);
       this.touchDown();
       return;
     }
-    s.p.copy(S).addScaledVector(this.up, h).addScaledVector(a.residual, Math.max(0, 1 - time / a.flightTime));
-    this.airVelocity(time);
+    // (Reached with the blend still fading: skim the surface at h = 0 until it is gone.)
+    s.p.copy(this.anchorP).addScaledVector(this.axis, hEff).add(a.blend);
+    s.p.addScaledVector(a.residual, Math.max(0, 1 - time / a.flightTime));
+    this.airVelocity(time, reached ? 0 : hDot, fade / dt);
   }
 
   /** Back on the surface at (param.x, anchorT) — exactly where the anchored air put us. */
@@ -605,16 +656,17 @@ export class Surfer {
     }
     this.frameAt(s.param.x, s.param.t);
     s.v.copy(this.e1).multiplyScalar(a.va);
+    if (a.kind === 'drop') s.v.addScaledVector(this.eUp, Math.min(0, a.vu));
     if (s.v.lengthSq() > 1e-6) s.heading.copy(s.v).normalize();
     if (a.kind === 'mount') {
       this.emit({ type: 'floaterStart', time: s.time });
       return;
     }
+    if (a.kind === 'drop') return;
     const swallowed = s.param.x < -this.wave.params.tubeDepth;
     this.emit({ type: 'floaterEnd', time: s.time, duration: this.floatDuration, landed: !swallowed });
     if (swallowed) this.wipe('swallowed');
   }
-
 
   private endGrab(): void {
     const s = this.state;

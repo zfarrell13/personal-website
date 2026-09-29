@@ -149,6 +149,64 @@ describe('Surfer — air', () => {
     expect(h.events.some((e) => e.type === 'kickedOut')).toBe(false);
   });
 
+  it('a hollow-section crest air (x=10, 12 m/s) rises well above the crest (air axis tilted toward vertical)', () => {
+    const h = setup();
+    climbFast(h, 10, 12);
+    let apexY = -Infinity;
+    for (let i = 0; i < 5 * 120; i++) {
+      const wasAir = h.s.mode === 'airborne';
+      h.run(DT);
+      if (h.s.mode === 'airborne') apexY = Math.max(apexY, h.s.p.y);
+      if (wasAir && h.s.mode !== 'airborne') break;
+    }
+    expect(h.events.some((e) => e.type === 'landed')).toBe(true);
+    expect(apexY).toBeGreaterThan(h.wave.crestY(10) + 1.5);
+  });
+
+  // The face end is discontinuous in x near x ≈ 19.38 (a steep band below an upper ledge): crossing it
+  // toward the curl must never teleport the rider.
+  const FACE_END_JUMP_X = 19.38;
+  const CROSS_CASES = [21, 22].flatMap((x) => [12, 18].flatMap((v) => [-3, -6].map((vx) => [x, v, vx] as const)));
+  it.each(CROSS_CASES)('a crest air drifting across the face-end step stays continuous (x=%d, %d m/s, vx %d)', (x, speed, vx) => {
+    const h = setup();
+    climbFast(h, x, speed);
+    h.s.v.x += vx;
+    let worst = -Infinity;
+    let minAirX = Infinity;
+    for (let i = 0; i < 4 * 120; i++) {
+      worst = Math.max(worst, tick(h));
+      if (h.s.mode === 'airborne') minAirX = Math.min(minAirX, h.s.param.x);
+      if (h.s.mode !== 'riding' && h.s.mode !== 'airborne') break;
+    }
+    expect(h.events.some((e) => e.type === 'launched' && e.kind === 'crest')).toBe(true);
+    expect(h.events.find((e) => e.type === 'landed' || e.type === 'wipeout')?.type).toBe('landed');
+    expect(minAirX).toBeLessThan(FACE_END_JUMP_X);
+    expect(worst).toBeLessThanOrEqual(0.05);
+  });
+
+  it.each([
+    [20.5, -6],
+    [21, -8],
+    [20, -4],
+  ])('riding along the top of the face toward the curl across the face-end step stays continuous (x=%d, vx %d)', (x, vx) => {
+    const h = setup();
+    h.surfer.reset(x, 0.7);
+    const n = h.wave.normal(x, h.s.param.t);
+    const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
+    h.s.v.set(vx, 0, 0).addScaledVector(up, 1);
+    const nrm = new Vector3();
+    let worst = -Infinity;
+    let minX = Infinity;
+    for (let i = 0; i < 120; i++) {
+      worst = Math.max(worst, tick(h, { carve: 1 }));
+      minX = Math.min(minX, h.s.param.x);
+      if (h.s.mode === 'riding') expect(h.wave.normal(h.s.param.x, h.s.param.t, nrm).y).toBeGreaterThanOrEqual(0);
+    }
+    expect(minX).toBeLessThan(FACE_END_JUMP_X);
+    expect(h.s.mode).toBe('riding');
+    expect(worst).toBeLessThanOrEqual(0.05);
+  });
+
   it('a 360 is achievable off the crest (x=10, 12 m/s) and lands clean when released aligned', () => {
     const ticks360 = Math.round((360 / SURF_CONFIG.physics.spinRate) * 120);
     const { h, landed } = crestAir(10, 12, (i) => ({ spin: i < ticks360 ? 1 : 0 }));
@@ -345,6 +403,34 @@ describe('Surfer — floater continuity', () => {
     expect(h.events.some((e) => e.type === 'wipeout')).toBe(false);
     expect(h.events.some((e) => e.type === 'landed' || e.type === 'grabStart')).toBe(false);
     expect(worst).toBeLessThanOrEqual(0.05);
+  });
+});
+
+describe('Surfer — floater dismount across a face-end step', () => {
+  // With a short shoulder the face end is discontinuous near x ≈ 4.35, where floater dismounts come down.
+  const CASES = [-1, -3].flatMap((x) => [8, 12, 18].map((v) => [x, v] as const));
+  it.each(CASES)('shoulderLength 10: floater at x=%d, %d m/s dismounts without teleporting', (x, speed) => {
+    const h = setup();
+    h.wave.params.shoulderLength = 10; // this setup's own cloned config
+    bumpConfig();
+    h.surfer.reset(x, 0.6);
+    const n = h.wave.normal(x, 0.6);
+    const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
+    h.s.v.set(12, 0, 0).addScaledVector(up, speed); // fast along the wave: the dismount carries past x ≈ 4.35
+    let worst = -Infinity;
+    let maxX = -Infinity;
+    for (let i = 0; i < 4 * 120; i++) {
+      const before = h.s.p.clone();
+      const vBefore = h.s.v.length();
+      h.run(DT);
+      worst = Math.max(worst, h.s.p.distanceTo(before) - Math.max(vBefore, h.s.v.length()) * DT);
+      maxX = Math.max(maxX, h.s.param.x);
+      if (h.s.mode !== 'riding' && h.s.mode !== 'airborne') break;
+    }
+    expect(h.events.find((e) => e.type === 'floaterEnd')).toMatchObject({ landed: true });
+    expect(maxX).toBeGreaterThan(4.35);
+    expect(worst).toBeLessThanOrEqual(0.05);
+    expect(SURF_CONFIG.wave.shoulderLength).toBe(45);
   });
 });
 
