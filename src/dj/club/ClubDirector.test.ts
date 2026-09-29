@@ -90,4 +90,74 @@ describe('ClubDirector', () => {
     const d = new ClubDirector();
     expect(d.update(base)).toBe(d.state);
   });
+
+  it('a build that keeps the bass (no dip) fires no drop', () => {
+    const d = new ClubDirector();
+    run(d, 4, { filterSweep: 0.9, lowRms: 0.2 });
+    expect(run(d, 1, { filterSweep: 0, lowRms: 0.2 }).dropCount).toBe(0);
+  });
+
+  it('a Beat FX depth ramp with steady bass then release fires no drop', () => {
+    const d = new ClubDirector();
+    let depth = 0;
+    for (let t = 0; t < 4; t += 1 / 60) {
+      depth = Math.min(1, depth + 1 / 60 / 2);
+      d.update({ ...base, beatFxDepth: depth, filterSweep: 0.8 });
+    }
+    expect(run(d, 1, { beatFxDepth: 0 }).dropCount).toBe(0);
+  });
+
+  it('a quick low-cut twiddle fires no drop', () => {
+    const d = new ClubDirector();
+    run(d, 1, { lowRms: 0.25 });
+    run(d, 0.3, { lowCut: 1, lowRms: 0.03 });
+    expect(run(d, 2, { lowRms: 0.25 }).dropCount).toBe(0);
+  });
+
+  it('no drop when a new track starts within 2 s of a build-up', () => {
+    const d = new ClubDirector();
+    run(d, 4, { filterSweep: 0.9, lowCut: 1, lowRms: 0.03 });
+    run(d, 0.1, { playing: false, lowRms: 0 });
+    run(d, 0.2, { filterSweep: 0, lowCut: 0, lowRms: 0.03 });
+    expect(run(d, 1, { lowRms: 0.25 }).dropCount).toBe(0);
+  });
+
+  it('no second drop in the same build', () => {
+    const d = new ClubDirector();
+    run(d, 4, { filterSweep: 0.9, lowCut: 1, lowRms: 0.03 });
+    run(d, 0.3, { lowRms: 0.25 });
+    expect(d.state.dropCount).toBe(1);
+    // immediately re-sweep with the bass dipping, then release again while tension has not re-armed
+    run(d, 0.1, { filterSweep: 0.9, lowCut: 1, lowRms: 0.03 });
+    expect(run(d, 1, { lowRms: 0.25 }).dropCount).toBe(1);
+  });
+
+  it('closes the release window when tension rises again', () => {
+    const d = new ClubDirector();
+    run(d, 4, { filterSweep: 0.9, lowCut: 1, lowRms: 0.03 });
+    run(d, 0.6, { filterSweep: 0, lowCut: 0, lowRms: 0.03 });
+    run(d, 0.5, { filterSweep: 0.9, lowCut: 1, lowRms: 0.03 });
+    expect(run(d, 0.1, { filterSweep: 0.9, lowCut: 1, lowRms: 0.25 }).dropCount).toBe(0);
+  });
+
+  it('behaves the same at 30 and 144 fps', () => {
+    const at = (fps: number) => {
+      const d = new ClubDirector();
+      const step = 1 / fps;
+      let depth = 0;
+      for (let t = 0; t < 3; t += step) {
+        depth = Math.min(1, depth + step / 3);
+        d.update({ ...base, dt: step, beatFxDepth: depth, lowRms: 0.03 });
+      }
+      const tension = d.state.tension;
+      for (let t = 0; t < 4; t += step) d.update({ ...base, dt: step, beatFxDepth: 0, lowRms: 0.03 });
+      for (let t = 0; t < 0.5; t += step) d.update({ ...base, dt: step, lowRms: 0.25 });
+      return { tension, drops: d.state.dropCount };
+    };
+    const a = at(30);
+    const b = at(144);
+    expect(a.tension).toBeGreaterThan(0.1);
+    expect(Math.abs(a.tension - b.tension)).toBeLessThan(0.03);
+    expect(a.drops).toBe(b.drops);
+  });
 });

@@ -37,6 +37,8 @@ export interface DirectorState {
 
 const approach = (cur: number, target: number, dt: number, tauUp: number, tauDown: number) =>
   cur + (target - cur) * (1 - Math.exp(-dt / (target > cur ? tauUp : tauDown)));
+/** Beat FX depth must grow faster than this (per second) to count as a rising build. */
+const FX_RISE_PER_SEC = 0.1;
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 /** Non-finite (NaN, ±Infinity) → 0, so silence/garbage never poisons the smoothed state. */
 const fin = (v: number) => (Number.isFinite(v) ? v : 0);
@@ -64,6 +66,8 @@ export class ClubDirector {
   private releaseWindow = 0;
   private prevFxDepth = 0;
   private fxRise = 0;
+  /** Lowest bass level since the build-up began (a drop needs the bass to have left first). */
+  private minBass = 1;
 
   update(i: DirectorInput): DirectorState {
     const s = this.state;
@@ -72,28 +76,42 @@ export class ClubDirector {
     const bass = i.playing ? clamp01(fin(i.lowRms) / 0.25) : 0;
     s.energy = approach(s.energy, bass, dt, 0.3, 1.5);
 
-    // Beat FX depth counts while it is rising or held high.
+    // Beat FX depth counts while it is rising (rate-based, frame-rate independent) or held high.
     const fxDepth = clamp01(fin(i.beatFxDepth));
-    this.fxRise = approach(this.fxRise, fxDepth > this.prevFxDepth + 1e-3 ? 1 : fxDepth, dt, 0.2, 0.5);
-    this.prevFxDepth = fxDepth;
+    const rising = dt > 0 && (fxDepth - this.prevFxDepth) / dt > FX_RISE_PER_SEC;
+    this.fxRise = approach(this.fxRise, rising ? 1 : fxDepth, dt, 0.2, 0.5);
+    if (dt > 0) this.prevFxDepth = fxDepth;
     const target = i.playing
       ? clamp01(0.7 * clamp01(fin(i.filterSweep)) + 0.7 * clamp01(fin(i.lowCut)) + 0.5 * this.fxRise * fxDepth)
       : 0;
     s.tension = approach(s.tension, target, dt, 1.0, 0.25);
-    if (s.tension < 0.2) this.rearmed = true;
-    if (this.rearmed) this.peakTension = Math.max(this.peakTension, s.tension);
 
-    if (this.peakTension >= 0.5 && target < 0.2 && this.releaseWindow <= 0) this.releaseWindow = 2;
-    if (this.releaseWindow > 0) {
-      this.releaseWindow -= dt;
-      if (bass > 0.6) {
-        s.drop = 1;
-        s.dropCount++;
-        this.peakTension = 0;
-        this.rearmed = false;
-        this.releaseWindow = 0;
-      } else if (this.releaseWindow <= 0) {
-        this.peakTension = 0;
+    if (!i.playing) {
+      // Nothing on air: forget any build-up so a new track can't trigger a spurious drop.
+      this.peakTension = 0;
+      this.releaseWindow = 0;
+      this.minBass = 1;
+      this.rearmed = true;
+    } else {
+      if (s.tension < 0.2) this.rearmed = true;
+      // The bass only counts as having "left" once a build-up is under way.
+      if (s.tension < 0.2 && this.releaseWindow <= 0) this.minBass = 1;
+      else this.minBass = Math.min(this.minBass, bass);
+      if (this.rearmed && target >= 0.2) this.peakTension = Math.max(this.peakTension, s.tension);
+
+      if (this.releaseWindow > 0 && target >= 0.2) this.releaseWindow = 0; // built up again: not a release
+      else if (this.peakTension >= 0.5 && target < 0.2 && this.releaseWindow <= 0) this.releaseWindow = 2;
+      if (this.releaseWindow > 0) {
+        this.releaseWindow -= dt;
+        if (bass > 0.6 && this.minBass < 0.4) {
+          s.drop = 1;
+          s.dropCount++;
+          this.peakTension = 0;
+          this.rearmed = false;
+          this.releaseWindow = 0;
+        } else if (this.releaseWindow <= 0) {
+          this.peakTension = 0;
+        }
       }
     }
     s.drop = Math.max(0, s.drop - dt / 1.5);
