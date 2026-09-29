@@ -4,6 +4,7 @@ import { bumpConfig, SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
 import { EventBus, type SurfEvent } from './events';
 import { NO_INPUT, type SurferInput } from './input';
+import { lineBot } from './lineBot';
 import { Surfer } from './Surfer';
 
 const DT = 1 / 120;
@@ -24,20 +25,68 @@ function setup(physics: Partial<typeof SURF_CONFIG.physics> = {}) {
 }
 
 describe('Surfer — riding', () => {
-  it('riding straight stays on the surface and settles mid-face', () => {
+  it('no input: stays on the surface and the curl swallows the rider after 3.5–5.2 s (never under 2 s)', () => {
     const { wave, s, surfer } = setup();
     const onSurface = new Vector3();
     let worst = 0;
-    for (let i = 0; i < 20 * 120; i++) {
+    let caught = -1;
+    for (let i = 0; i < 20 * 120 && caught < 0; i++) {
       surfer.step(NO_INPUT, DT);
-      expect(s.mode).toBe('riding');
-      wave.profile(s.param.x, s.param.t, onSurface);
-      worst = Math.max(worst, onSurface.distanceTo(s.p));
+      if (s.mode !== 'riding') caught = s.time;
+      else worst = Math.max(worst, wave.profile(s.param.x, s.param.t, onSurface).distanceTo(s.p));
     }
     expect(worst).toBeLessThan(1e-6);
-    const frac = s.p.y / wave.crestY(s.param.x);
-    expect(frac).toBeGreaterThan(0.3);
-    expect(frac).toBeLessThan(0.7);
+    expect(s.wipeoutReason).toBe('swallowed');
+    expect(caught).toBeGreaterThanOrEqual(3.5);
+    expect(caught).toBeLessThanOrEqual(5.2);
+  });
+
+  it('rhythmic pumping (1/s) plus down-the-line S-turns stays ahead of the curl for 30 s at base peel', () => {
+    const h = setup();
+    const bot = lineBot(h.surfer, h.wave, { pumpEvery: 1 });
+    let minX = Infinity;
+    for (let i = 0; i < 30 * 120; i++) {
+      h.surfer.step(bot(DT), DT);
+      if (h.s.time > 2) minX = Math.min(minX, h.s.param.x);
+    }
+    expect(h.s.mode === 'riding' || h.s.mode === 'airborne').toBe(true);
+    expect(minX).toBeGreaterThan(-h.cfg.wave.tubeDepth);
+  });
+
+  it('the same lines without pumping lose the wave within 10 s', () => {
+    const h = setup();
+    const bot = lineBot(h.surfer, h.wave, { pumpEvery: 0 });
+    h.run(10, () => bot(DT));
+    expect(h.s.mode).toBe('wipeout');
+    expect(h.s.wipeoutReason).toBe('swallowed');
+  });
+
+  /** Lines + pumps for 20 s with a 1.4× fast section from 8 s (0.5 s ramps, 4 s hold). */
+  function fastSection(pumpEvery: number) {
+    const h = setup();
+    const bot = lineBot(h.surfer, h.wave, { pumpEvery });
+    const base = h.cfg.wave.peelSpeed;
+    let xStart = NaN;
+    let xEnd = NaN;
+    for (let i = 0; i < 20 * 120; i++) {
+      const u = h.s.time + DT - 8;
+      const k = u < 0 || u > 5 ? 0 : u < 0.5 ? u / 0.5 : u > 4.5 ? (5 - u) / 0.5 : 1;
+      if (u >= 0 && Number.isNaN(xStart)) xStart = h.s.param.x;
+      if (u >= 5 && Number.isNaN(xEnd)) xEnd = h.s.param.x;
+      h.surfer.setPeelSpeed(base * (1 + 0.4 * k));
+      h.surfer.step(bot(DT), DT);
+      if (h.s.mode === 'wipeout' || h.s.mode === 'kickedOut') break;
+    }
+    const survived = h.s.mode === 'riding' || h.s.mode === 'airborne';
+    return { survived, lost: survived ? xStart - xEnd : Infinity };
+  }
+
+  it('a fast section: the base effort loses ≥ 5 m of ground; pumping every 0.6 s survives it and loses less', () => {
+    const base = fastSection(1);
+    const hard = fastSection(0.6);
+    expect(base.lost).toBeGreaterThanOrEqual(5);
+    expect(hard.survived).toBe(true);
+    expect(hard.lost).toBeLessThan(base.lost - 3);
   });
 
   it('stalling drives frame x-velocity negative and puts you in the tube within 3 s', () => {
@@ -64,27 +113,123 @@ describe('Surfer — riding', () => {
     expect(events.at(-1)).toMatchObject({ type: 'wipeout', reason: 'swallowed' });
   });
 
-  it('pump spam yields less speed than rhythmic pumping', () => {
-    const spam = setup();
-    spam.run(1);
-    spam.run(6, (i) => ({ pump: i % 12 === 0 }));
-    const rhythm = setup();
-    rhythm.run(1);
-    rhythm.run(6, (i) => ({ pump: i % 72 === 0 }));
-    expect(rhythm.s.v.length()).toBeGreaterThan(spam.s.v.length() + 0.3);
+  it('stall while carving into the pocket, release as the curl arrives and pump out: a ≥ 1 s barrel, then out and still riding', () => {
+    const h = setup();
+    const warmUp = lineBot(h.surfer, h.wave, { pumpEvery: 1 });
+    const stallLine = lineBot(h.surfer, h.wave, { pumpEvery: 0 });
+    const pumpOut = lineBot(h.surfer, h.wave, { pumpEvery: 0.6 });
+    let released = false;
+    let tube = 0;
+    for (let i = 0; i < 16 * 120; i++) {
+      if (h.s.time >= 6 && h.s.param.x <= 3) released = true;
+      const input = h.s.time < 6 ? warmUp(DT) : released ? pumpOut(DT) : { ...stallLine(DT), stall: true };
+      h.surfer.step(input, DT);
+      if (h.s.inTube) tube += DT;
+      if (h.s.mode === 'wipeout' || h.s.mode === 'kickedOut') break;
+    }
+    expect(tube).toBeGreaterThanOrEqual(1);
+    expect(h.events.some((e) => e.type === 'tubeExit')).toBe(true);
+    expect(h.s.mode === 'riding' || h.s.mode === 'airborne').toBe(true);
   });
+
+  it('pump spam yields less speed than rhythmic pumping (same lines)', () => {
+    const meanSpeed = (pumpEvery: number) => {
+      const h = setup();
+      const bot = lineBot(h.surfer, h.wave, { pumpEvery });
+      let sum = 0;
+      let n = 0;
+      for (let i = 0; i < 8 * 120; i++) {
+        h.surfer.step(bot(DT), DT);
+        if (h.s.time > 2) {
+          sum += h.surfer.worldSpeed(h.surfer.peelSpeed);
+          n++;
+        }
+      }
+      return sum / n;
+    };
+    expect(meanSpeed(0.6)).toBeGreaterThan(meanSpeed(0.1) + 1);
+  });
+
+  it('a pump on the flats does nothing; on the face it adds speed along the board (vs a no-pump control)', () => {
+    const gain = (t: number) => {
+      const pumped = trimming(6, 15, t);
+      const control = trimming(6, 15, t);
+      pumped.surfer.step({ ...NO_INPUT, pump: true }, DT);
+      control.surfer.step(NO_INPUT, DT);
+      return pumped.surfer.worldSpeed(pumped.surfer.peelSpeed) - control.surfer.worldSpeed(control.surfer.peelSpeed);
+    };
+    expect(Math.abs(gain(0))).toBeLessThan(0.05);
+    expect(gain(0.4)).toBeGreaterThan(1.5);
+  });
+
+  /** Mid-face at (15, 0.4), running down the line at world speed `speed`. */
+  function trimming(speed: number, x = 15, t = 0.4) {
+    const h = setup();
+    h.surfer.reset(x, t);
+    h.s.v.set(speed - h.surfer.peelSpeed, 0, 0).addScaledVector(h.s.normal, -(speed - h.surfer.peelSpeed) * h.s.normal.x);
+    return h;
+  }
 
   it('carving toward the lip climbs the face (vs a no-carve control from the identical state)', () => {
     const climb = (carve: number) => {
-      const h = setup();
-      h.run(1);
+      const h = trimming(10);
       const y0 = h.s.p.y;
       h.run(0.4, () => ({ carve }));
       return h.s.p.y - y0;
     };
     const straight = climb(0);
-    expect(climb(1)).toBeGreaterThan(straight + 0.03);
-    expect(climb(-1)).toBeLessThan(straight - 0.03);
+    expect(climb(1)).toBeGreaterThan(straight + 0.1);
+    expect(climb(-1)).toBeLessThan(straight - 0.1);
+  });
+
+  it.each([8, 15, 25])('from speed, trough → top of the face (85% of the crest) in ≤ 1.5 s (x = %d)', (x) => {
+    const h = trimming(10, x, 0.2);
+    let top = -1;
+    for (let i = 0; i < 3 * 120 && top < 0; i++) {
+      h.run(DT, () => ({ carve: 1 }));
+      if (h.s.mode === 'airborne' || h.s.p.y >= 0.85 * h.wave.crestY(h.s.param.x)) top = h.s.time;
+    }
+    expect(top).toBeGreaterThan(0);
+    expect(top).toBeLessThanOrEqual(1.5);
+  });
+
+  it('the turn radius grows with speed', () => {
+    const radius = (speed: number) => {
+      const h = trimming(speed, 30, 0.35);
+      h.run(DT);
+      const h0 = h.s.heading.clone();
+      let path = 0;
+      for (let i = 0; i < 60; i++) {
+        path += h.surfer.worldSpeed(h.surfer.peelSpeed) * DT;
+        h.run(DT, () => ({ carve: 1 }));
+      }
+      return path / h0.angleTo(h.s.heading);
+    };
+    const r6 = radius(6);
+    const r9 = radius(9);
+    const r12 = radius(12);
+    expect(r9).toBeGreaterThan(r6 * 1.3);
+    expect(r12).toBeGreaterThan(r9 * 1.3);
+  });
+
+  it('the board points along its motion through the water, even while losing ground to the curl', () => {
+    const h = trimming(6); // frame v.x = 6 − Vp < 0
+    h.run(DT);
+    expect(h.s.v.x).toBeLessThan(0);
+    const world = new Vector3(h.s.v.x + h.surfer.peelSpeed, h.s.v.y, h.s.v.z).normalize();
+    expect(h.s.heading.x).toBeGreaterThan(0.9);
+    expect(h.s.heading.angleTo(world)).toBeLessThan(1e-6);
+  });
+
+  it('a faster peel costs the rider ground, not world speed: frame v.x drops by ≈ Δ, v stays on the surface', () => {
+    const h = trimming(10);
+    const vx0 = h.s.v.x;
+    const world0 = h.surfer.worldSpeed(h.surfer.peelSpeed);
+    h.surfer.setPeelSpeed(h.cfg.wave.peelSpeed + 3);
+    expect(h.surfer.peelSpeed).toBe(h.cfg.wave.peelSpeed + 3);
+    expect(h.s.v.x).toBeCloseTo(vx0 - 3, 1);
+    expect(h.s.v.dot(h.s.normal)).toBeCloseTo(0, 9);
+    expect(h.surfer.worldSpeed(h.surfer.peelSpeed)).toBeCloseTo(world0, 1);
   });
 });
 
@@ -349,12 +494,16 @@ describe('Surfer — floater and kick-out', () => {
   });
 
   // x = 15: the open face (apex-armed snap near the top); x = 4: the steep section by the curl (armed at the face edge).
-  it.each([15, 4])('snaps when carving through a reversal at the crest (x = %d)', (x) => {
+  // The climb is given as world motion (along the line, up the face) and arrives below launch speed.
+  it.each([
+    [15, 3, 3],
+    [4, 2, 4],
+  ])('snaps when carving through a reversal at the crest (x = %d)', (x, along, upFace) => {
     const h = setup();
     h.surfer.reset(x, 0.4);
     const n = h.wave.normal(x, 0.4);
     const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
-    h.s.v.set(3, 0, 0).addScaledVector(up, 3); // reaches the crest below launch speed
+    h.s.v.set(along - h.surfer.peelSpeed, 0, 0).addScaledVector(up, upFace);
     h.run(1.5, () => ({ carve: 1 }));
     expect(h.events.some((e) => e.type === 'launched')).toBe(false);
     expect(h.events.some((e) => e.type === 'snap')).toBe(true);

@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import { configVersion, type PhysicsParams } from '../config';
-import { clamp, DEG, wrapAngle } from '../math/scalar';
+import { clamp, DEG, smoothstep, wrapAngle } from '../math/scalar';
 import type { WaveParam, WaveShape } from '../wave/WaveShape';
 import type { EventBus, GrabKind, GrabRecord, LaunchKind, SurfEvent, WipeoutReason } from './events';
 import type { SurferInput } from './input';
@@ -54,7 +54,7 @@ const BLEND_SPEED = 3;
 /** Riding: if clamping to the face end would move the rider this much (m) beyond |v|·dt, drop off instead. */
 const DROP_SLACK = 0.02;
 const WORLD_UP = new Vector3(0, 1, 0);
-const DROP_IN = { x: 4, t: 0.55, along: 2, down: 4 };
+const DROP_IN = { x: 3.5, t: 0.5, along: 2, down: 4 };
 
 /**
  * What an air is anchored to. 'jump' = ollie / crest air (judged landing); 'mount' = climbing onto
@@ -111,7 +111,13 @@ export class Surfer {
   private readonly anchorP = new Vector3();
   private readonly up = new Vector3();
   private readonly axis = new Vector3();
+  private readonly water = new Vector3();
+  private readonly rel = new Vector3();
   private anchorT = 0;
+  /** Current peel speed (m/s): the water moves at −vp along x in the wave frame. */
+  private vp = 0;
+  /** Carve yaw rate (rad/s), easing toward the input's target. */
+  private yawRate = 0;
   private crestMemo = { x: NaN, version: -1, t: 0, y: 0 };
   private readonly path: AirPath = {
     kind: 'jump',
@@ -199,6 +205,8 @@ export class Surfer {
       wipeoutReason: null,
     } satisfies Partial<SurferState>);
     s.param.x = x;
+    this.vp = this.wave.params.peelSpeed;
+    this.yawRate = 0;
     this.crestMemo.x = NaN;
     // Riding starts on the rideable face (never on the vertical / overhanging part).
     t = this.faceEnd(x, Math.min(t, this.crestAt(x).t - CREST_EPS));
@@ -206,7 +214,7 @@ export class Surfer {
     this.frameAt(x, t);
     this.wave.profile(x, t, s.p);
     s.v.copy(this.e1).multiplyScalar(DROP_IN.along).addScaledVector(this.eUp, -DROP_IN.down);
-    s.heading.copy(s.v).normalize();
+    this.headingFromMotion(s.heading);
     this.prevP.copy(s.p);
     this.prevHeading.copy(s.heading);
     this.atCrest = false;
@@ -226,6 +234,30 @@ export class Surfer {
     return Math.hypot(v.x + peelSpeed, v.y, v.z);
   }
 
+  /** Current peel speed (m/s). */
+  get peelSpeed(): number {
+    return this.vp;
+  }
+
+  /**
+   * Change the peel speed. The wave frame moves at the peel speed, so a faster peel shifts every
+   * frame velocity by −Δ along x (the rider's world velocity is unchanged): the curl gains on them.
+   */
+  setPeelSpeed(vp: number): void {
+    const d = vp - this.vp;
+    if (d === 0) return;
+    this.vp = vp;
+    const s = this.state;
+    if (s.mode === 'riding') {
+      s.v.x -= d;
+      s.v.addScaledVector(s.normal, -s.v.dot(s.normal));
+    } else if (s.mode === 'airborne') {
+      this.path.vx -= d;
+      this.path.va -= d;
+      s.v.x -= d;
+    }
+  }
+
   step(input: SurferInput, dt: number): void {
     const s = this.state;
     this.prevP.copy(s.p);
@@ -233,6 +265,19 @@ export class Surfer {
     s.time += dt;
     if (s.mode === 'riding') this.ride(input, dt);
     else if (s.mode === 'airborne') this.air(input, dt);
+  }
+
+  /**
+   * The board points along its motion through the water: the world velocity v + vp·x̂ (the wave frame
+   * only translates, so world directions are frame directions). Kept when that is too slow to tell.
+   */
+  private headingFromMotion(out: Vector3, horizontal = false): void {
+    const v = this.state.v;
+    const x = v.x + this.vp;
+    const y = horizontal ? 0 : v.y;
+    const len = Math.hypot(x, y, v.z);
+    if (len > this.cfg.minSpeed) out.set(x / len, y / len, v.z / len);
+    else if (horizontal) out.set(out.x, 0, out.z).normalize();
   }
 
   /** Crest param and height at column x, memoized (crestT is expensive). */
@@ -303,47 +348,56 @@ export class Surfer {
       return;
     }
 
-    // --- forces in the tangent plane ---
+    // --- forces in the tangent plane. The water moves at −vp along x in the wave frame; the board
+    // runs through it with rel = v − water, which is its world velocity (and its heading). ---
+    // The water slides along the surface at constant t (e1), never up or down the face: projecting
+    // −vp·x̂ instead would give it an up-face part wherever the face is skewed in x (a hidden lift).
+    const water = this.water.copy(this.e1).multiplyScalar(-this.vp);
+    const rel = this.rel.subVectors(s.v, water);
     const a = this.acc.set(0, -c.gravity, 0);
     a.addScaledVector(n, -a.dot(n));
-    const steep = w.steepness(s.param.x, s.param.t);
-    if (!s.floating) {
-      const crestY = this.crestAt(s.param.x).y;
-      const depth = clamp((crestY - s.p.y) / Math.max(crestY, 0.1), 0, 1);
-      a.addScaledVector(this.eUp, c.lift * steep * depth);
-      // Damp sliding back down only: climbing keeps its speed, so a fast climb reaches the lip.
-      a.addScaledVector(this.eUp, -c.faceDamping * Math.min(0, s.v.dot(this.eUp)));
+    const speed0 = rel.length();
+    if (!s.floating && speed0 > 1e-3) {
+      // Rail grip: the rail holds the part of gravity across the board's line (fully from gripSpeed
+      // up); the part along the line turns height into speed and back, the slip lets it sag.
+      const grip = c.railGrip * clamp((speed0 - c.minSpeed) / (c.gripSpeed - c.minSpeed), 0, 1);
+      const line = this.tmp2.copy(rel).multiplyScalar(1 / speed0);
+      a.multiplyScalar(1 - grip).addScaledVector(line, a.dot(line) * grip);
     }
+    const steep = w.steepness(s.param.x, s.param.t);
     a.addScaledVector(this.e1, c.drive * steep);
-    const water = this.tmp.set(-w.params.peelSpeed, 0, 0);
-    water.addScaledVector(n, -water.dot(n));
-    const rel = this.tmp2.subVectors(s.v, water);
     const dragK = c.drag * (s.stalling ? c.stallDragMultiplier : 1);
-    a.addScaledVector(rel, -dragK * rel.length());
-    const speed0 = s.v.length();
-    if (input.carve !== 0 && speed0 > 1e-3) a.addScaledVector(s.v, (-c.carveBleed * Math.abs(input.carve)) / speed0);
+    a.addScaledVector(rel, -dragK * speed0);
+    if (input.carve !== 0 && speed0 > 1e-3) a.addScaledVector(rel, (-c.carveBleed * Math.abs(input.carve)) / speed0);
     s.v.addScaledVector(a, dt);
+    rel.subVectors(s.v, water);
 
-    // --- carve: rotate v about the normal; toward the lip = +carve ---
-    const sp = s.v.length();
-    const omega = c.carveRate / (1 + sp / c.carveHalfSpeed);
-    const dir = s.v.dot(this.e1) >= 0 ? 1 : -1;
-    const ang = input.carve * omega * dir * dt;
-    if (ang !== 0) s.v.applyAxisAngle(n, ang);
-    s.turnRate = ang / dt;
+    // --- carve: rotate the board's line about the normal; toward the lip = +carve. The yaw rate
+    // eases toward carve × carveRate / (1 + speed / carveHalfSpeed) with lag carveLag (a weighty
+    // rail); the turn radius speed / rate grows with speed. ---
+    const sp = rel.length();
+    const dir = rel.dot(this.e1) >= 0 ? 1 : -1;
+    const target = input.carve * (c.carveRate / (1 + sp / c.carveHalfSpeed)) * dir;
+    this.yawRate += (target - this.yawRate) * (1 - Math.exp(-dt / c.carveLag));
+    const ang = this.yawRate * dt;
+    if (ang !== 0) rel.applyAxisAngle(n, ang);
+    s.turnRate = this.yawRate;
     this.trackCarve(input.carve, Math.abs(ang));
 
-    // --- pump: efficiency min(1, since/period), minus a fixed cost ---
+    // --- pump: along the board's line, efficiency min(1, since/period), minus a fixed cost. A pump
+    // works the face: the net gain scales with the local steepness (a pump on the flats does nothing). ---
     if (input.pump) {
       const eff = Math.min(1, s.sincePump / c.pumpPeriod);
-      const target = Math.max(0, sp + c.pumpImpulse * eff - c.pumpCost);
-      if (sp > 1e-3) s.v.multiplyScalar(target / sp);
-      else s.v.copy(this.e1).multiplyScalar(target);
+      const face = smoothstep(c.pumpMinSteepness, c.pumpFullSteepness, steep);
+      const speed = Math.max(0, sp + (c.pumpImpulse * eff - c.pumpCost) * face);
+      if (sp > 1e-3) rel.multiplyScalar(speed / sp);
+      else rel.copy(this.e1).multiplyScalar(speed);
       s.sincePump = 0;
       this.emit({ type: 'pump', time: s.time, efficiency: eff });
     } else {
       s.sincePump += dt;
     }
+    s.v.addVectors(rel, water);
 
     // --- integrate + re-project onto the surface ---
     s.p.addScaledVector(s.v, dt);
@@ -368,12 +422,18 @@ export class Surfer {
         w.profile(s.param.x, s.param.t, s.p);
         w.normal(s.param.x, s.param.t, n);
         s.v.addScaledVector(n, -s.v.dot(n));
+        if (s.param.t <= 0) {
+          // Bottomed out on the flats in front of the wave: the part heading further out is lost.
+          this.frameAt(s.param.x, 0);
+          const out = s.v.dot(this.eUp);
+          if (out < 0) s.v.addScaledVector(this.eUp, -out);
+        }
       }
     }
-    if (s.v.lengthSq() > c.minSpeed * c.minSpeed) s.heading.copy(s.v).normalize();
+    this.headingFromMotion(s.heading);
 
-    // --- snap arming on the open face: the climb tops out near the crest without reaching the face
-    // edge (lift fades to zero there), so the apex of a climb into the top band arms it too.
+    // --- snap arming on the open face: a climb can top out near the crest without reaching the face
+    // edge, so the apex of a climb into the top band arms it too.
     const topY = c.snapTopFrac * this.crestAt(s.param.x).y;
     if (!s.floating && s.p.y >= topY) {
       if (!this.nearTop) {
@@ -448,8 +508,9 @@ export class Surfer {
     }
     this.frameAt(s.param.x, tb);
     s.v.addScaledVector(n, -s.v.dot(n));
+    // Too slow to launch: the lip sheds the rider back down the face (no balancing on the ridge).
     const up = s.v.dot(out);
-    if (up > 0) s.v.addScaledVector(out, -up);
+    if (up > -c.crestShed) s.v.addScaledVector(out, -up - c.crestShed);
     return false;
   }
 
@@ -524,17 +585,14 @@ export class Surfer {
     s.airYaw = 0;
     s.airTime = 0;
     s.turnRate = 0;
+    this.yawRate = 0;
     s.stalling = false;
     this.atCrest = false;
     this.snapArmed = false;
     this.nearTop = false;
     this.topPending = false;
     this.grabs = [];
-    const hx = s.v.x;
-    const hz = s.v.z;
-    const h = Math.hypot(hx, hz);
-    if (h > 1e-3) s.heading.set(hx / h, 0, hz / h);
-    else s.heading.set(s.heading.x, 0, s.heading.z).normalize();
+    this.headingFromMotion(s.heading, true);
     if (kind) this.emit({ type: 'launched', time: s.time, kind });
   }
 
@@ -686,7 +744,7 @@ export class Surfer {
     this.frameAt(s.param.x, s.param.t);
     s.v.copy(this.e1).multiplyScalar(a.va);
     if (a.kind === 'drop') s.v.addScaledVector(this.eUp, Math.min(0, a.vu));
-    if (s.v.lengthSq() > 1e-6) s.heading.copy(s.v).normalize();
+    this.headingFromMotion(s.heading);
     if (a.kind === 'mount') {
       this.emit({ type: 'floaterStart', time: s.time });
       return;
@@ -724,7 +782,7 @@ export class Surfer {
     this.frameAt(s.param.x, s.param.t);
     const vu = s.launchKind === 'crest' ? -Math.abs(a.vu) : a.vu;
     s.v.copy(this.e1).multiplyScalar(a.va).addScaledVector(this.eUp, vu).multiplyScalar(c.landingSpeedKeep);
-    if (s.v.lengthSq() > 1e-6) s.heading.copy(s.v).normalize();
+    this.headingFromMotion(s.heading);
     if (reverse) s.stanceFlipped = !s.stanceFlipped;
     this.emit({
       type: 'landed',

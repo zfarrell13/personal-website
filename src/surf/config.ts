@@ -10,7 +10,7 @@ export const SURF_CONFIG = {
     /** H — nominal wave height (m). */
     height: 2.4,
     /** Vp — peel speed: how fast the wave frame moves along the reef (m/s). */
-    peelSpeed: 7,
+    peelSpeed: 8,
     /** D — tube depth (m): the lip lands in the trough D metres behind the curl. */
     tubeDepth: 5,
     /** Ls — shoulder length (m): the shoulder zone and where the height taper starts. */
@@ -36,26 +36,32 @@ export const SURF_CONFIG = {
   physics: {
     hz: 120,
     gravity: 9.81,
-    /** Face lift gain; equilibrium depth fraction = gravity / lift (0.5 → mid-face). */
-    lift: 19.62,
-    /** Damps sliding back down the face (1/s), settling oscillation; climbing is undamped so speed carries you to the lip. */
-    faceDamping: 1.5,
+    /** Fraction of the cross-line gravity the rail holds at speed ≥ gripSpeed (0 = no rail, 1 = perfect trim). */
+    railGrip: 0.85,
+    gripSpeed: 5,
     /** Wave drive gain along +x, multiplied by local steepness (m/s²). */
-    drive: 3.25,
+    drive: 1.8,
     /** Quadratic drag against the water (moving at −Vp in the frame). */
-    drag: 0.045,
+    drag: 0.03,
     stallDragMultiplier: 4,
-    /** Carve yaw rate = carveRate / (1 + speed / carveHalfSpeed) (rad/s). */
-    carveRate: 3.2,
-    carveHalfSpeed: 12,
+    /** Carve yaw rate = carveRate / (1 + speed / carveHalfSpeed) (rad/s); turn radius = speed / rate grows with speed. */
+    carveRate: 4,
+    carveHalfSpeed: 10,
+    /** The yaw rate eases toward its target with this time constant (s): a weighty rail. */
+    carveLag: 0.12,
     /** Speed bled while a carve is held (m/s²). */
-    carveBleed: 0.8,
-    pumpImpulse: 1.6,
+    carveBleed: 0.5,
+    pumpImpulse: 3,
     /** Fixed speed cost per pump: spamming (low efficiency) nets less than rhythm. */
     pumpCost: 0.25,
     pumpPeriod: 0.6,
+    /** A pump's net gain scales with the face steepness: none below pumpMinSteepness (the flats), full above pumpFullSteepness. */
+    pumpMinSteepness: 0.1,
+    pumpFullSteepness: 0.5,
     /** Upward normal speed at the crest needed to launch (m/s). */
     launchSpeed: 3,
+    /** Reaching the top of the face too slow to launch pushes the rider back down at this speed (m/s). */
+    crestShed: 1,
     snapWindow: 0.4,
     /** A climb whose apex is above this fraction of the crest height arms a snap (open face; spec: "at the crest"). */
     snapTopFrac: 0.85,
