@@ -10,7 +10,8 @@ export type PoseName = 'closeup' | 'room' | 'browse0' | 'browse1';
 /** DJ's-eye view (behind the booth, looking at the crowd) vs. the crowd's view of the booth. */
 export const POSES: Record<PoseName, Pose> = {
   closeup: { position: [0, 1.75, 0.9], target: [0, 1.35, -6] },
-  room: { position: [0, 2.2, -1.6], target: [0, 1.0, 0.25] },
+  // from the back of the dance floor: crowd in the foreground, booth and LED wall framed behind it
+  room: { position: [0, 3.9, -7.4], target: [0, 1.7, 1.0] },
   browse0: { position: [-0.36, 1.55, -1.1], target: [-0.36, 1.02, -0.05] },
   browse1: { position: [0.36, 1.55, -1.1], target: [0.36, 1.02, -0.05] },
 };

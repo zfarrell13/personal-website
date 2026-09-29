@@ -6,6 +6,7 @@ import { loadManifest, type TrackEntry } from '@/shared/tracks';
 import { Panel } from '@/retro/ui/Panel';
 import { RetroButton } from '@/retro/ui/RetroButton';
 import { createDjActions, type DjActions } from './actions';
+import { ClubView } from './club/ClubView';
 import { installDebugHook } from './debug';
 import { DjProvider, type DjRuntime } from './DjContext';
 import { AudioEngine } from './engine/AudioEngine';
@@ -116,6 +117,7 @@ export default function DjApp() {
     <div className={styles.root}>
       {runtime ? (
         <DjProvider value={runtime}>
+          <ClubView />
           <Booth />
           <Hud />
           {settingsOpen ? <Settings /> : null}

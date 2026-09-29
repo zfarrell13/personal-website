@@ -22,6 +22,8 @@ export interface DjDebug {
   latencySec(): number;
   frames(): number;
   clubFrames: number;
+  /** Fires a club drop now (set by ClubView once the club renders; visual checks only). */
+  clubDrop?: () => void;
   state(): DjData;
 }
 

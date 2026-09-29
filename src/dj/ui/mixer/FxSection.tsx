@@ -1,5 +1,6 @@
 'use client';
 import { BEAT_FX_DIVISIONS, BEAT_FX_TYPES, COLOR_FX_TYPES, FX_CHANNELS } from '../../constants';
+import { useShallow } from 'zustand/react/shallow';
 import { useDjStore } from '../../store/djStore';
 import { Knob } from '../controls/Knob';
 import { LED, LedButton } from '../controls/LedButton';
@@ -12,7 +13,19 @@ export const divisionLabel = (d: number): string => (d >= 1 ? String(d) : d === 
 
 /** BEAT FX, COLOR FX, MASTER and HEADPHONES sections. */
 export function FxSection() {
-  const m = useDjStore((s) => s.mixer);
+  // Only this section's values: channel-strip / crossfader drags must not re-render it.
+  const m = useDjStore(
+    useShallow((s) => ({
+      masterLevel: s.mixer.masterLevel,
+      masterCue: s.mixer.masterCue,
+      cueMix: s.mixer.cueMix,
+      hpLevel: s.mixer.hpLevel,
+      hpMode: s.mixer.hpMode,
+      colorFxType: s.mixer.colorFxType,
+      colorFxParam: s.mixer.colorFxParam,
+      beatFx: s.mixer.beatFx,
+    })),
+  );
   const setMixer = useDjStore((s) => s.setMixer);
   const setBeatFx = useDjStore((s) => s.setBeatFx);
   const fx = m.beatFx;

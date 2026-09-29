@@ -8,6 +8,10 @@ const WASH_COLORS = ['#3cff6b', '#ff3b3b', '#3cff6b', '#ff3b3b'];
 const LASER_COUNT = 8;
 const CO2_COUNT = 240;
 const HIDDEN_Y = -100;
+/** Time constant (s) of the idle ↔ live blend of the moving heads. */
+const LIVE_TAU = 0.6;
+/** Beam cone opacity factor in the close-up (DJ's-eye) view, where the camera looks through the cones. */
+const CLOSEUP_CONE_GAIN = 0.35;
 
 /**
  * Moving heads (additive cones), colour wash, strobe, lasers and CO₂ jets — all
@@ -31,6 +35,11 @@ export class Lights {
   /** −1 until the first update, so a Lights built mid-set doesn't fire a stale burst. */
   private lastDropCount = -1;
   private co2Active = false;
+  /** 0 = idle chase, 1 = beat-synced sweep; eased so heads never snap when playback starts/stops. */
+  private live = 0;
+  private coneGain = 1;
+  /** Last bar phase heard while playing (the director zeroes it when idle; the fade-out holds it). */
+  private liveBar = 0;
 
   constructor() {
     this.group.name = 'lights';
@@ -99,15 +108,40 @@ export class Lights {
     this.group.add(this.co2);
   }
 
+  /**
+   * Close-up (DJ's-eye) view: the camera sits under the truss and looks through the beams, so the
+   * cones draw front faces only and fainter (otherwise they read as opaque slabs).
+   */
+  setCloseup(on: boolean): void {
+    this.coneGain = on ? CLOSEUP_CONE_GAIN : 1;
+    const side = on ? THREE.FrontSide : THREE.DoubleSide;
+    for (const m of this.headMats) {
+      if (m.side !== side) {
+        m.side = side;
+        m.needsUpdate = true;
+      }
+    }
+  }
+
   /** `time` is scene time in seconds (drives idle chases); `dt` advances the CO₂ particles. */
   update(s: DirectorState, time: number, dt: number): void {
-    const bar = s.idle ? time * 0.05 : s.barPhase;
+    this.live += ((s.idle ? 0 : 1) - this.live) * (1 - Math.exp(-Math.max(0, dt) / LIVE_TAU));
+    const k = this.live;
+    const idleBar = time * 0.05;
+    if (!s.idle) this.liveBar = s.barPhase;
+    const liveBar = this.liveBar;
     for (let i = 0; i < this.heads.length; i++) {
       const h = this.heads[i]!;
-      h.rotation.z = Math.sin(2 * Math.PI * bar + i * 0.9) * (s.idle ? 0.35 : 0.65);
+      const idleZ = Math.sin(2 * Math.PI * idleBar + i * 0.9) * 0.35;
+      const liveZ = Math.sin(2 * Math.PI * liveBar + i * 0.9) * 0.65;
+      h.rotation.z = idleZ + (liveZ - idleZ) * k;
       // +x tilt swings the downward cone towards −z, i.e. over the dance floor (not back at the booth)
-      h.rotation.x = 0.35 + 0.2 * Math.cos(2 * Math.PI * bar * 2 + i);
-      this.headMats[i]!.opacity = s.idle ? 0.06 + 0.04 * Math.sin(time + i) : 0.06 + 0.14 * s.energy;
+      const idleX = 0.35 + 0.2 * Math.cos(2 * Math.PI * idleBar * 2 + i);
+      const liveX = 0.35 + 0.2 * Math.cos(2 * Math.PI * liveBar * 2 + i);
+      h.rotation.x = idleX + (liveX - idleX) * k;
+      const idleOp = 0.06 + 0.04 * Math.sin(time + i);
+      const liveOp = 0.06 + 0.14 * s.energy;
+      this.headMats[i]!.opacity = (idleOp + (liveOp - idleOp) * k) * this.coneGain;
     }
     for (let i = 0; i < this.wash.length; i++) {
       this.wash[i]!.intensity = (s.idle ? 2 : 4 + 20 * s.energy) * (0.6 + 0.4 * Math.sin(time * 0.7 + i));

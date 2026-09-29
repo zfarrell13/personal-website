@@ -231,3 +231,15 @@ test('mixer panel: meters, isolator, colour FX, beat FX, headphones and output s
   await expect(settings).toHaveCount(0);
   expect(errors()).toEqual([]);
 });
+
+test('Tab switches to the room view, the club renders, and back', async ({ page }) => {
+  const errors = trackConsoleErrors(page);
+  await boot(page);
+  await page.keyboard.press('Tab');
+  await expect(page.getByTestId('view-toggle')).toHaveText(/ROOM/);
+  const f0 = await page.evaluate(() => window.__dj!.clubFrames);
+  await page.waitForFunction((f) => window.__dj!.clubFrames > f + 30, f0);
+  await page.keyboard.press('Tab');
+  await expect(page.getByTestId('view-toggle')).toHaveText(/BOOTH/);
+  expect(errors()).toEqual([]);
+});
