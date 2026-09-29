@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "tsx scripts/ensure-tracks.ts",
     "dev": "next dev",
+    "prebuild": "tsx scripts/ensure-tracks.ts",
     "build": "next build",
+    "tracks": "tsx scripts/build-tracks.ts",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
