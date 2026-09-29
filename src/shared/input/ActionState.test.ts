@@ -65,6 +65,8 @@ describe('ActionState', () => {
     const s = make();
     s.keyDown('ArrowRight');
     s.keyDown('ArrowRight');
+    s.tick();
+    expect(s.isDown('right')).toBe(true);
     s.keyUp('ArrowRight');
     s.tick();
     expect(s.isDown('right')).toBe(false);
@@ -78,5 +80,56 @@ describe('ActionState', () => {
     s.tick();
     expect(s.isDown('left')).toBe(false);
     expect(s.releasedThisFrame('left')).toBe(true);
+  });
+
+  it('reset does not create spurious releases for actions never held', () => {
+    const s = make();
+    s.reset();
+    s.tick();
+    expect(s.releasedThisFrame('left')).toBe(false);
+    expect(s.releasedThisFrame('right')).toBe(false);
+    expect(s.releasedThisFrame('jump')).toBe(false);
+  });
+
+  it('attach() wires up keyboard listeners and cleanup detaches them', () => {
+    const s = make();
+    const listeners = new Map<string, Function[]>();
+    const fakeTarget = {
+      addEventListener: (event: string, handler: Function) => {
+        if (!listeners.has(event)) listeners.set(event, []);
+        listeners.get(event)!.push(handler);
+      },
+      removeEventListener: (event: string, handler: Function) => {
+        const list = listeners.get(event);
+        if (list) {
+          const idx = list.indexOf(handler);
+          if (idx !== -1) list.splice(idx, 1);
+        }
+      },
+    } as any;
+
+    const cleanup = s.attach(fakeTarget);
+
+    // Verify listeners were added
+    expect(listeners.has('keydown')).toBe(true);
+    expect(listeners.has('keyup')).toBe(true);
+    expect(listeners.has('blur')).toBe(true);
+
+    // Dispatch a keydown event for ArrowLeft
+    const keydownHandlers = listeners.get('keydown')!;
+    const fakeEvent = {
+      code: 'ArrowLeft',
+      repeat: false,
+      preventDefault: () => {},
+    } as any;
+    keydownHandlers[0](fakeEvent);
+    s.tick();
+    expect(s.isDown('left')).toBe(true);
+
+    // Call cleanup and verify listeners were removed
+    cleanup();
+    expect((listeners.get('keydown') || []).length).toBe(0);
+    expect((listeners.get('keyup') || []).length).toBe(0);
+    expect((listeners.get('blur') || []).length).toBe(0);
   });
 });

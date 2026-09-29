@@ -13,7 +13,6 @@ export class ActionState<A extends string> {
   private cur = new Set<A>();
   private pressedNow = new Set<A>();
   private releasedNow = new Set<A>();
-  private initialized = false;
 
   constructor(bindings: Bindings<A>) {
     for (const action of Object.keys(bindings) as A[]) {
@@ -57,19 +56,12 @@ export class ActionState<A extends string> {
     this.prev = this.cur;
     this.cur = new Set();
     for (const [a, held] of this.sources) if (held.size > 0) this.cur.add(a);
-    if (this.initialized) {
-      this.pressedNow = new Set(this.pendingPress);
-      for (const a of this.cur) if (!this.prev.has(a)) this.pressedNow.add(a);
-      this.releasedNow = new Set(this.pendingRelease);
-      for (const a of this.prev) if (!this.cur.has(a)) this.releasedNow.add(a);
-    } else {
-      this.pressedNow.clear();
-      this.releasedNow.clear();
-      for (const a of this.cur) this.pressedNow.add(a);
-    }
+    this.pressedNow = new Set(this.pendingPress);
+    for (const a of this.cur) if (!this.prev.has(a)) this.pressedNow.add(a);
+    this.releasedNow = new Set(this.pendingRelease);
+    for (const a of this.prev) if (!this.cur.has(a)) this.releasedNow.add(a);
     this.pendingPress.clear();
     this.pendingRelease.clear();
-    this.initialized = true;
   }
 
   isDown(a: A): boolean {
