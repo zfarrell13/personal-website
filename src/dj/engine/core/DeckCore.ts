@@ -315,6 +315,7 @@ export class DeckCore {
 
   /** Instant stop at a position (back cue, end of a cue/hot-cue preview). */
   private stopAt(frame: number): void {
+    this.leaveLoopIfOutside(frame);
     this.pos = frame;
     this.state = 'PAUSED';
     this.motor = 0;
@@ -350,6 +351,7 @@ export class DeckCore {
       return;
     }
     if (this.state === 'PAUSED') {
+      this.leaveLoopIfOutside(stored);
       this.pos = stored;
       this.ended = false;
       this.state = 'HOTCUE_HOLD';
@@ -374,6 +376,7 @@ export class DeckCore {
     this.cueFrame = target;
     this.events.push({ kind: 'cue', sec: target / this.sampleRate });
     if (this.state === 'PAUSED') {
+      this.leaveLoopIfOutside(target);
       this.pos = target;
       this.ended = false;
       this.slipFlags = 0;
@@ -384,6 +387,7 @@ export class DeckCore {
   seek(sec: number): void {
     if (!this.loaded) return;
     this.pos = this.clampPos(sec * this.sampleRate);
+    this.leaveLoopIfOutside(this.pos);
     this.ended = this.pos >= this.lengthFrames;
     if (this.slipFlags) this.shadowPos = this.pos;
   }
@@ -460,6 +464,11 @@ export class DeckCore {
   private exitLoopSilently(): void {
     this.loopActive = false;
     this.slipFlags &= ~SLIP_LOOP;
+  }
+
+  /** A jump to a frame outside the active loop (seek, cue, hot cue, CALL) leaves the loop. */
+  private leaveLoopIfOutside(frame: number): void {
+    if (this.loopActive && (frame < this.loopIn || frame >= this.loopOut)) this.exitLoopSilently();
   }
 
   beatJump(dir: -1 | 1): void {
@@ -570,9 +579,10 @@ export class DeckCore {
 
       // advance
       let next = p + this.rate;
+      // wrap only when crossing a loop boundary from inside the loop
       if (hasLoop && this.loopActive) {
-        if (this.rate >= 0 && next >= this.loopOut) next -= loopLen;
-        else if (this.rate < 0 && next < this.loopIn) next += loopLen;
+        if (this.rate >= 0 && p < this.loopOut && next >= this.loopOut) next -= loopLen;
+        else if (this.rate < 0 && p >= this.loopIn && next < this.loopIn) next += loopLen;
       }
       if (next >= n) {
         next = n;

@@ -1,6 +1,7 @@
 /**
  * Minimal AudioWorkletGlobalScope declarations (TypeScript's DOM lib has none).
  * Only the *.worklet.ts files use these; they run inside the audio rendering thread.
+ * Checked by ./tsconfig.json (excluded from the root project so main-thread code cannot see them).
  */
 declare abstract class AudioWorkletProcessor {
   readonly port: MessagePort;

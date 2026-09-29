@@ -85,7 +85,12 @@ export function createDjActions({ engine, tracks, store = useDjStore, storage = 
   const actions: DjActions = {
     play: (d) => engine.command({ t: 'play', deck: d }),
     cue: (d, down) => engine.command({ t: 'cue', deck: d, down }),
-    hotCue: (d, index, down) => engine.command({ t: 'hotcue', deck: d, index, down, shift: store.getState().ui.shift }),
+    hotCue(d, index, down) {
+      const s = store.getState();
+      // While a new track loads the worklet still holds the old one: a pad would act on (and store a cue from) the wrong track.
+      if (s.decks[d].loading) return;
+      engine.command({ t: 'hotcue', deck: d, index, down, shift: s.ui.shift });
+    },
     call: (d, dir) => engine.command({ t: 'call', deck: d, dir }),
     loopIn: (d) => engine.command({ t: 'loopIn', deck: d }),
     loopOut: (d) => engine.command({ t: 'loopOut', deck: d }),
@@ -149,7 +154,7 @@ export function createDjActions({ engine, tracks, store = useDjStore, storage = 
         return 'confirm';
       }
       const token = ++loadTokens[d];
-      const hotCues = loadHotCues(storage, trackId);
+      let hotCues = loadHotCues(storage, trackId);
       store.getState().setDeck(d, { trackId, loading: true, pendingLoad: null, browseOpen: false, hotCues, waveform: null, overview: null });
       retrack(); // a new track BPM changes what a synced follower needs
       engine.loader
@@ -162,8 +167,14 @@ export function createDjActions({ engine, tracks, store = useDjStore, storage = 
         .decode(t)
         .then((buffer) => {
           if (loadTokens[d] !== token) return;
+          // Saved cues past the end of the track (e.g. an edited file) are dropped.
+          const valid = hotCues.map((h) => (h && h.sec >= 0 && h.sec < buffer.duration ? h : null));
+          if (valid.some((h, i) => h !== hotCues[i])) {
+            hotCues = valid;
+            saveHotCues(storage, trackId, hotCues);
+          }
           engine.loadTrack(d, t, buffer, hotCues.map((h) => (h ? h.sec : null)));
-          store.getState().setDeck(d, { loading: false });
+          store.getState().setDeck(d, { loading: false, hotCues });
         })
         .catch((err: unknown) => {
           if (loadTokens[d] !== token) return;
@@ -184,7 +195,8 @@ export function createDjActions({ engine, tracks, store = useDjStore, storage = 
     handleDeckEvent(d, e) {
       const s = store.getState();
       const trackId = s.decks[d].trackId;
-      if (e.kind === 'hotcue' && trackId) {
+      // A hot cue event during a load was emitted for the previous track: never file it under the new one.
+      if (e.kind === 'hotcue' && trackId && !s.decks[d].loading) {
         const hotCues = [...s.decks[d].hotCues];
         hotCues[e.index] = e.sec === null ? null : { sec: e.sec, color: HOT_CUE_COLORS[e.index] ?? '#28e214' };
         store.getState().setDeck(d, { hotCues });

@@ -85,6 +85,8 @@ export function applyTempoFader<T extends TempoControls>(decks: readonly [T, T],
     const master = next[m];
     const deltaBpm = (ctx.trackBpm[deck] * deltaPct) / 100;
     master.tempoPct = clampPct(master.tempoPct + (deltaBpm / ctx.trackBpm[m]) * 100, master.range);
+    // keep the master's fader on its new tempo, or its next touch / TEMPO RANGE press snaps both decks back
+    master.tempoFader = Math.max(-1, Math.min(1, master.tempoPct / master.range));
   }
   return trackSyncedTempo(next, ctx);
 }

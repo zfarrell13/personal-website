@@ -53,9 +53,27 @@ describe('tempo logic', () => {
     const [m, f] = applyTempoFader(decks, 1, 0.2, ctx);
     // +2 % on a 120 BPM track = +2.4 BPM → +1.935 % on the 124 BPM master
     expect(m.tempoPct).toBeCloseTo((2.4 / 124) * 100, 9);
-    expect(m.tempoFader).toBe(0);
+    // the master's fader follows its new tempo so the next touch doesn't snap it back
+    expect(m.tempoFader).toBeCloseTo(m.tempoPct / m.range, 12);
     expect(f.tempoFader).toBe(0.2);
     expect(bpm(ctx.trackBpm, f, 1)).toBeCloseTo(bpm(ctx.trackBpm, m, 0), 9);
+  });
+
+  it('a master fader touch after a follower nudge does not jump either deck', () => {
+    const ctx = { master: 0 as const, trackBpm: [124, 120] as const };
+    const decks = [deck(), deck({ sync: true, tempoPct: (4 / 120) * 100 })] as const;
+    const nudged = applyTempoFader(decks, 1, 0.2, ctx);
+    const before = bpm(ctx.trackBpm, nudged[0], 0);
+    // barely touch the master fader (+0.001 = +0.01 %)
+    const [m, f] = applyTempoFader(nudged, 0, nudged[0].tempoFader + 0.001, ctx);
+    expect(Math.abs(bpm(ctx.trackBpm, m, 0) - before)).toBeLessThan(0.1);
+    expect(bpm(ctx.trackBpm, f, 1)).toBeCloseTo(bpm(ctx.trackBpm, m, 0), 9);
+  });
+
+  it('clamps the master fader to ±1 after a follower nudge', () => {
+    const ctx = { master: 0 as const, trackBpm: [120, 120] as const };
+    const [m] = applyTempoFader([deck({ tempoPct: 9, tempoFader: 0.9, range: 10 }), deck({ sync: true, tempoPct: 9 })], 1, 1, ctx);
+    expect(m.tempoFader).toBe(1);
   });
 
   it('a master fader move while synced updates the follower tempoPct', () => {

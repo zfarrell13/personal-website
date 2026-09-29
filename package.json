@@ -6,11 +6,11 @@
   "scripts": {
     "predev": "tsx scripts/ensure-tracks.ts && tsx scripts/build-worklets.ts && tsx scripts/copy-models.ts",
     "dev": "next dev",
-    "prebuild": "tsx scripts/ensure-tracks.ts && tsx scripts/build-worklets.ts && tsx scripts/copy-models.ts",
+    "prebuild": "tsx scripts/ensure-tracks.ts && tsx scripts/build-worklets.ts --production && tsx scripts/copy-models.ts",
     "build": "next build",
     "tracks": "tsx scripts/build-tracks.ts",
     "start": "next start",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/dj/engine/worklets/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

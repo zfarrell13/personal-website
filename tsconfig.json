@@ -36,6 +36,8 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "src/dj/engine/worklets/*.worklet.ts",
+    "src/dj/engine/worklets/audioworklet.d.ts"
   ]
 }

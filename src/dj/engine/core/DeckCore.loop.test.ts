@@ -210,3 +210,97 @@ describe('fix round 1', () => {
     expect(() => d.scaleLoop(2)).not.toThrow();
   });
 });
+
+describe('final review: targets outside an active loop leave it', () => {
+  /** Playing deck with an active 2-beat loop starting at FIRST (frames 250..1250). */
+  function looping(track = rampTrack()): DeckCore {
+    const d = makeDeck({}, track);
+    d.play();
+    d.autoLoop(2);
+    run(d, 100);
+    return d;
+  }
+
+  it('render only wraps when the playhead crosses the out point from inside the loop', () => {
+    const d = looping();
+    d.pos = 30_000; // past the loop, loop still active
+    run(d, 100);
+    expect(d.pos).toBe(30_100);
+    d.set({ reverse: true });
+    d.pos = 100; // before the loop, moving backward
+    run(d, 50);
+    expect(d.pos).toBe(50);
+  });
+
+  it('reverse still wraps when crossing the in point from inside', () => {
+    const d = looping();
+    d.set({ reverse: true });
+    const posBefore = d.pos; // FIRST + 100
+    run(d, 150);
+    expect(d.pos).toBe(posBefore - 150 + 2 * FPB);
+  });
+
+  it('needle search past the loop exits it and keeps playing from there', () => {
+    const d = looping();
+    d.seek(30);
+    expect(d.loopActive).toBe(false);
+    run(d, 100);
+    expect(d.pos).toBe(30 * SR + 100);
+  });
+
+  it('needle search inside the loop keeps it active', () => {
+    const d = looping();
+    d.seek((FIRST + FPB) / SR);
+    expect(d.loopActive).toBe(true);
+  });
+
+  it('back-CUE to a cue point outside the loop exits it; PLAY resumes from the cue', () => {
+    const d = makeDeck();
+    d.seek(35);
+    d.cue(true); // paused off-cue → sets cue at 35 s (on a beat)
+    d.cue(false);
+    const cue = d.cueFrame;
+    d.seek(0.25);
+    d.play();
+    d.autoLoop(2);
+    run(d, 100);
+    d.cue(true); // back cue
+    expect(d.loopActive).toBe(false);
+    d.cue(false);
+    d.play();
+    run(d, 30);
+    expect(d.pos).toBe(cue + 30);
+  });
+
+  it('paused hot-cue preview of a cue past the loop exits it', () => {
+    const d = makeDeck();
+    d.seek(40);
+    d.hotCue(0, true, false); // store
+    d.hotCue(0, false, false);
+    const stored = d.hotCues[0]!;
+    d.seek(0.25);
+    d.play();
+    d.autoLoop(2);
+    run(d, 100);
+    d.play(); // pause, loop still active
+    expect(d.loopActive).toBe(true);
+    d.hotCue(0, true, false); // preview from the stored point
+    expect(d.loopActive).toBe(false);
+    run(d, 30);
+    expect(d.pos).toBe(stored + 30);
+    d.play(); // hot cue + PLAY keeps playing
+    d.hotCue(0, false, false);
+    run(d, 30);
+    expect(d.pos).toBe(stored + 60);
+  });
+
+  it('CALL to a memory cue past the loop (paused) exits it', () => {
+    const d = looping(rampTrack(60_000, { memoryCuesSec: [30] }));
+    d.play(); // pause
+    d.callMemoryCue(1);
+    expect(d.loopActive).toBe(false);
+    d.play();
+    run(d, 30);
+    expect(d.pos).toBe(30 * SR + 30);
+  });
+});

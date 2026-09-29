@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildWorklets, copyVendor } from './build-worklets';
+import { buildWorklets, copyVendor, workletBuildOptions } from './build-worklets';
 
 describe('buildWorklets', () => {
   it('bundles each *.worklet.ts into a self-contained script', async () => {
@@ -24,6 +24,11 @@ describe('buildWorklets', () => {
     expect(js).toContain('registerProcessor');
     expect(js).not.toMatch(/^\s*import\s/m);
     expect(js).not.toMatch(/^\s*export\s/m);
+  });
+
+  it('minifies without an inline sourcemap only for production builds', () => {
+    expect(workletBuildOptions('x', 'y', true)).toMatchObject({ minify: true, sourcemap: false });
+    expect(workletBuildOptions('x', 'y')).toMatchObject({ minify: false, sourcemap: 'inline' });
   });
 
   it('is a no-op when there are no worklets yet', async () => {

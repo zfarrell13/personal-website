@@ -1,0 +1,11 @@
+// AudioWorkletGlobalScope files only: the audioworklet.d.ts globals (sampleRate, currentFrame, ...)
+// must not leak into main-thread code, which the root tsconfig checks without them.
+{
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "plugins": []
+  },
+  "include": ["./*.ts"],
+  "exclude": []
+}

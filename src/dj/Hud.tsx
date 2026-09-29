@@ -17,6 +17,8 @@ export function Hud() {
     };
     const down = (e: KeyboardEvent) => {
       if (e.key === 'Tab') {
+        // Inside a form control (Settings) Tab keeps moving focus, so the dialog stays keyboard-usable.
+        if (e.target instanceof Element && e.target.closest('input, select, textarea')) return;
         e.preventDefault();
         const v = useDjStore.getState().ui.view;
         useDjStore.getState().setUi({ view: v === 'closeup' ? 'room' : 'closeup' });

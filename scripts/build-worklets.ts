@@ -22,9 +22,10 @@ export function copyVendor(src = VENDOR_SRC, outDir = VENDOR_OUT): string {
 /**
  * Bundles every `*.worklet.ts` into a standalone IIFE script for
  * `audioWorklet.addModule()` (worklets can't use the Next.js bundle).
- * Output: `<outDir>/<name>.worklet.js`.
+ * Output: `<outDir>/<name>.worklet.js`. `production` (the `--production` flag, passed by
+ * `prebuild`) minifies and drops the inline sourcemap; NODE_ENV isn't set during prebuild.
  */
-export function workletBuildOptions(srcDir = WORKLET_SRC, outDir = WORKLET_OUT): BuildOptions {
+export function workletBuildOptions(srcDir = WORKLET_SRC, outDir = WORKLET_OUT, production = false): BuildOptions {
   const entryPoints = (existsSync(srcDir) ? readdirSync(srcDir) : [])
     .filter((f) => f.endsWith('.worklet.ts'))
     .map((f) => join(srcDir, f));
@@ -36,15 +37,15 @@ export function workletBuildOptions(srcDir = WORKLET_SRC, outDir = WORKLET_OUT):
     format: 'iife',
     platform: 'browser',
     target: 'es2022',
-    minify: process.env.NODE_ENV === 'production',
-    sourcemap: process.env.NODE_ENV === 'production' ? false : 'inline',
+    minify: production,
+    sourcemap: production ? false : 'inline',
     logLevel: 'warning',
   };
 }
 
-export async function buildWorklets(srcDir = WORKLET_SRC, outDir = WORKLET_OUT): Promise<string[]> {
+export async function buildWorklets(srcDir = WORKLET_SRC, outDir = WORKLET_OUT, production = false): Promise<string[]> {
   mkdirSync(outDir, { recursive: true });
-  const options = workletBuildOptions(srcDir, outDir);
+  const options = workletBuildOptions(srcDir, outDir, production);
   if ((options.entryPoints as string[]).length === 0) return [];
   await build(options);
   return (options.entryPoints as string[]).map((e) => join(outDir, e.split('/').pop()!.replace(/\.ts$/, '.js')));
@@ -59,7 +60,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     console.log(`Watching ${WORKLET_SRC} → ${WORKLET_OUT}`);
   } else {
     copyVendor();
-    const files = await buildWorklets();
-    console.log(`Built ${files.length} worklet(s) → ${WORKLET_OUT}`);
+    const production = process.argv.includes('--production');
+    const files = await buildWorklets(WORKLET_SRC, WORKLET_OUT, production);
+    console.log(`Built ${files.length} ${production ? 'minified ' : ''}worklet(s) → ${WORKLET_OUT}`);
   }
 }

@@ -23,4 +23,25 @@ describe('Hud keyboard', () => {
     expect(updates).toBe(2);
     off();
   });
+
+  it('Tab switches the view and is not passed on to the browser', () => {
+    render(<Hud />);
+    const before = useDjStore.getState().ui.view;
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(useDjStore.getState().ui.view).not.toBe(before);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it.each(['select', 'input', 'textarea'])('Tab inside a %s keeps its normal focus behaviour', (tag) => {
+    render(<Hud />);
+    const el = document.createElement(tag);
+    document.body.appendChild(el);
+    const before = useDjStore.getState().ui.view;
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    el.dispatchEvent(ev);
+    expect(useDjStore.getState().ui.view).toBe(before);
+    expect(ev.defaultPrevented).toBe(false);
+    el.remove();
+  });
 });

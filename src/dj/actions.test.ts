@@ -227,4 +227,39 @@ describe('DjActions', () => {
     expect(deckState(0).hotCues[1]).toEqual({ sec: 12.5, color: '#ff127b' });
     expect(JSON.parse(st.data[hotCueKey('a')]!)[1]).toEqual({ sec: 12.5, color: '#ff127b' });
   });
+
+  it('ignores hot cue pads and hot cue events while a new track is loading', async () => {
+    const engine = fakeEngine();
+    const st = storage();
+    const a = createDjActions({ engine: engine as unknown as AudioEngine, tracks, storage: st });
+    a.requestLoad(0, 'a');
+    await flush();
+    engine.command.mockClear();
+    a.requestLoad(0, 'b'); // deck 0 still plays 'a' in the worklet until 'b' is decoded
+    a.hotCue(0, 3, true);
+    a.hotCue(0, 3, false);
+    expect(engine.command).not.toHaveBeenCalled();
+    // an event the worklet emitted for the old track must not land under the new track id
+    a.handleDeckEvent(0, { kind: 'hotcue', index: 3, sec: 42 });
+    expect(deckState(0).hotCues[3]).toBeNull();
+    expect(st.data[hotCueKey('b')]).toBeUndefined();
+    await flush();
+    expect(deckState(0).loading).toBe(false);
+    a.hotCue(0, 3, true);
+    expect(engine.command).toHaveBeenCalledWith({ t: 'hotcue', deck: 0, index: 3, down: true, shift: false });
+  });
+
+  it('drops saved hot cues that lie beyond the loaded track length', async () => {
+    const engine = fakeEngine();
+    engine.loader.decode.mockImplementation(async () => ({ duration: 30 }) as AudioBuffer);
+    const st = storage();
+    st.data[hotCueKey('a')] = JSON.stringify([{ sec: 10, color: '#fff' }, { sec: 45, color: '#fff' }, null, { sec: 30, color: '#fff' }]);
+    const a = createDjActions({ engine: engine as unknown as AudioEngine, tracks, storage: st });
+    a.requestLoad(0, 'a');
+    await flush();
+    const expected = [10, null, null, null, null, null, null, null];
+    expect(engine.loadTrack).toHaveBeenCalledWith(0, tracks[0], expect.anything(), expected);
+    expect(deckState(0).hotCues.map((h) => (h ? h.sec : null))).toEqual(expected);
+    expect(JSON.parse(st.data[hotCueKey('a')]!).map((h: { sec: number } | null) => (h ? h.sec : null))).toEqual(expected);
+  });
 });
