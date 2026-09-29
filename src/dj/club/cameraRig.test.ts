@@ -19,4 +19,25 @@ describe('camera rig', () => {
     rig.update(0.4);
     expect(cam.position.toArray()).toEqual(POSES.room.position);
   });
+  it('eases the under-the-truss amount with the dolly (1 close-up/BROWSE, 0 room)', () => {
+    const rig = new CameraRig(new THREE.PerspectiveCamera());
+    expect(rig.underTruss).toBe(1);
+    expect(rig.dollying).toBe(false);
+    rig.setTarget('room');
+    rig.update(0.4);
+    expect(rig.dollying).toBe(true);
+    expect(rig.underTruss).toBeCloseTo(0.5, 6);
+    rig.update(0.4);
+    expect(rig.underTruss).toBe(0);
+    expect(rig.dollying).toBe(false);
+    rig.setTarget('browse0');
+    rig.update(0.2);
+    const mid = rig.underTruss;
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(0.5);
+    // retarget mid-move: continues from the current amount, no jump
+    rig.setTarget('room');
+    rig.update(0);
+    expect(rig.underTruss).toBeCloseTo(mid, 9);
+  });
 });

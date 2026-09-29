@@ -110,11 +110,14 @@ export class Lights {
 
   /**
    * Close-up (DJ's-eye) view: the camera sits under the truss and looks through the beams, so the
-   * cones draw front faces only and fainter (otherwise they read as opaque slabs).
+   * cones draw front faces only and fainter (otherwise they read as opaque slabs). `amount` (0 = room,
+   * 1 = under the truss) follows the camera dolly: the opacity fades continuously, and the face mode
+   * (which cannot blend) flips at the midpoint, where the cones are already half faded.
    */
-  setCloseup(on: boolean): void {
-    this.coneGain = on ? CLOSEUP_CONE_GAIN : 1;
-    const side = on ? THREE.FrontSide : THREE.DoubleSide;
+  setCloseup(amount: number): void {
+    const k = Math.min(1, Math.max(0, amount));
+    this.coneGain = 1 + (CLOSEUP_CONE_GAIN - 1) * k;
+    const side = k >= 0.5 ? THREE.FrontSide : THREE.DoubleSide;
     for (const m of this.headMats) {
       if (m.side !== side) {
         m.side = side;

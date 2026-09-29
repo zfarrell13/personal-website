@@ -18,6 +18,9 @@ export const POSES: Record<PoseName, Pose> = {
 
 export const DOLLY_SEC = 0.8;
 
+/** 1 where the camera sits under the lighting truss (close-up, BROWSE zoom), 0 out in the room. */
+const UNDER_TRUSS: Record<PoseName, number> = { closeup: 1, browse0: 1, browse1: 1, room: 0 };
+
 export const smoothstep = (t: number): number => {
   const x = Math.min(1, Math.max(0, t));
   return x * x * (3 - 2 * x);
@@ -46,6 +49,8 @@ export class CameraRig {
   private t = 1;
   private readonly current: Pose = clonePose(POSES.closeup);
   private name: PoseName = 'closeup';
+  private underFrom = 1;
+  private under = 1;
 
   constructor(private readonly camera: THREE.PerspectiveCamera) {
     this.apply();
@@ -55,9 +60,20 @@ export class CameraRig {
     return this.name;
   }
 
+  /** 0..1, eased along the dolly with the camera position (drives the beam-cone look). */
+  get underTruss(): number {
+    return this.under;
+  }
+
+  /** True while the camera is moving between poses. */
+  get dollying(): boolean {
+    return this.t < 1;
+  }
+
   setTarget(name: PoseName): void {
     if (name === this.name) return;
     this.name = name;
+    this.underFrom = this.under;
     lerpPoseInto(this.from, this.current, this.current, 1);
     this.to = POSES[name];
     this.t = 0;
@@ -68,6 +84,8 @@ export class CameraRig {
     if (this.t < 1) {
       this.t = Math.min(1, this.t + Math.max(0, dt) / DOLLY_SEC);
       lerpPoseInto(this.current, this.from, this.to, this.t);
+      const to = UNDER_TRUSS[this.name];
+      this.under = this.t >= 1 ? to : this.underFrom + (to - this.underFrom) * smoothstep(this.t);
       this.apply();
     }
     return this.current;

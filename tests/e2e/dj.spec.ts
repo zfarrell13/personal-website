@@ -243,3 +243,18 @@ test('Tab switches to the room view, the club renders, and back', async ({ page 
   await expect(page.getByTestId('view-toggle')).toHaveText(/BOOTH/);
   expect(errors()).toEqual([]);
 });
+
+test('StrictMode (next dev): exactly one club canvas, rendering in the close-up at half rate', async ({ page }) => {
+  const errors = trackConsoleErrors(page);
+  await boot(page);
+  await expect(page.getByTestId('club-canvas')).toHaveCount(1);
+  expect(await page.locator('canvas.retro-canvas').count()).toBe(1);
+  const f0 = await page.evaluate(() => [window.__dj!.frames(), window.__dj!.clubFrames] as const);
+  await page.waitForFunction((f) => window.__dj!.clubFrames > f + 10, f0[1]);
+  const f1 = await page.evaluate(() => [window.__dj!.frames(), window.__dj!.clubFrames] as const);
+  // settled close-up: the club renders every 2nd loop frame (CLOSEUP_RENDER_EVERY)
+  const ratio = (f1[1] - f0[1]) / (f1[0] - f0[0]);
+  expect(ratio).toBeGreaterThan(0.35);
+  expect(ratio).toBeLessThan(0.65);
+  expect(errors()).toEqual([]);
+});

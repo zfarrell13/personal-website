@@ -43,13 +43,39 @@ describe('Lights', () => {
       return mats;
     };
     const roomOpacity = cones()[0]!.opacity;
-    l.setCloseup(true);
+    l.setCloseup(1);
     l.update(live, 1, 1 / 60);
     expect(cones()).toHaveLength(6);
     for (const m of cones()) {
       expect(m.side).toBe(0); // THREE.FrontSide
       expect(m.opacity).toBeLessThan(roomOpacity * 0.6);
     }
+    l.dispose();
+  });
+
+  it('fades the cones with the camera move instead of snapping', () => {
+    const l = new Lights();
+    const live = state({ idle: false, energy: 1 });
+    const cone = () => {
+      let m: { opacity: number; side: number } | null = null;
+      l.group.traverse((o) => {
+        if (!m && o.parent && o.parent.type === 'Object3D' && 'material' in o) m = o.material as { opacity: number; side: number };
+      });
+      return m!;
+    };
+    l.setCloseup(0);
+    l.update(live, 1, 1 / 60);
+    const room = cone().opacity;
+    l.setCloseup(1);
+    l.update(live, 1, 1 / 60);
+    const closeup = cone().opacity;
+    l.setCloseup(0.25);
+    l.update(live, 1, 1 / 60);
+    expect(cone().opacity).toBeLessThan(room);
+    expect(cone().opacity).toBeGreaterThan(closeup);
+    expect(cone().side).toBe(2); // THREE.DoubleSide while mostly outside the truss
+    l.setCloseup(0.75);
+    expect(cone().side).toBe(0); // THREE.FrontSide once mostly under it
     l.dispose();
   });
 });

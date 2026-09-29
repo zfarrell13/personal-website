@@ -29,6 +29,9 @@ export function ClubView() {
     // DeckDisplay canvases are already redrawn when the club uploads them as textures.
     const off = loop.add((dt, now) => {
       club.update(dt, now);
+      // Written every frame rather than once: DjApp installs window.__dj in its own effect, which runs
+      // AFTER this child effect (and StrictMode's remount replaces the hook object), so a one-time
+      // assignment here would land on a missing or stale hook. Two property writes, no allocation.
       const dbg = window.__dj;
       if (dbg) {
         dbg.clubFrames = club.frames;

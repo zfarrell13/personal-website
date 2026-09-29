@@ -33,9 +33,34 @@ const BG = '#05040c';
 /** The DJ figure is hidden while the camera is within this horizontal distance (m) of it. */
 const DJ_HIDE_RADIUS = 0.9;
 const DECKS = [0, 1] as const;
+/**
+ * In the settled close-up the club is only a dimmed backdrop mostly covered by the DOM gear, so it
+ * renders every Nth frame (the simulation still steps every frame). Room view, BROWSE zoom and
+ * any camera dolly render every frame.
+ */
+export const CLOSEUP_RENDER_EVERY = 2;
 
-/** Director inputs from telemetry + mixer state (only on-air channels count). Exported for tests. */
-export function directorInput(s: DjData, t: EngineTelemetry, beat: number, dt: number): DirectorInput {
+export const createDirectorInput = (): DirectorInput => ({
+  dt: 0,
+  lowRms: 0,
+  playing: false,
+  beat: 0,
+  filterSweep: 0,
+  lowCut: 0,
+  beatFxDepth: 0,
+});
+
+/**
+ * Director inputs from telemetry + mixer state (only on-air channels count), written into `out`
+ * (the scene passes one reused object: no per-frame allocation). Exported for tests.
+ */
+export function directorInput(
+  s: DjData,
+  t: EngineTelemetry,
+  beat: number,
+  dt: number,
+  out: DirectorInput = createDirectorInput(),
+): DirectorInput {
   let playing = false;
   let filterSweep = 0;
   let lowCut = 0;
@@ -46,15 +71,23 @@ export function directorInput(s: DjData, t: EngineTelemetry, beat: number, dt: n
     if (s.mixer.colorFxType === 'FILTER') filterSweep = Math.max(filterSweep, Math.abs(ch.color));
     lowCut = Math.max(lowCut, 1 - Math.min(1, eqGain(ch.low)));
   }
-  return {
-    dt,
-    lowRms: t.levels.lowRms,
-    playing,
-    beat,
-    filterSweep,
-    lowCut,
-    beatFxDepth: s.mixer.beatFx.on ? s.mixer.beatFx.depth : 0,
-  };
+  out.dt = dt;
+  out.lowRms = t.levels.lowRms;
+  out.playing = playing;
+  out.beat = beat;
+  out.filterSweep = filterSweep;
+  out.lowCut = lowCut;
+  out.beatFxDepth = s.mixer.beatFx.on ? s.mixer.beatFx.depth : 0;
+  return out;
+}
+
+/**
+ * The DJ figure is hidden in the BROWSE zoom (their headless torso would fill the frame) and
+ * whenever the camera is inside/near them (the close-up camera is the DJ's own eyes).
+ */
+export function djVisible(pose: PoseName, cam: { x: number; z: number }, dj: { x: number; z: number }): boolean {
+  if (pose === 'browse0' || pose === 'browse1') return false;
+  return Math.hypot(cam.x - dj.x, cam.z - dj.z) > DJ_HIDE_RADIUS;
 }
 
 /** Camera pose for the current view: close-up, the room, or zoomed on a deck whose BROWSE is open. */
@@ -82,6 +115,9 @@ export class ClubScene {
   private paletteFor: HTMLImageElement | null = null;
   private paletteCtx: CanvasRenderingContext2D | null = null;
   private disposed = false;
+  private readonly input = createDirectorInput();
+  private tick = 0;
+  /** Frames actually rendered (see CLOSEUP_RENDER_EVERY). */
   frames = 0;
 
   constructor(
@@ -153,7 +189,7 @@ export class ClubScene {
     const s = this.deps.getState();
     const t = this.deps.telemetry;
     const beat = t.master === -1 ? 0 : audibleBeat(t, t.master, this.deps.nowFrame());
-    const d = this.director.update(directorInput(s, t, beat, dt));
+    const d = this.director.update(directorInput(s, t, beat, dt, this.input));
     const u = this.crowd.uniforms;
     // hold the last beat phase when playback stops: the bounce eases out with the energy instead of snapping
     if (!d.idle) u.uBeatPhase.value = d.beatPhase;
@@ -162,19 +198,20 @@ export class ClubScene {
     u.uTime.value = now;
     this.dj.position.y = 0.4 + (d.idle ? 0 : Math.abs(Math.sin(Math.PI * d.beatPhase)) * 0.04);
     const pose = poseFor(s);
-    // close-up and BROWSE poses sit under the truss, looking through the beams
-    this.lights.setCloseup(pose !== 'room');
+    this.rig.setTarget(pose);
+    this.rig.update(dt);
+    // close-up and BROWSE poses sit under the truss, looking through the beams (eased with the dolly)
+    this.lights.setCloseup(this.rig.underTruss);
     this.lights.update(d, now, dt);
     this.deps.readSpectrum(this.wall.spectrum as Uint8Array<ArrayBuffer>);
     this.wall.update(now, beat, d.energy, d.drop, d.idle);
     this.updatePalette(t);
+    this.dj.visible = djVisible(pose, this.camera.position, this.dj.position);
 
-    this.rig.setTarget(pose);
-    this.rig.update(dt);
-    // The close-up camera is the DJ's own eyes: hide the DJ whenever the camera is inside/near them.
-    const cam = this.camera.position;
-    this.dj.visible = Math.hypot(cam.x - this.dj.position.x, cam.z - this.dj.position.z) > DJ_HIDE_RADIUS;
-    // The 3D gear is only visible from the room: skip bindings and texture uploads in close-up.
+    const every = pose === 'closeup' && !this.rig.dollying ? CLOSEUP_RENDER_EVERY : 1;
+    if (this.tick++ % every !== 0) return;
+    // The 3D gear is on screen only from the room (room pose and the BROWSE zoom, both in room view);
+    // in the close-up the DOM booth covers it, so bindings and screen/jog texture uploads are skipped.
     if (s.ui.view === 'room' && this.gear) {
       applyBindings(this.gear.bindings, s, t);
       markTexturesDirty(this.gear.textures);
