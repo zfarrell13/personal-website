@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Vector3 } from 'three';
-import { SURF_CONFIG } from '../config';
+import { bumpConfig, SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
 import { EventBus, type SurfEvent } from './events';
 import { NO_INPUT, type SurferInput } from './input';
@@ -97,21 +97,55 @@ describe('Surfer — air', () => {
     h.s.v.copy(up).multiplyScalar(speed);
   }
 
-  // x = 40 is a gentler face (33°), so gravity bleeds more speed before the crest: it needs 18 m/s.
-  it.each([
-    [10, 12],
-    [20, 12],
-    [40, 18],
-  ])('launches into real air (≥ 0.3 s, not a one-tick hop) at the crest (x=%d, %d m/s)', (x, speed) => {
+  // (x = 20 at 8 m/s never reaches the top of the face with launch speed: gravity bleeds it, so it
+  // clamps and slides back — covered by the 'too slow' test below.)
+  const AIR_CASES = [2, 10, 20].flatMap((x) => [8, 12, 18].filter((v) => !(x === 20 && v === 8)).map((v) => [x, v] as const));
+
+  it.each(AIR_CASES)('crest air is a real, local air (x=%d, %d m/s)', (x, speed) => {
     const h = setup();
     climbFast(h, x, speed);
+    const closest = { x: 0, t: 0 };
+    const S = new Vector3();
+    const n = new Vector3();
     let maxAir = 0;
-    for (let i = 0; i < 3 * 120; i++) {
+    let launchedAt = -1;
+    let landedJump = 0;
+    let minSigned = Infinity;
+    for (let i = 0; i < 4 * 120; i++) {
+      const before = h.s.p.clone();
+      const modeBefore = h.s.mode;
       h.run(DT);
       maxAir = Math.max(maxAir, h.s.airTime);
+      if (launchedAt < 0 && h.s.mode === 'airborne') launchedAt = i;
+      if (h.s.mode === 'airborne') {
+        closest.x = h.s.param.x;
+        closest.t = h.s.param.t;
+        h.wave.closestParam(h.s.p, closest, closest);
+        h.wave.profile(closest.x, closest.t, S);
+        h.wave.normal(closest.x, closest.t, n);
+        minSigned = Math.min(minSigned, S.negate().add(h.s.p).dot(n));
+      }
+      if (modeBefore === 'airborne' && h.s.mode === 'riding') {
+        landedJump = h.s.p.distanceTo(before) - h.s.v.length() * DT;
+        break;
+      }
     }
-    expect(h.events.filter((e) => e.type === 'launched' && e.kind === 'crest')).toHaveLength(1);
+    expect(launchedAt).toBeGreaterThanOrEqual(0);
+    expect(h.s.mode).toBe('riding');
     expect(maxAir).toBeGreaterThanOrEqual(0.3);
+    expect(landedJump).toBeLessThanOrEqual(0.1);
+    expect(minSigned).toBeGreaterThanOrEqual(-0.05);
+    expect(h.events.some((e) => e.type === 'landed')).toBe(true);
+  });
+
+  it('a crest launch on the flat shoulder carries you over the back: kicked out, not a wipeout', () => {
+    const h = setup();
+    climbFast(h, 40, 18);
+    h.run(3);
+    expect(h.events.some((e) => e.type === 'launched' && e.kind === 'crest')).toBe(true);
+    expect(h.s.mode).toBe('kickedOut');
+    expect(h.events.some((e) => e.type === 'kickedOut')).toBe(true);
+    expect(h.events.some((e) => e.type === 'wipeout')).toBe(false);
   });
 
   it('too slow at the top of the face: no launch, clamps and slides back down', () => {
@@ -139,7 +173,8 @@ describe('Surfer — air', () => {
         climbFast(h, x, speed);
         for (let i = 0; i < 4 * 120; i++) {
           h.run(DT);
-          if (h.s.mode === 'riding' && !h.s.floating) {
+          // x < 0 is the floater domain: climbing the overhang there is the approach to a floater.
+          if (h.s.mode === 'riding' && !h.s.floating && h.s.param.x >= h.cfg.physics.floaterMaxX) {
             expect(h.wave.normal(h.s.param.x, h.s.param.t, nrm).y, `x=${x} v=${speed} tick=${i}`).toBeGreaterThanOrEqual(0);
           }
         }
@@ -229,5 +264,56 @@ describe('Surfer — floater and kick-out', () => {
     h.s.v.set(3, 0, 0).addScaledVector(up, 5); // reaches the crest below launch speed
     h.run(1.5, () => ({ carve: 1 }));
     expect(h.events.some((e) => e.type === 'snap')).toBe(true);
+  });
+});
+
+describe('Surfer — floater continuity', () => {
+  const CASES = [-1, -3].flatMap((x) => [8, 12, 18].map((v) => [x, v] as const));
+  it.each(CASES)('floater at x=%d, %d m/s never teleports and keeps an upward frame', (x, speed) => {
+    const h = setup();
+    h.surfer.reset(x, 0.6);
+    const n = h.wave.normal(x, 0.6);
+    const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
+    h.s.v.set(4, 0, 0).addScaledVector(up, speed);
+    let worst = 0;
+    let floatedTicks = 0;
+    for (let i = 0; i < 4 * 120; i++) {
+      const before = h.s.p.clone();
+      const vBefore = h.s.v.length();
+      h.run(DT);
+      const step = h.s.p.distanceTo(before) - Math.max(vBefore, h.s.v.length()) * DT;
+      worst = Math.max(worst, step);
+      if (h.s.floating) {
+        floatedTicks++;
+        expect(h.s.normal.y, `tick ${i}`).toBeGreaterThan(0);
+      }
+      if (h.s.mode !== 'riding' && h.s.mode !== 'airborne') break;
+    }
+    expect(h.events.some((e) => e.type === 'floaterStart')).toBe(true);
+    expect(floatedTicks).toBeGreaterThan(0);
+    expect(worst).toBeLessThanOrEqual(0.05);
+  });
+});
+
+describe('Surfer — crest cache', () => {
+  type CrestProbe = { crestAt(x: number): { y: number } };
+  const crestOf = (surfer: Surfer, x: number) => (surfer as unknown as CrestProbe).crestAt(x).y;
+
+  it('reflects current wave params after bumpConfig()', () => {
+    const h = setup();
+    const before = crestOf(h.surfer, 10);
+    expect(before).toBeCloseTo(h.wave.crestY(10), 9);
+    h.wave.params.height *= 1.5;
+    bumpConfig();
+    expect(crestOf(h.surfer, 10)).toBeCloseTo(h.wave.crestY(10), 9);
+    expect(crestOf(h.surfer, 10)).toBeGreaterThan(before * 1.4);
+  });
+
+  it('is cleared by reset() even without a version bump', () => {
+    const h = setup();
+    crestOf(h.surfer, 10);
+    h.wave.params.height *= 1.5; // no bumpConfig()
+    h.surfer.reset(10, 0.4);
+    expect(crestOf(h.surfer, 10)).toBeCloseTo(h.wave.crestY(10), 9);
   });
 });

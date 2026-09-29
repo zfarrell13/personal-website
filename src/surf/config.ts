@@ -54,6 +54,8 @@ export const SURF_CONFIG = {
     /** Snap requires the heading to turn at least this much at the crest (deg). */
     snapAngle: 110,
     ollieImpulse: 4,
+    /** Cap on the vertical speed of a crest launch (m/s). */
+    maxAirSpeed: 9,
     spinRate: 540,
     landTolerance: 40,
     grabGrace: 0.1,

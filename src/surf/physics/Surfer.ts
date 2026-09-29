@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import type { PhysicsParams } from '../config';
+import { configVersion, type PhysicsParams } from '../config';
 import { clamp, DEG, wrapAngle } from '../math/scalar';
 import type { WaveParam, WaveShape } from '../wave/WaveShape';
 import type { EventBus, GrabKind, GrabRecord, LaunchKind, SurfEvent, WipeoutReason } from './events';
@@ -41,10 +41,16 @@ export interface SurferState {
 }
 
 const CREST_EPS = 0.004;
-/** The rideable face ends where the surface normal's y drops below this (face going vertical / overhanging). */
 /** Airborne below still-water level (y = 0) by more than this = fell off the back. */
 const WATER_LEVEL_SLACK = 0.5;
+/** The rideable face ends where the surface normal's y drops below this (face going vertical / overhanging). */
 const FACE_MIN_NY = 0.2;
+/** Fraction of the headroom under the lip a crest launch may use (the lip is solid). */
+const LIP_HEADROOM_USE = 0.6;
+/** Below the crest, on the face, where a crest air is aimed to come back down (in t). */
+const LANDING_BELOW_EDGE = 0.06;
+/** Landing snap distance beyond the distance travelled in a tick (m). */
+const LAND_SNAP = 0.3;
 const DROP_IN = { x: 4, t: 0.55, along: 2, down: 4 };
 
 /**
@@ -66,7 +72,16 @@ export class Surfer {
   private readonly tmp2 = new Vector3();
   private readonly q: WaveParam = { x: 0, t: 0 };
   private readonly outward = new Vector3();
-  private crestMemo = { x: NaN, t: 0, y: 0 };
+  private readonly scratch = new Vector3();
+  private crestMemo = { x: NaN, version: -1, t: 0, y: 0 };
+  /** Riding up the overhanging lip (only reachable while able to float). */
+  private onLip = false;
+  /** This air is a crest launch over the flat shoulder: it ends kicked out. */
+  private overBack = false;
+  /** A floater dismount: no launched/landed events. */
+  private silentAir = false;
+  /** Signed distance to the local face at the previous air tick (> 0 = front side). */
+  private prevD = 0;
   private readonly crestHeading = new Vector3();
   private atCrest = false;
   private crestTime = -Infinity;
@@ -144,6 +159,10 @@ export class Surfer {
     this.prevHeading.copy(s.heading);
     this.atCrest = false;
     this.snapArmed = false;
+    this.onLip = false;
+    this.overBack = false;
+    this.silentAir = false;
+    this.crestMemo.x = NaN;
     this.slowTime = 0;
     this.carveAccum = 0;
     this.carveDir = 0;
@@ -169,10 +188,12 @@ export class Surfer {
   /** Crest param and height at column x, memoized (crestT is expensive). */
   private crestAt(x: number): { x: number; t: number; y: number } {
     const m = this.crestMemo;
-    if (m.x !== x) {
+    const version = configVersion();
+    if (m.x !== x || m.version !== version) {
       m.x = x;
+      m.version = version;
       m.t = this.wave.crestT(x);
-      m.y = this.wave.profile(x, m.t, this.tmp).y;
+      m.y = this.wave.profile(x, m.t, this.scratch).y;
     }
     return m;
   }
@@ -183,7 +204,7 @@ export class Surfer {
    */
   private faceEnd(x: number, tMax: number): number {
     const w = this.wave;
-    const ny = (t: number): number => w.normal(x, t, this.tmp).y;
+    const ny = (t: number): number => w.normal(x, t, this.scratch).y;
     if (ny(tMax) >= FACE_MIN_NY) return tMax;
     let hi = tMax;
     let lo = tMax;
@@ -204,6 +225,8 @@ export class Surfer {
     this.wave.tangents(x, t, this.sx, this.st);
     this.state.normal.crossVectors(this.sx, this.st).normalize();
     this.e1.copy(this.sx).normalize();
+    // A floater rides on top of the lip, where the t-oriented normal points down: keep the frame upright.
+    if (this.state.floating && this.state.normal.y < 0) this.state.normal.negate();
     this.eUp.crossVectors(this.state.normal, this.e1).normalize();
   }
 
@@ -221,8 +244,11 @@ export class Surfer {
     s.stalling = input.stall && !s.floating;
 
     if (input.ollie && !s.floating) {
-      s.v.addScaledVector(n, c.ollieImpulse);
+      // The pop's vertical part (impulse along the normal) is kept; the shoreward part is re-aimed so the
+      // hop comes back down onto the face instead of flying off into the flat water in front of it.
+      const vy = Math.max(0, s.v.y + n.y * c.ollieImpulse);
       s.p.addScaledVector(n, 0.02);
+      this.hop(vy, s.param.t - LANDING_BELOW_EDGE, this.crestAt(s.param.x).y);
       this.launch('ollie');
       return;
     }
@@ -273,22 +299,39 @@ export class Surfer {
     w.closestParam(s.p, s.param, s.param);
     const crest = this.crestAt(s.param.x);
     const tc = crest.t;
-    const tb = s.floating ? tc : this.faceEnd(s.param.x, Math.min(s.param.t, tc - CREST_EPS));
-    const atEdge = s.param.t >= tc - CREST_EPS || tb < s.param.t;
+    const tCrestEdge = tc - CREST_EPS;
+    const canFloat = s.param.x < c.floaterMaxX && s.v.length() >= c.floaterMinSpeed;
+    let tb = tc;
+    if (!s.floating) {
+      const fe = this.faceEnd(s.param.x, Math.min(s.param.t, tCrestEdge));
+      if (s.param.t <= fe + 1e-9) this.onLip = false;
+      else if (canFloat) this.onLip = true; // climbing the overhang toward a floater
+      tb = canFloat || this.onLip ? tCrestEdge : fe;
+    }
+    if (!s.floating && this.onLip && !canFloat) {
+      // Ran out of speed climbing the overhang before reaching the crest: fall back off it.
+      this.dropFromLip(tc);
+      return;
+    }
+    const atEdge = !s.floating && (s.param.t >= tCrestEdge || tb < s.param.t);
 
     if (s.floating) {
       this.floatTick(input, tc);
       if (s.mode !== 'riding') return;
     } else if (atEdge) {
       // End of the rideable face. Speed leaving the face (along ∂S/∂t) decides launch vs clamp.
-      const canFloat = s.param.x < c.floaterMaxX && s.v.length() >= c.floaterMinSpeed;
+      const atCrestEdge = tb >= tCrestEdge - 1e-9;
       w.tangents(s.param.x, tb, this.sx, this.st);
       const out = this.outward.copy(this.st).normalize();
-      if (!canFloat && s.v.dot(out) > c.launchSpeed) {
+      if (!(atCrestEdge && canFloat) && s.v.dot(out) > c.launchSpeed) {
         w.profile(s.param.x, tb, s.p);
         w.normal(s.param.x, tb, n);
         s.p.addScaledVector(n, 0.02);
-        this.launch('crest');
+        if (atCrestEdge) this.launch('crest', true);
+        else {
+          this.hop(s.v.dot(out), tb - LANDING_BELOW_EDGE, crest.y);
+          this.launch('crest');
+        }
         return;
       }
       if (!this.atCrest) {
@@ -303,11 +346,13 @@ export class Surfer {
       s.v.addScaledVector(n, -s.v.dot(n));
       const up = s.v.dot(out);
       if (up > 0) s.v.addScaledVector(out, -up);
-      if (canFloat) {
+      if (atCrestEdge && canFloat) {
         s.floating = true;
+        this.onLip = false;
         this.floatStart = s.time;
         s.floatTime = 0;
         this.snapArmed = false;
+        this.frameAt(s.param.x, tb);
         this.emit({ type: 'floaterStart', time: s.time });
       }
     } else {
@@ -336,8 +381,7 @@ export class Surfer {
     if (s.param.x > c.kickOutX && s.v.dot(this.e1) < c.kickOutMinSpeed) {
       this.slowTime += dt;
       if (this.slowTime >= c.kickOutTime) {
-        s.mode = 'kickedOut';
-        this.emit({ type: 'kickedOut', time: s.time });
+        this.kickOut();
       }
     } else {
       this.slowTime = 0;
@@ -356,11 +400,8 @@ export class Surfer {
     const done = s.param.x >= c.tubeXMax || s.floatTime >= c.floaterMaxTime || input.carve < 0;
     if (done) {
       s.floating = false;
-      s.param.t = this.faceEnd(s.param.x, tc - 0.03);
-      w.profile(s.param.x, s.param.t, s.p);
-      this.frameAt(s.param.x, s.param.t);
-      s.v.addScaledVector(s.normal, -s.v.dot(s.normal)).addScaledVector(this.eUp, -2);
       this.emit({ type: 'floaterEnd', time: s.time, duration: s.floatTime, landed: true });
+      this.dropFromLip(tc);
       return;
     }
     s.param.t = tc;
@@ -368,6 +409,15 @@ export class Surfer {
     this.frameAt(s.param.x, tc);
     s.v.addScaledVector(s.normal, -s.v.dot(s.normal));
     s.v.addScaledVector(this.eUp, -s.v.dot(this.eUp));
+  }
+
+  /** Leave the lip in place (no teleport): a silent hop that comes down on the face below. */
+  private dropFromLip(tc: number): void {
+    const s = this.state;
+    const fe = this.faceEnd(s.param.x, tc - CREST_EPS);
+    this.onLip = false;
+    this.hop(0, fe - LANDING_BELOW_EDGE, this.crestAt(s.param.x).y);
+    this.launch(null);
   }
 
   private tubeTick(crestY: number): void {
@@ -403,7 +453,8 @@ export class Surfer {
     }
   }
 
-  private launch(kind: LaunchKind): void {
+  /** Enter the air. `kind` null = a silent dismount (floater end): no launched / landed events. */
+  private launch(kind: LaunchKind | null, overBack = false): void {
     const s = this.state;
     if (s.inTube) this.emit({ type: 'tubeExit', time: s.time, duration: s.time - this.tubeStart });
     if (s.floating) this.emit({ type: 'floaterEnd', time: s.time, duration: s.floatTime, landed: true });
@@ -419,12 +470,44 @@ export class Surfer {
     this.atCrest = false;
     this.snapArmed = false;
     this.grabs = [];
+    this.overBack = overBack;
+    this.silentAir = kind === null;
+    this.prevD = 1;
     const hx = s.v.x;
     const hz = s.v.z;
     const h = Math.hypot(hx, hz);
     if (h > 1e-3) s.heading.set(hx / h, 0, hz / h);
     else s.heading.set(s.heading.x, 0, s.heading.z).normalize();
-    this.emit({ type: 'launched', time: s.time, kind });
+    if (kind) this.emit({ type: 'launched', time: s.time, kind });
+  }
+
+  /**
+   * Turn a launch into a local hop. In the wave frame the face is stationary but in reality the lip
+   * pitches toward shore and carries the rider, so the wanted vertical speed (capped by maxAirSpeed and
+   * by the headroom under the solid lip) keeps v.x, drops any along-the-face shoreward/back speed, and
+   * takes just the z drift that brings the ballistic arc back down onto the face at `tTarget`.
+   */
+  private hop(vyWanted: number, tTarget: number, crestY: number): void {
+    const s = this.state;
+    const c = this.cfg;
+    const x = s.param.x;
+    const headroom = Math.max(0, crestY - s.p.y) * LIP_HEADROOM_USE;
+    const vy = Math.min(vyWanted, c.maxAirSpeed, Math.sqrt(2 * c.gravity * headroom));
+    const target = this.wave.profile(x, clamp(tTarget, 0.05, 1), this.tmp);
+    const drop = Math.max(0, s.p.y - target.y);
+    const flight = (vy + Math.sqrt(vy * vy + 2 * c.gravity * drop)) / c.gravity;
+    const drift = clamp((target.z - s.p.z) / Math.max(flight, 1e-3), -3, 3);
+    s.v.set(s.v.x, vy, Math.abs(drift) < 0.2 ? 0.2 : drift);
+  }
+
+  /** Terminal: carried off the wave (over the back, or left behind by it). */
+  private kickOut(): void {
+    const s = this.state;
+    this.endGrab();
+    s.mode = 'kickedOut';
+    s.inTube = false;
+    s.floating = false;
+    this.emit({ type: 'kickedOut', time: s.time });
   }
 
   private air(input: SurferInput, dt: number): void {
@@ -448,25 +531,33 @@ export class Surfer {
     }
     if (s.grab) this.lastGrabTime = s.time;
 
-    // Flew off the back of the wave into open water: nothing to land on.
+    // Fell into open water behind / below the wave.
     if (s.p.y < -WATER_LEVEL_SLACK) {
-      this.endGrab();
-      this.wipe('whitewater');
+      this.kickOut();
       return;
     }
 
-    // Landing: test against the face (t ≤ crestT) each tick.
+    // Landing is local: the closest point of the rideable face, crossed from the front side.
     const q = w.closestParam(s.p, s.param, this.q);
     const tc = this.crestAt(q.x).t;
     if (q.t > tc) q.t = tc;
     s.param.x = q.x;
     s.param.t = q.t;
-    // Only the rideable face is ground: above its end (vertical / overhanging lip) there is nothing to land on.
-    if (q.t > this.faceEnd(q.x, Math.min(q.t, tc - CREST_EPS)) + 1e-9) return;
     const S = w.profile(q.x, q.t, this.tmp);
     const n = w.normal(q.x, q.t, this.tmp2);
-    const d = this.acc.subVectors(s.p, S).dot(n);
-    if (d <= 0 && s.v.dot(n) < 0) this.land(S, n);
+    const off = this.acc.subVectors(s.p, S);
+    const d = off.dot(n);
+    const prevD = this.prevD;
+    this.prevD = d;
+    if (this.overBack) {
+      if (d <= 0) this.kickOut();
+      return;
+    }
+    // Above the end of the face (vertical / overhanging lip) there is nothing to land on.
+    if (q.t > this.faceEnd(q.x, Math.min(q.t, tc - CREST_EPS)) + 1e-9) return;
+    if (d > 0) return;
+    if (prevD > 0 && s.v.dot(n) < 0 && off.length() <= LAND_SNAP + s.v.length() * dt) this.land(S, n);
+    else this.kickOut();
   }
 
   private endGrab(): void {
@@ -496,15 +587,17 @@ export class Surfer {
     s.v.addScaledVector(n, -s.v.dot(n)).multiplyScalar(c.landingSpeedKeep);
     if (s.v.lengthSq() > 1e-6) s.heading.copy(s.v).normalize();
     if (reverse) s.stanceFlipped = !s.stanceFlipped;
-    this.emit({
-      type: 'landed',
-      time: s.time,
-      spinDeg: Math.round(Math.abs(s.airYaw) / Math.PI) * 180,
-      grabs: this.grabs,
-      revert: reverse,
-      ollie: s.launchKind === 'ollie',
-      airTime: s.airTime,
-    });
+    if (!this.silentAir) {
+      this.emit({
+        type: 'landed',
+        time: s.time,
+        spinDeg: Math.round(Math.abs(s.airYaw) / Math.PI) * 180,
+        grabs: this.grabs,
+        revert: reverse,
+        ollie: s.launchKind === 'ollie',
+        airTime: s.airTime,
+      });
+    }
     this.grabs = [];
     s.airYaw = 0;
   }
