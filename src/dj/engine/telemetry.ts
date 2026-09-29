@@ -18,6 +18,8 @@ export interface DeckTelemetry {
   slipFlags: number;
   shadowSec: number;
   scratching: boolean;
+  /** Gliding back to motor speed after a scratch. */
+  releasing: boolean;
   ended: boolean;
   lengthSec: number;
   synced: boolean;
@@ -61,6 +63,7 @@ const emptyDeck = (): DeckTelemetry => ({
   slipFlags: 0,
   shadowSec: 0,
   scratching: false,
+  releasing: false,
   ended: false,
   lengthSec: 0,
   synced: false,
@@ -99,6 +102,7 @@ export function applyTelemetry(t: EngineTelemetry, data: Float64Array): void {
     d.slipFlags = data[o + TEL.slipFlags]!;
     d.shadowSec = data[o + TEL.shadowSec]!;
     d.scratching = data[o + TEL.scratching] === 1;
+    d.releasing = data[o + TEL.releasing] === 1;
     d.ended = data[o + TEL.ended] === 1;
     d.lengthSec = data[o + TEL.lengthSec]!;
     d.synced = data[o + TEL.synced] === 1;

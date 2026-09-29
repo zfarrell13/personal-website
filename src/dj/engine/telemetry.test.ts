@@ -24,6 +24,26 @@ describe('telemetry', () => {
     expect(deckBpm(t.decks[0])).toBeCloseTo(124 * 1.02, 9);
     expect(t.master).toBe(0);
     expect(t.decks[1].loaded).toBe(false);
+    expect(t.decks[0].releasing).toBe(false);
+  });
+
+  it('reports the post-scratch hand-back glide as releasing', () => {
+    const e = new DeckEngineCore(SR);
+    e.command({ t: 'load', deck: 0, left: pcm, right: pcm, bpm: 120, firstBeatSec: 0.25, memoryCuesSec: [], hotCuesSec: Array(8).fill(null) });
+    e.command({ t: 'set', deck: 0, patch: { motorStartSec: 0, jogWeight: 1 } });
+    e.command({ t: 'play', deck: 0 });
+    const z = new Float32Array(128);
+    e.process(z, z, z, z, 128);
+    e.command({ t: 'jog', deck: 0, touch: true, revPerSec: 0, ring: false });
+    e.process(z, z, z, z, 128);
+    e.command({ t: 'jog', deck: 0, touch: false, revPerSec: 0, ring: false });
+    e.process(z, z, z, z, 128);
+    const data = new Float64Array(TEL_SIZE);
+    e.writeTelemetry(data, 384);
+    const t = createTelemetry(SR);
+    applyTelemetry(t, data);
+    expect(t.decks[0].scratching).toBe(false);
+    expect(t.decks[0].releasing).toBe(true);
   });
 
   it('extrapolates to now and subtracts the output latency', () => {

@@ -10,10 +10,10 @@ export function mtSemitones(rate: number): number {
 
 /**
  * Whether the key-locked (wet) path may be used. Like the real deck, Master Tempo
- * drops to the dry path while scratching, reversing, braking/starting, or outside 0.5×–2×.
+ * drops to the dry path while scratching (and the post-scratch hand-back glide), reversing, braking/starting, or outside 0.5×–2×.
  */
-export function mtWetAllowed(mtOn: boolean, d: Pick<DeckTelemetry, 'scratching' | 'rate' | 'motor' | 'state'>, reverse: boolean): boolean {
-  if (!mtOn || d.scratching || reverse || d.state === 'PAUSED') return false;
+export function mtWetAllowed(mtOn: boolean, d: Pick<DeckTelemetry, 'scratching' | 'releasing' | 'rate' | 'motor' | 'state'>, reverse: boolean): boolean {
+  if (!mtOn || d.scratching || d.releasing || reverse || d.state === 'PAUSED') return false;
   if (d.motor < 1) return false;
   return d.rate >= 0.5 && d.rate <= 2;
 }

@@ -108,7 +108,8 @@ export class DeckCore {
   shadowPos = 0;
 
   scratching = false;
-  private releasing = false;
+  /** True while the platter glides back to motor speed after a scratch (Master Tempo stays dry). */
+  releasing = false;
   private jogVel = 0;
   private bend = 0;
   private bendTarget = 0;

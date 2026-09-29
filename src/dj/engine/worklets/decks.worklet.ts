@@ -1,6 +1,6 @@
 import { TELEMETRY_EVERY_BLOCKS } from '../../constants';
 import { DeckEngineCore } from '../core/DeckEngineCore';
-import { TEL_SIZE, type DeckCommand } from '../core/protocol';
+import { TEL_SIZE, type DeckCommand, type DecksPortMessage } from '../core/protocol';
 import { PROCESSORS, type ClockMessage, type ClockPortMessage } from './messages';
 
 /** Thin wrapper: both decks + sync in one processor so the PLL sees exact positions. Outputs: [deck 1, deck 2], stereo. */
@@ -26,7 +26,10 @@ class DecksProcessor extends AudioWorkletProcessor {
 
   private flushEvents(): void {
     const events = this.core.drainEvents(); // shared frozen empty array when idle: never mutated here
-    for (let i = 0; i < events.length; i++) this.port.postMessage({ t: 'event', deck: events[i]!.deck, e: events[i]!.e });
+    for (let i = 0; i < events.length; i++) {
+      const msg: DecksPortMessage = { t: 'event', deck: events[i]!.deck, e: events[i]!.e };
+      this.port.postMessage(msg);
+    }
   }
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
@@ -40,7 +43,8 @@ class DecksProcessor extends AudioWorkletProcessor {
       const frame = currentFrame + frames;
       const data = new Float64Array(TEL_SIZE); // one small allocation per ~16 ms, not per block
       this.core.writeTelemetry(data, frame);
-      this.port.postMessage({ t: 'tel', data }, [data.buffer]);
+      const tel: DecksPortMessage = { t: 'tel', data };
+      this.port.postMessage(tel, [data.buffer]);
       this.flushEvents();
       const clock = this.core.masterClock(); // reused object: copy the fields now
       if (clock && this.clockPort) {

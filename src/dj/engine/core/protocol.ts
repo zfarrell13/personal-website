@@ -35,6 +35,9 @@ export type DeckReport =
   /** Beat clock for the FX worklet (sent over a dedicated MessagePort). */
   | { t: 'clock'; frame: number; beat: number; bpm: number };
 
+/** What the decks worklet posts on its own node port (the clock goes over the dedicated channel). */
+export type DecksPortMessage = Extract<DeckReport, { t: 'tel' | 'event' }>;
+
 /** Telemetry layout: one Float64Array, STRIDE values per deck, then globals. */
 export const TEL = {
   loaded: 0,
@@ -57,8 +60,9 @@ export const TEL = {
   trim: 17,
   motor: 18,
   bpm: 19,
+  releasing: 20,
 } as const;
-export const TEL_STRIDE = 20;
+export const TEL_STRIDE = 21;
 export const TEL_MASTER = TEL_STRIDE * 2;
 export const TEL_FRAME = TEL_MASTER + 1;
 export const TEL_SIZE = TEL_FRAME + 1;

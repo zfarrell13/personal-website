@@ -116,6 +116,7 @@ export class DeckEngineCore {
       out[o + TEL.trim] = this.sync.trim[id];
       out[o + TEL.motor] = d.motor;
       out[o + TEL.bpm] = d.loaded ? d.bpm : 0;
+      out[o + TEL.releasing] = d.releasing ? 1 : 0;
     }
     out[TEL_MASTER] = this.sync.master;
     out[TEL_FRAME] = frame;
