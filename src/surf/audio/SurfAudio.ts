@@ -94,6 +94,7 @@ export class SurfAudio {
   private music: HTMLAudioElement | null = null;
   private playlist: Playlist | null = null;
   private disposed = false;
+  private musicFailures = 0;
 
   constructor(private readonly onTrack: (t: TrackEntry) => void) {
     const c = this.ctx;
@@ -177,6 +178,15 @@ export class SurfAudio {
     this.music.preload = 'auto';
     this.ctx.createMediaElementSource(this.music).connect(this.musicGain);
     this.music.addEventListener('ended', () => this.nextTrack());
+    // A missing or undecodable file skips to the next track (at most one full cycle of failures in a row).
+    this.music.addEventListener('error', () => {
+      if (this.disposed) return;
+      if (++this.musicFailures < (this.playlist?.tracks.length ?? 0)) this.nextTrack();
+      else console.warn('No surf track could be played.');
+    });
+    this.music.addEventListener('playing', () => {
+      this.musicFailures = 0;
+    });
     this.nextTrack();
   }
 

@@ -1,0 +1,420 @@
+import {
+  ArrowHelper,
+  AxesHelper,
+  BufferGeometry,
+  Group,
+  Line,
+  LineBasicMaterial,
+  PerspectiveCamera,
+  Scene,
+  Vector3,
+  type Material,
+  type Mesh,
+} from 'three';
+import { RetroRenderer } from '@/retro/RetroRenderer';
+import { ActionState } from '@/shared/input/ActionState';
+import { loadManifest, type TrackEntry } from '@/shared/tracks';
+import { SurfAudio } from '../audio/SurfAudio';
+import { CAMERA_FAR, CameraRig } from '../camera/CameraRig';
+import { Character, loadSurferRig } from '../character/Character';
+import { configVersion, SURF_CONFIG, SURFER_LOOK, type Side, type SurferLook } from '../config';
+import { EventBus, type SurfEvent } from '../physics/events';
+import { NO_INPUT, readSurferInput, SURF_BINDINGS, type SurfAction, type SurferInput } from '../physics/input';
+import { Surfer } from '../physics/Surfer';
+import { Environment } from '../render/Environment';
+import { Particles } from '../render/Particles';
+import { WaveMesh } from '../render/WaveMesh';
+import { Scoring } from '../scoring/Scoring';
+import { pushTicker, ThrottledWriter, type Phase, type SurfStore, type TickerItem } from '../state/store';
+import { sideSign } from '../wave/mirror';
+import { WaveShape } from '../wave/WaveShape';
+import './debugHook';
+import { FixedStepper } from './FixedStepper';
+
+export interface SurfGameOptions {
+  debug?: boolean;
+  look?: SurferLook;
+}
+
+const END_DELAY = { wipeout: 1.6, kickedOut: 1.0 } as const;
+/** Longest frame (s) fed to the stepper and to ambient animation. */
+const MAX_FRAME = 0.25;
+/** Particles integrate at most this much time per frame (s). */
+const MAX_PARTICLE_DT = 0.1;
+
+/**
+ * Owns the loop: fixed 120 Hz simulation (surfer, scoring) with render
+ * interpolation, plus rendering, audio and HUD store writes (≤ 15 Hz).
+ */
+export class SurfGame {
+  readonly bus = new EventBus<SurfEvent>();
+  readonly wave = new WaveShape(SURF_CONFIG.wave);
+  readonly surfer = new Surfer(this.wave, SURF_CONFIG.physics, this.bus);
+  readonly scoring: Scoring;
+  readonly actions = new ActionState<SurfAction>(SURF_BINDINGS);
+  private readonly retro: RetroRenderer;
+  private readonly scene = new Scene();
+  private readonly camera = new PerspectiveCamera(SURF_CONFIG.camera.fov, 1, 0.1, CAMERA_FAR);
+  /** The wave frame, mirrored for a LEFT via scale.x. */
+  private readonly frame = new Group();
+  private readonly waveMesh: WaveMesh;
+  private readonly particles: Particles;
+  private readonly env: Environment;
+  private readonly rig: CameraRig;
+  private readonly stepper = new FixedStepper(1 / SURF_CONFIG.physics.hz, MAX_FRAME);
+  private readonly writer: ThrottledWriter;
+  private readonly input: SurferInput = { ...NO_INPUT };
+  private readonly renderP = new Vector3();
+  private readonly look: SurferLook;
+  private character: Character | null = null;
+  private audio: SurfAudio | null = null;
+  private tracks: TrackEntry[] = [];
+  private side: Side = 'right';
+  private phase: Phase = 'loading';
+  private ticker: TickerItem[] = [];
+  private tickerId = 0;
+  private nowPlayingKey = 0;
+  /** Frame distance along the reef (floating origin), m. */
+  private travel = 0;
+  /** Simulation time stepped during the current frame (s). */
+  private frameSimDt = 0;
+  /** Water/particle clock: advances with the sim while playing, freezes on pause. */
+  private waterTime = 0;
+  private endAt = -1;
+  private raf = 0;
+  private last: number | null = null;
+  private frames = 0;
+  private fps = 60;
+  private disposed = false;
+  private configSeen = configVersion();
+  private gizmo: Group | null = null;
+  private normalArrow: ArrowHelper | null = null;
+  private readonly cleanups: Array<() => void> = [];
+
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly store: SurfStore,
+    opts: SurfGameOptions = {},
+  ) {
+    this.look = opts.look ?? SURFER_LOOK;
+    this.writer = new ThrottledWriter(store, 15);
+    this.retro = new RetroRenderer(canvas);
+    this.retro.renderer.info.autoReset = false;
+    this.scene.add(this.frame);
+    this.waveMesh = new WaveMesh(this.wave, SURF_CONFIG.mesh);
+    this.frame.add(this.waveMesh.group);
+    this.particles = new Particles(this.wave, this.bus, this.surfer.state);
+    this.frame.add(this.particles.points);
+    // Environment sets the fog/background and adds the camera to the scene.
+    this.env = new Environment(this.scene, this.camera);
+    this.frame.add(this.env.frameStuff);
+    this.rig = new CameraRig(this.camera, SURF_CONFIG.camera);
+    this.scoring = new Scoring(SURF_CONFIG.scoring, {
+      onAward: (a) => this.pushTicker(a.repeated ? `${a.name} (repeat)` : a.name, a.points),
+      onBank: (b) => {
+        this.pushTicker(b.multiplier > 1 ? `COMBO ×${b.multiplier}` : 'BANKED', b.points);
+        this.audio?.onBank(b.points, b.multiplier);
+      },
+      onLost: (pot) => this.pushTicker('COMBO LOST', -pot),
+    });
+    this.cleanups.push(
+      this.scoring.attach(this.bus),
+      this.bus.on('landed', () => this.character?.onLanded()),
+      this.bus.onAny((e) => this.audio?.onEvent(e)),
+      this.actions.attach(window),
+    );
+    if (opts.debug) this.buildGizmo();
+
+    const ro = new ResizeObserver(() => this.resize());
+    ro.observe(canvas);
+    this.cleanups.push(() => ro.disconnect());
+    this.resize();
+    this.surfer.reset();
+    this.rig.snap(this.surfer.state, this.side);
+    this.raf = requestAnimationFrame(this.loop);
+  }
+
+  /** Loads the character model and the track manifest, then shows the title. */
+  async load(): Promise<void> {
+    const [{ rig }, manifest] = await Promise.all([
+      loadSurferRig(this.look),
+      loadManifest().catch((e: unknown) => {
+        console.warn('No track manifest; surfing without music.', e);
+        return { version: 1 as const, tracks: [] };
+      }),
+    ]);
+    const character = new Character(rig, this.look);
+    if (this.disposed) {
+      character.dispose();
+      return;
+    }
+    this.tracks = manifest.tracks;
+    this.character = character;
+    this.frame.add(character.root);
+    this.setPhase('title');
+  }
+
+  /** DROP IN (must be called from a user gesture: it starts audio). */
+  start(side: Side): void {
+    if (this.disposed || this.phase === 'loading' || this.phase === 'playing') return;
+    this.side = side;
+    this.frame.scale.x = sideSign(side);
+    this.surfer.reset();
+    this.scoring.reset();
+    this.particles.clear();
+    this.character?.reset();
+    this.rig.snap(this.surfer.state, side);
+    this.surfaceView();
+    this.travel = 0;
+    this.endAt = -1;
+    this.ticker = [];
+    this.stepper.reset();
+    this.actions.reset();
+    this.startAudio();
+    this.writer.flush(performance.now());
+    this.store.setState({ side, run: null, underwater: false, score: 0, pot: 0, multiplier: 0, tubeTime: 0, speedKmh: 0, ticker: [] });
+    this.setPhase('playing');
+  }
+
+  pause(): void {
+    if (this.phase !== 'playing') return;
+    this.audio?.pause();
+    this.setPhase('paused');
+  }
+
+  resume(): void {
+    if (this.phase !== 'paused') return;
+    this.stepper.reset();
+    this.actions.reset();
+    this.audio?.resume();
+    this.setPhase('playing');
+  }
+
+  quitToTitle(): void {
+    if (this.phase === 'loading' || this.phase === 'title') return;
+    this.audio?.pause();
+    this.surfaceView();
+    this.setPhase('title');
+  }
+
+  setGizmo(visible: boolean): void {
+    if (this.gizmo) this.gizmo.visible = visible;
+  }
+
+  /** Called by the debug panel after it edits SURF_CONFIG and bumps the config version. */
+  configChanged(): void {
+    this.syncConfig();
+  }
+
+  private syncConfig(): void {
+    const v = configVersion();
+    if (v === this.configSeen) return;
+    this.configSeen = v;
+    this.waveMesh.rebuild();
+  }
+
+  private startAudio(): void {
+    try {
+      this.audio ??= new SurfAudio((t) => this.store.setState({ nowPlaying: { key: ++this.nowPlayingKey, title: t.title, artist: t.artist } }));
+    } catch (e) {
+      console.warn('Web Audio unavailable; surfing without sound.', e);
+      return;
+    }
+    this.audio.start(this.tracks).catch((e: unknown) => console.warn('Audio failed to start', e));
+  }
+
+  /** Back above water: surface fog and sky, no bubbles. */
+  private surfaceView(): void {
+    this.env.setUnderwater(false);
+    this.particles.setBubbles(false);
+  }
+
+  private setPhase(phase: Phase): void {
+    this.phase = phase;
+    this.writer.flush(performance.now());
+    this.store.setState({ phase });
+  }
+
+  private pushTicker(text: string, points: number): void {
+    // Built from our own copy: the writer's pending patch replaces `ticker` wholesale.
+    this.ticker = pushTicker(this.ticker, { id: ++this.tickerId, text, points });
+    this.writer.push({ ticker: this.ticker });
+  }
+
+  private resize(): void {
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    this.retro.setSize(w, h);
+    this.camera.aspect = w / Math.max(1, h);
+    this.camera.updateProjectionMatrix();
+    this.particles.setScale(this.camera, this.retro.internalResolution.height);
+  }
+
+  private readonly loop = (now: number): void => {
+    this.raf = requestAnimationFrame(this.loop);
+    let dt = 0;
+    if (Number.isFinite(now)) {
+      if (this.last !== null) {
+        const raw = (now - this.last) / 1000;
+        dt = raw > 0 ? Math.min(MAX_FRAME, raw) : 0;
+      }
+      this.last = now;
+    }
+    if (dt > 0) this.fps += (1 / Math.max(dt, 1e-3) - this.fps) * 0.05;
+
+    let alpha = 1;
+    this.frameSimDt = 0;
+    if (this.phase === 'playing') {
+      // Input is ticked inside each physics step (edges are per tick).
+      alpha = this.stepper.advance(dt, this.step);
+    } else {
+      this.actions.tick();
+      if (this.phase === 'paused' && this.actions.pressedThisFrame('pause')) this.resume();
+      // Behind the title/results the water keeps moving; a pause freezes it.
+      else if (this.phase !== 'paused') this.frameSimDt = dt;
+    }
+    this.waterTime += this.frameSimDt;
+    this.syncConfig();
+    this.render(now, dt, alpha);
+    this.publish(now);
+  };
+
+  private readonly step = (dt: number): void => {
+    if (this.phase !== 'playing') return;
+    this.actions.tick();
+    if (this.actions.pressedThisFrame('pause')) {
+      this.pause();
+      return;
+    }
+    const s = this.surfer.state;
+    readSurferInput(this.actions, this.side, this.input);
+    this.surfer.step(this.input, dt);
+    this.frameSimDt += dt;
+    this.scoring.update(s.time, (s.mode === 'airborne' && s.launchKind !== null) || s.inTube || s.floating);
+    this.travel += this.wave.params.peelSpeed * dt;
+    if ((s.mode === 'wipeout' || s.mode === 'kickedOut') && this.endAt < 0) {
+      this.endAt = s.time;
+      if (s.mode === 'wipeout') {
+        this.env.setUnderwater(true);
+        this.particles.setBubbles(true, s.p);
+        this.store.setState({ underwater: true });
+      }
+    }
+    if (this.endAt >= 0 && s.time - this.endAt > END_DELAY[s.mode === 'wipeout' ? 'wipeout' : 'kickedOut']) this.endRun();
+  };
+
+  private endRun(): void {
+    const s = this.surfer.state;
+    this.scoring.bank();
+    this.writer.flush(performance.now());
+    this.store.setState({
+      score: this.scoring.score,
+      pot: 0,
+      multiplier: 0,
+      tubeTime: 0,
+      run: {
+        score: this.scoring.score,
+        side: this.side,
+        end: s.mode === 'wipeout' ? 'wipeout' : 'kickedOut',
+        wipeoutReason: s.wipeoutReason,
+        bestCombo: this.scoring.bestCombo,
+        longestTube: this.scoring.longestTube,
+        tricks: this.scoring.tricksLanded,
+        durationSec: this.endAt,
+      },
+    });
+    this.setPhase('results');
+  }
+
+  private render(now: number, dt: number, alpha: number): void {
+    const s = this.surfer.state;
+    const underwater = s.mode === 'wipeout' && this.endAt >= 0;
+    // Frame coordinates: the rig mirrors once for the side.
+    this.renderP.lerpVectors(this.surfer.prevP, s.p, alpha);
+    this.character?.update(this.surfer, alpha, dt);
+    this.rig.update(s, this.renderP, this.side, underwater, dt);
+    this.env.update(Number.isFinite(now) ? now / 1000 : 0, this.travel, sideSign(this.side));
+    this.particles.update(Math.min(MAX_PARTICLE_DT, this.frameSimDt), this.phase === 'playing');
+    this.waveMesh.update(this.waterTime);
+    if (this.normalArrow) {
+      this.normalArrow.position.copy(this.renderP);
+      this.normalArrow.setDirection(s.normal);
+    }
+    this.retro.renderer.info.reset();
+    this.retro.render(this.scene, this.camera);
+    this.frames++;
+  }
+
+  private publish(now: number): void {
+    const s = this.surfer.state;
+    if (this.phase === 'playing') {
+      const speed = this.surfer.worldSpeed(this.wave.params.peelSpeed);
+      this.audio?.update(s, speed);
+      this.writer.push({
+        score: this.scoring.score,
+        pot: this.scoring.pot,
+        multiplier: this.scoring.multiplier,
+        // A wipeout inside the barrel never exits it: stop the TUBE timer with the ride.
+        tubeTime: s.mode === 'riding' || s.mode === 'airborne' ? s.tubeTime : 0,
+        speedKmh: Math.round(speed * 3.6),
+      });
+    }
+    if (Number.isFinite(now)) this.writer.tick(now);
+    const info = this.retro.renderer.info.render;
+    window.__surf = {
+      frames: this.frames,
+      phase: this.phase,
+      score: this.scoring.score,
+      mode: s.mode,
+      x: s.param.x,
+      calls: info.calls,
+      triangles: info.triangles,
+      fps: Math.round(this.fps),
+    };
+  }
+
+  private buildGizmo(): void {
+    const g = new Group();
+    g.add(new AxesHelper(3));
+    const { tubeDepth, shoulderLength } = SURF_CONFIG.wave;
+    const marks: Array<[number, string]> = [
+      [-tubeDepth, '#ff4040'],
+      [0, '#ffe040'],
+      [shoulderLength, '#40ff80'],
+    ];
+    for (const [x, color] of marks) {
+      const geo = new BufferGeometry().setFromPoints([new Vector3(x, 0, 0), new Vector3(x, 5, 0)]);
+      g.add(new Line(geo, new LineBasicMaterial({ color, depthTest: false })));
+    }
+    this.normalArrow = new ArrowHelper(new Vector3(0, 1, 0), new Vector3(), 1.2, '#ff00ff');
+    g.add(this.normalArrow);
+    this.gizmo = g;
+    this.frame.add(g);
+  }
+
+  private disposeGizmo(): void {
+    this.gizmo?.traverse((o) => {
+      const m = o as Mesh;
+      m.geometry?.dispose();
+      const mat = m.material as Material | Material[] | undefined;
+      if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+      else mat?.dispose();
+    });
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    cancelAnimationFrame(this.raf);
+    this.cleanups.forEach((c) => c());
+    this.bus.clear();
+    this.audio?.dispose();
+    this.character?.dispose();
+    this.particles.dispose();
+    this.waveMesh.dispose();
+    this.env.dispose();
+    this.disposeGizmo();
+    this.retro.dispose();
+    if (window.__surf) delete window.__surf;
+  }
+}

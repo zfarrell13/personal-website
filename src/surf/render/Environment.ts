@@ -33,6 +33,8 @@ import { REEF_TILES, scrollWrap } from './scroll';
 import { makeRadialTexture } from './textures';
 
 export const FOG_COLOR = new Color(FOG_CONFIG.color);
+/** Wipeout cut: thick blue fog, no sky or sun. */
+export const UNDERWATER_COLOR = new Color('#0b3b66');
 const SUN_DIR = new Vector3(-0.62, 0.13, -0.77).normalize();
 
 function paint(geo: BufferGeometry, fn: (x: number, y: number, z: number, out: Color) => void): BufferGeometry {
@@ -72,6 +74,9 @@ export class Environment {
   readonly frameStuff = new Group();
   private readonly scene: Scene;
   private readonly fog: Fog;
+  private readonly underwaterFog = new Fog(UNDERWATER_COLOR, 0.5, 18);
+  private readonly background: Color;
+  private underwater = false;
   private readonly hemi: HemisphereLight;
   private readonly sky: Mesh;
   private readonly sun: Sprite;
@@ -94,7 +99,8 @@ export class Environment {
     this.scene = scene;
     this.fog = new Fog(FOG_COLOR, FOG_CONFIG.near, FOG_CONFIG.far);
     scene.fog = this.fog;
-    scene.background = FOG_COLOR.clone();
+    this.background = FOG_COLOR.clone();
+    scene.background = this.background;
 
     // Sky dome — follows the camera, gradient by height.
     const skyGeo = paint(new SphereGeometry(600, 16, 10), (_x, y, _z, c) => {
@@ -216,6 +222,16 @@ export class Environment {
     this.disposables.push(reefGeo, reefMat, this.sun.material, ...this.flares.map((f) => f.material));
   }
 
+  /** The wipeout cut: underwater fog and background, sky dome, sun and flare hidden. */
+  setUnderwater(on: boolean): void {
+    this.underwater = on;
+    this.sky.visible = !on;
+    this.sun.visible = !on;
+    this.scene.fog = on ? this.underwaterFog : this.fog;
+    this.scene.background = on ? UNDERWATER_COLOR : this.background;
+    if (on) for (const f of this.flares) f.visible = false;
+  }
+
   /**
    * `time` — free-running ambient clock (drives gulls; keeps animating on the
    * title screen). `travel` — frame distance along the reef (Vp · sim time);
@@ -244,7 +260,7 @@ export class Environment {
 
     // Lens flare along the line from the sun through the screen centre.
     this.ndc.copy(this.sunWorld).project(this.camera);
-    const visible = this.ndc.z < 1 && Math.abs(this.ndc.x) < 1.3 && Math.abs(this.ndc.y) < 1.3;
+    const visible = !this.underwater && this.ndc.z < 1 && Math.abs(this.ndc.x) < 1.3 && Math.abs(this.ndc.y) < 1.3;
     const halfH = Math.tan((this.camera.fov * Math.PI) / 360);
     const halfW = halfH * this.camera.aspect;
     this.flares.forEach((f, i) => {
@@ -257,7 +273,8 @@ export class Environment {
   dispose(): void {
     for (const f of this.flares) this.camera.remove(f);
     this.scene.remove(this.sky, this.sunLight, this.hemi, this.sun, this.camera);
-    if (this.scene.fog === this.fog) this.scene.fog = null;
+    if (this.scene.fog === this.fog || this.scene.fog === this.underwaterFog) this.scene.fog = null;
+    if (this.scene.background === this.background || this.scene.background === UNDERWATER_COLOR) this.scene.background = null;
     this.disposables.forEach((d) => d.dispose());
   }
 }
