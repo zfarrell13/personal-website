@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Panel } from '@/retro/ui/Panel';
 import { RetroButton } from '@/retro/ui/RetroButton';
 import { browserStorage } from '@/shared/mode';
@@ -7,6 +7,7 @@ import type { WipeoutReason } from '../physics/events';
 import { insertHighScore, loadHighScores, qualifies, sanitizeInitials, saveHighScores, type HighScore } from '../scoring/highScores';
 import type { RunSummary } from '../state/store';
 import { HighScoreTable } from './HighScoreTable';
+import { otherButtonFocused } from './menuFocus';
 import styles from './surf.module.css';
 
 const REASONS: Record<WipeoutReason, string> = {
@@ -23,6 +24,7 @@ export function Results({ run, onAgain, onTitle }: { run: RunSummary; onAgain: (
   const [letters, setLetters] = useState([0, 0, 0]);
   const [cursor, setCursor] = useState(0);
   const [rank, setRank] = useState(-1);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -39,6 +41,7 @@ export function Results({ run, onAgain, onTitle }: { run: RunSummary; onAgain: (
           setCursor((c) => Math.min(2, c + 1));
         } else if (e.key === 'Enter') {
           e.preventDefault();
+          if (e.repeat) return;
           const initials = sanitizeInitials(String.fromCharCode(...letters.map((v) => v + A)));
           const res = insertHighScore(scores, { initials, score: run.score, side: run.side, date: new Date().toISOString().slice(0, 10) });
           saveHighScores(browserStorage(), res.list);
@@ -49,6 +52,7 @@ export function Results({ run, onAgain, onTitle }: { run: RunSummary; onAgain: (
         return;
       }
       if (e.key === 'Enter') {
+        if (e.repeat || otherButtonFocused(rootRef.current)) return;
         e.preventDefault();
         onAgain();
       } else if (e.key === 'Escape') onTitle();
@@ -57,10 +61,17 @@ export function Results({ run, onAgain, onTitle }: { run: RunSummary; onAgain: (
     return () => window.removeEventListener('keydown', onKey);
   }, [entering, cursor, letters, scores, run, onAgain, onTitle]);
 
+  // Focus the primary action once initials are done (or immediately if none), else the dialog itself.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    (entering ? root : root.querySelector<HTMLElement>('[data-primary="true"]') ?? root).focus();
+  }, [entering]);
+
   const headline = run.end === 'kickedOut' ? 'KICKED OUT' : `WIPEOUT — ${run.wipeoutReason ? REASONS[run.wipeoutReason] : ''}`;
 
   return (
-    <div className={styles.center}>
+    <div className={styles.center} ref={rootRef} role="dialog" aria-label="Run results" tabIndex={-1}>
       <div className={styles.menu}>
         <Panel title={headline}>
           <p className={styles.score} data-testid="final-score">{run.score.toLocaleString('en-US')}</p>
@@ -70,7 +81,7 @@ export function Results({ run, onAgain, onTitle }: { run: RunSummary; onAgain: (
         </Panel>
         {entering ? (
           <Panel title="NEW HIGH SCORE — ENTER INITIALS">
-            <div className={styles.initials} data-testid="initials">
+            <div className={styles.initials} data-testid="initials" role="group" aria-label="Initials, three letters">
               {letters.map((v, i) => (
                 <span key={i} className={styles.letter} data-active={i === cursor ? 'true' : 'false'}>
                   {String.fromCharCode(v + A)}
@@ -87,7 +98,7 @@ export function Results({ run, onAgain, onTitle }: { run: RunSummary; onAgain: (
               </Panel>
             ) : null}
             <div className={styles.row}>
-              <RetroButton onClick={onAgain}>GO AGAIN (ENTER)</RetroButton>
+              <RetroButton data-primary="true" onClick={onAgain}>GO AGAIN (ENTER)</RetroButton>
               <RetroButton onClick={onTitle}>TITLE (ESC)</RetroButton>
             </div>
           </>

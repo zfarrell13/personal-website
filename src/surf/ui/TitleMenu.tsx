@@ -1,15 +1,17 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Panel } from '@/retro/ui/Panel';
 import { RetroButton } from '@/retro/ui/RetroButton';
 import { browserStorage } from '@/shared/mode';
 import type { Side } from '../config';
 import { loadHighScores } from '../scoring/highScores';
 import { HighScoreTable } from './HighScoreTable';
+import { otherButtonFocused } from './menuFocus';
 import styles from './surf.module.css';
 
 export function TitleMenu({ initialSide, onStart }: { initialSide: Side; onStart: (side: Side) => void }) {
   const [side, setSide] = useState<Side>(initialSide);
+  const rootRef = useRef<HTMLDivElement>(null);
   const scores = useMemo(() => loadHighScores(browserStorage()), []);
 
   useEffect(() => {
@@ -17,6 +19,7 @@ export function TitleMenu({ initialSide, onStart }: { initialSide: Side; onStart
       if (e.key === 'ArrowLeft') setSide('left');
       else if (e.key === 'ArrowRight') setSide('right');
       else if (e.key === 'Enter') {
+        if (e.repeat || otherButtonFocused(rootRef.current)) return;
         e.preventDefault();
         onStart(side);
       }
@@ -25,8 +28,12 @@ export function TitleMenu({ initialSide, onStart }: { initialSide: Side; onStart
     return () => window.removeEventListener('keydown', onKey);
   }, [side, onStart]);
 
+  useEffect(() => {
+    rootRef.current?.querySelector<HTMLElement>('[data-primary="true"]')?.focus();
+  }, []);
+
   return (
-    <div className={styles.center}>
+    <div className={styles.center} ref={rootRef} role="dialog" aria-label="ZF Pro Surfer title menu">
       <div className={styles.menu}>
         <h1 className={styles.title}>ZF PRO SURFER</h1>
         <Panel title="SELECT BREAK">
@@ -39,7 +46,7 @@ export function TitleMenu({ initialSide, onStart }: { initialSide: Side; onStart
             </RetroButton>
           </div>
         </Panel>
-        <RetroButton onClick={() => onStart(side)}>DROP IN</RetroButton>
+        <RetroButton data-primary="true" onClick={() => onStart(side)}>DROP IN</RetroButton>
         <p className={styles.legend}>
           ← → carve · ↑ pump · ↓ stall · SPACE ollie · air: ← → spin, W A S D grabs · ESC pause
         </p>

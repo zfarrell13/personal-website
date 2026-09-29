@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ActionState } from '@/shared/input/ActionState';
 import type { SurfAction } from '../physics/input';
 import styles from './surf.module.css';
@@ -22,10 +22,15 @@ const ACTIONS: Btn[] = [
 
 function TouchButton({ btn, actions }: { btn: Btn; actions: Pick<ActionState<SurfAction>, 'press' | 'release'> }) {
   const [held, setHeld] = useState(false);
-  const source = `touch:${btn.action}`;
-  const up = () => {
-    setHeld(false);
-    actions.release(btn.action, source);
+  // Pointers currently down on this button; each is its own ActionState source so
+  // the action stays held until the last finger lifts.
+  const down = useRef(new Set<number>());
+  const sourceOf = (id: number) => `touch:${btn.action}:${id}`;
+  const up = (e: React.PointerEvent | React.SyntheticEvent<HTMLElement, Event>) => {
+    const id = (e as React.PointerEvent).pointerId;
+    if (!down.current.delete(id)) return;
+    setHeld(down.current.size > 0);
+    actions.release(btn.action, sourceOf(id));
   };
   return (
     <button
@@ -36,8 +41,9 @@ function TouchButton({ btn, actions }: { btn: Btn; actions: Pick<ActionState<Sur
       onPointerDown={(e) => {
         e.preventDefault();
         (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+        down.current.add(e.pointerId);
         setHeld(true);
-        actions.press(btn.action, source);
+        actions.press(btn.action, sourceOf(e.pointerId));
       }}
       onPointerUp={up}
       onPointerCancel={up}

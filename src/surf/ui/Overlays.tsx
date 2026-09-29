@@ -1,4 +1,5 @@
 'use client';
+import { useEffect, useRef } from 'react';
 import { useStore } from 'zustand';
 import { Panel } from '@/retro/ui/Panel';
 import { RetroButton } from '@/retro/ui/RetroButton';
@@ -25,11 +26,13 @@ export function Underwater({ store }: { store: SurfStore }) {
 }
 
 export function PauseMenu({ onResume, onQuit }: { onResume: () => void; onQuit: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => ref.current?.querySelector<HTMLElement>('[data-primary="true"]')?.focus(), []);
   return (
-    <div className={styles.center}>
+    <div className={styles.center} ref={ref} role="dialog" aria-label="Paused">
       <Panel title="PAUSED">
         <div className={styles.row}>
-          <RetroButton onClick={onResume}>RESUME (ESC)</RetroButton>
+          <RetroButton data-primary="true" onClick={onResume}>RESUME (ESC)</RetroButton>
           <RetroButton onClick={onQuit}>QUIT TO TITLE</RetroButton>
         </div>
       </Panel>

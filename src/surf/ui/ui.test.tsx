@@ -5,6 +5,8 @@ import { HIGH_SCORE_KEY } from '../scoring/highScores';
 import { createSurfStore, type RunSummary } from '../state/store';
 import { configVersion, SURF_CONFIG } from '../config';
 import { DebugPanel } from './DebugPanel';
+import { ActionState } from '@/shared/input/ActionState';
+import { SURF_BINDINGS, type SurfAction } from '../physics/input';
 import { Hud } from './Hud';
 import { Results } from './Results';
 import { TitleMenu } from './TitleMenu';
@@ -78,11 +80,11 @@ describe('TouchControls', () => {
     render(<TouchControls actions={actions} onPause={vi.fn()} />);
     const ollie = screen.getByRole('button', { name: 'OLLIE' });
     fireEvent.pointerDown(ollie, { pointerId: 1 });
-    expect(actions.press).toHaveBeenCalledWith('ollie', 'touch:ollie');
+    expect(actions.press).toHaveBeenCalledWith('ollie', 'touch:ollie:1');
     fireEvent.pointerUp(ollie, { pointerId: 1 });
-    expect(actions.release).toHaveBeenCalledWith('ollie', 'touch:ollie');
+    expect(actions.release).toHaveBeenCalledWith('ollie', 'touch:ollie:1');
     fireEvent.pointerDown(screen.getByRole('button', { name: '◀' }), { pointerId: 2 });
-    expect(actions.press).toHaveBeenCalledWith('carveLeft', 'touch:carveLeft');
+    expect(actions.press).toHaveBeenCalledWith('carveLeft', 'touch:carveLeft:2');
   });
 });
 
@@ -93,11 +95,11 @@ describe('TouchControls release paths', () => {
     const b = screen.getByRole('button', { name: 'METHOD' });
     fireEvent.pointerDown(b, { pointerId: 3 });
     fireEvent.pointerCancel(b, { pointerId: 3 });
-    expect(actions.release).toHaveBeenCalledWith('grabW', 'touch:grabW');
+    expect(actions.release).toHaveBeenCalledWith('grabW', 'touch:grabW:3');
     actions.release.mockClear();
     fireEvent.pointerDown(b, { pointerId: 4 });
     fireEvent.pointerLeave(b, { pointerId: 4 });
-    expect(actions.release).toHaveBeenCalledWith('grabW', 'touch:grabW');
+    expect(actions.release).toHaveBeenCalledWith('grabW', 'touch:grabW:4');
   });
 });
 
@@ -113,5 +115,51 @@ describe('DebugPanel', () => {
     expect(configVersion()).toBe(before + 1);
     expect(game.configChanged).toHaveBeenCalledTimes(1);
     SURF_CONFIG.wave.height = orig;
+  });
+});
+
+describe('TouchControls multi-finger', () => {
+  it('keeps the action held until the last finger on the button lifts', () => {
+    const state = new ActionState<SurfAction>(SURF_BINDINGS);
+    render(<TouchControls actions={state} onPause={vi.fn()} />);
+    const ollie = screen.getByRole('button', { name: 'OLLIE' });
+    fireEvent.pointerDown(ollie, { pointerId: 1 });
+    fireEvent.pointerDown(ollie, { pointerId: 2 });
+    state.tick();
+    fireEvent.pointerUp(ollie, { pointerId: 1 });
+    state.tick();
+    expect(state.isDown('ollie')).toBe(true);
+    fireEvent.pointerUp(ollie, { pointerId: 2 });
+    state.tick();
+    expect(state.isDown('ollie')).toBe(false);
+  });
+});
+
+describe('menu keyboard behaviour', () => {
+  it('ignores Enter auto-repeat in Results and TitleMenu', () => {
+    const onStart = vi.fn();
+    render(<TitleMenu initialSide="right" onStart={onStart} />);
+    fireEvent.keyDown(window, { key: 'Enter', repeat: true });
+    expect(onStart).not.toHaveBeenCalled();
+    cleanup();
+    const onAgain = vi.fn();
+    render(<Results run={{ ...run, score: 0 }} onAgain={onAgain} onTitle={vi.fn()} />);
+    fireEvent.keyDown(window, { key: 'Enter', repeat: true });
+    expect(onAgain).not.toHaveBeenCalled();
+  });
+
+  it('leaves Enter to a focused non-primary button, and focuses the primary action', () => {
+    const onStart = vi.fn();
+    render(<TitleMenu initialSide="right" onStart={onStart} />);
+    expect(screen.getByRole('dialog').getAttribute('aria-label')).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'DROP IN' }));
+    screen.getByRole('button', { name: 'LEFT' }).focus();
+    key('Enter');
+    expect(onStart).not.toHaveBeenCalled();
+  });
+
+  it('labels the initials widget', () => {
+    render(<Results run={run} onAgain={vi.fn()} onTitle={vi.fn()} />);
+    expect(screen.getByLabelText(/initials/i)).toBeTruthy();
   });
 });
