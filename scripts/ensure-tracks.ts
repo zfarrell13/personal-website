@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { buildTracks } from './lib/pipeline';
+import { resolveTrackSource } from './lib/resolveTrackSource';
 import { makeTestTracks } from './make-test-tracks';
 
 const REAL = 'content/tracks';
@@ -14,16 +15,15 @@ try {
   process.exit(1);
 }
 
-const hasReal = (() => {
-  try {
-    const json = JSON.parse(readFileSync(`${REAL}/tracks.json`, 'utf8')) as { tracks?: unknown[] };
-    return Array.isArray(json.tracks) && json.tracks.length > 0;
-  } catch {
-    return false;
-  }
-})();
+let source: 'real' | 'test';
+try {
+  source = resolveTrackSource((p) => readFileSync(p, 'utf8'));
+} catch (e) {
+  console.error(`✖ ${(e as Error).message}`);
+  process.exit(1);
+}
 
-if (hasReal) {
+if (source === 'real') {
   await buildTracks({ sourceDir: REAL, outDir: OUT });
 } else {
   if (!existsSync(`${TEST}/tracks.json`)) {

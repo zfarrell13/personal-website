@@ -15,4 +15,9 @@ describe('Meter', () => {
     const { container } = render(<Meter value={3} segments={4} />);
     expect(container.querySelectorAll('[data-on="true"]').length).toBe(4);
   });
+  it('treats NaN as 0', () => {
+    const { container } = render(<Meter value={NaN} segments={4} />);
+    expect(container.querySelectorAll('[data-on="true"]').length).toBe(0);
+    expect(container.querySelector('[role="meter"]')?.getAttribute('aria-valuenow')).toBe('0');
+  });
 });

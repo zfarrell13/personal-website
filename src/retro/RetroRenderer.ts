@@ -25,6 +25,10 @@ export const DEFAULT_RETRO: RetroOptions = {
  * Renders a scene at ~448 lines into an offscreen target, blends it with the
  * previous frame (trail), then quantizes + dithers to the canvas with nearest
  * sampling. Canvas CSS should use `image-rendering: pixelated` (.retro-canvas).
+ *
+ * Note: renderer.toneMapping is not applied (scenes render to an offscreen
+ * target; the output pass does manual gamma only). Fog comes from three's
+ * scene.fog on built-in materials.
  */
 export class RetroRenderer {
   readonly renderer: THREE.WebGLRenderer;
