@@ -196,6 +196,10 @@ export class DeckCore {
   get atCue(): boolean {
     return this.state === 'PAUSED' && Math.abs(this.pos - this.cueFrame) < 1;
   }
+  /** True while the outer ring is pitch-bending (or the bend has not yet settled). */
+  get bending(): boolean {
+    return this.bendTarget !== 0 || Math.abs(this.bend) > 1e-5;
+  }
   /** True while the platter follows the hand (scratch or paused search). */
   get handControl(): boolean {
     return this.scratching || (this.state === 'PAUSED' && this.motor === 0);

@@ -14,6 +14,16 @@ const track = (bpm: number): DeckTrackData => ({
   hotCuesSec: Array(8).fill(null),
 });
 
+function countSeeks(d: DeckCore): { count: number } {
+  const c = { count: 0 };
+  const orig = d.seek.bind(d);
+  d.seek = (sec: number) => {
+    c.count++;
+    orig(sec);
+  };
+  return c;
+}
+
 function setup(masterBpm = 124, followerBpm = 120, masterTempoPct = 0) {
   const decks = [new DeckCore(SR), new DeckCore(SR)] as const;
   decks[0].set({ motorStartSec: 0, motorStopSec: 0, tempoPct: masterTempoPct });
@@ -115,21 +125,27 @@ describe('SyncCore', () => {
     expect(errMs()).toBeGreaterThan(4);
     step(2);
     expect(errMs()).toBeLessThan(1);
-    // A follower whose ratio is 0.01 % off would drift ~60 ms over 10 minutes if unsynced.
-    const trueRatio = () => decks[0].bpm * decks[0].tempoRate / decks[1].bpm;
+    // Drift source: the follower's playhead creeps 0.01 % faster than its commanded rate.
+    const BIAS = 1e-4;
+    const seeks = countSeeks(decks[1]);
     let worst = 0;
     let worstTrim = 0;
     let t = 0;
+    let tempoChanged = false;
     step(600, () => {
+      decks[1].pos += 128 * BIAS * decks[1].rate;
       t += 128 / SR;
-      if (t > 300 && decks[0].tempoRate === 1 + 3.37 / 100) decks[0].set({ tempoPct: 4.1 }); // master tempo change mid-run
+      if (t > 300 && !tempoChanged) {
+        tempoChanged = true;
+        decks[0].set({ tempoPct: 4.1 }); // master tempo change mid-run
+      }
       worst = Math.max(worst, errMs());
       worstTrim = Math.max(worstTrim, Math.abs(sync.trim[1]));
     });
-    expect(trueRatio()).toBeGreaterThan(1);
     expect(worst).toBeLessThan(1);
+    expect(seeks.count).toBe(0);
     expect(worstTrim).toBeLessThanOrEqual(0.005);
-    expect(Math.abs(sync.trim[1])).toBeLessThan(1e-4);
+    expect(Math.abs(sync.trim[1] + BIAS)).toBeLessThan(BIAS * 0.1);
   }, 60_000);
 
   it('an unsynced follower with a 0.01 % tempo error would drift over 1 ms in 10 minutes', () => {
@@ -147,7 +163,7 @@ describe('SyncCore', () => {
   it('realigns a synced follower right after a jump', () => {
     const { decks, sync, step, errMs } = setup(128, 120);
     decks[0].play();
-    step(0.1); // deck 1 becomes master
+    step(0.1); // deck 0 becomes master
     sync.setSync(decks, 1, true);
     decks[1].play();
     step(1);
@@ -200,5 +216,55 @@ describe('SyncCore', () => {
     sync.setSync(decks, 1, false);
     step(0.1);
     expect(decks[1].rate).toBe(1);
+  });
+
+  it('does not re-jump a synced follower while it is pitch-bent, and snaps back once when the bend ends', () => {
+    const { decks, sync, step, errMs } = setup(120, 120);
+    decks[0].play();
+    step(0.1);
+    sync.setSync(decks, 1, true);
+    decks[1].play();
+    step(1);
+    const seeks = countSeeks(decks[1]);
+    decks[1].jog(false, 0.5, true);
+    step(1);
+    expect(seeks.count).toBe(0);
+    decks[1].jog(false, 0, true);
+    step(0.5);
+    expect(seeks.count).toBeLessThanOrEqual(1);
+    expect(errMs()).toBeLessThan(1);
+  });
+
+  it('does not re-jump the follower while the master is pitch-bent, and snaps back once when the bend ends', () => {
+    const { decks, sync, step, errMs } = setup(120, 120);
+    decks[0].play();
+    step(0.1);
+    sync.setSync(decks, 1, true);
+    decks[1].play();
+    step(1);
+    const seeks = countSeeks(decks[1]);
+    decks[0].jog(false, 0.5, true);
+    step(1);
+    expect(seeks.count).toBe(0);
+    decks[0].jog(false, 0, true);
+    step(0.5);
+    expect(seeks.count).toBeLessThanOrEqual(1);
+    expect(errMs()).toBeLessThan(1);
+  });
+
+  it('does not re-jump every cycle of a manual non-integer loop', () => {
+    const { decks, sync, step } = setup(120, 120);
+    decks[0].set({ quantize: false });
+    decks[0].play();
+    step(0.1);
+    sync.setSync(decks, 1, true);
+    decks[1].play();
+    step(1);
+    decks[0].loopInPress();
+    const seeks = countSeeks(decks[1]);
+    step(0.688); // loop out after ~1.376 beats (0.688 s at 120 BPM)
+    decks[0].loopOutPress();
+    step(5);
+    expect(seeks.count).toBeLessThanOrEqual(1);
   });
 });

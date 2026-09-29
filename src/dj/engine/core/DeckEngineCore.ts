@@ -122,11 +122,16 @@ export class DeckEngineCore {
   }
 
   /** Master beat clock for the FX worklet: current beat position and effective BPM. */
+  /** Reused by masterClock(): valid until the next call. */
+  private readonly clock = { beat: 0, bpm: 0 };
+
   masterClock(): { beat: number; bpm: number } | null {
     const m = this.sync.master;
     if (m === -1) return null;
     const d = this.decks[m];
-    return { beat: d.beat, bpm: d.bpm * d.tempoRate };
+    this.clock.beat = d.beat;
+    this.clock.bpm = d.bpm * d.tempoRate;
+    return this.clock;
   }
 }
 

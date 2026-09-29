@@ -65,6 +65,7 @@ describe('DeckEngineCore', () => {
     expect(tel[TEL_STRIDE + TEL.synced]).toBe(1);
     expect(tel[TEL_STRIDE + TEL.baseRate]).toBe((120 * 1.02) / 124);
     expect(e.masterClock()).toEqual({ beat: e.decks[0].beat, bpm: 120 * 1.02 });
+    expect(e.masterClock()).toBe(e.masterClock()); // reused object, no per-call allocation
     e.command({ t: 'sync', deck: 1, on: false });
     e.command({ t: 'master', deck: 1 });
     expect(e.sync.master).toBe(1);

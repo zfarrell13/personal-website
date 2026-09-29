@@ -8,6 +8,12 @@ const PLL_KI = 2;
 /** Phase errors beyond this (beats, ≈ 10 ms at 120 BPM) are realigned by a seek; smaller ones are left to the PLL. */
 const REALIGN_BEATS = 0.02;
 
+const irregularLoop = (d: DeckCore): boolean => {
+  if (!d.loopActive) return false;
+  const beats = d.loopBeats;
+  return beats < 1 || Math.abs(beats - Math.round(beats)) > 1e-3;
+};
+
 /**
  * BEAT SYNC: master selection, tempo match and a phase-locked loop that trims
  * each follower's rate by at most ±0.5 % to keep beat phase error below 1 ms.
@@ -79,11 +85,13 @@ export class SyncCore {
         this.wasLocked[id] = false;
         continue;
       }
-      const locked = m.runningNormally && f.runningNormally;
+      // A pitch-bent deck (either one) is not locked: no realign, no PLL; one realign when the bend ends.
+      const locked = m.runningNormally && f.runningNormally && !m.bending && !f.bending;
       // (Re)align once both decks run normally: after play + motor spin-up, a scratch, reverse, or a jump.
       const masterBpm = m.bpm * m.tempoRate;
       const ratio = masterBpm / f.bpm;
-      const subBeatLoop = (m.loopActive && m.loopBeats < 1) || (f.loopActive && f.loopBeats < 1);
+      // Loops that aren't whole-beat multiples shift the beat phase every cycle: leave them alone.
+      const subBeatLoop = irregularLoop(m) || irregularLoop(f);
       // Also realign after any jump or loop exit: an error the PLL would take tens of seconds to trim out.
       const jumped = locked && !subBeatLoop && Math.abs(wrapHalf(m.beat - f.beat)) > REALIGN_BEATS;
       if (locked && (!this.wasLocked[id] || jumped)) {
