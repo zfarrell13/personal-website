@@ -1,10 +1,11 @@
-import { Group, Matrix4, Quaternion, Vector3, type Material, type Mesh } from 'three';
+import { Group, Matrix4, Quaternion, Vector3, type Material, type Mesh, type Object3D, type Texture } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { SurferLook } from '../config';
 import { clamp, DEG } from '../math/scalar';
 import type { Surfer } from '../physics/Surfer';
 import { BOARD, boardRocker, buildBoard, makeDeckTexture } from './board';
 import { PoseLayer, poseWeights } from './PoseLayer';
+import type { PoseWeights } from './poses';
 import { buildProceduralRig, rigFromGltfScene, type SurferRig } from './rig';
 
 export const SURFER_MODEL_URL = '/surf/surfer.glb';
@@ -13,11 +14,33 @@ export const SURFER_MODEL_URL = '/surf/surfer.glb';
 export async function loadSurferRig(look: SurferLook, url = SURFER_MODEL_URL): Promise<{ rig: SurferRig; procedural: boolean }> {
   try {
     const gltf = await new GLTFLoader().loadAsync(url);
-    return { rig: rigFromGltfScene(gltf.scene, look), procedural: false };
+    try {
+      return { rig: rigFromGltfScene(gltf.scene, look), procedural: false };
+    } catch (err) {
+      disposeObject(gltf.scene);
+      throw err;
+    }
   } catch (err) {
     console.warn('Surfer model failed to load; using the procedural rig.', err);
     return { rig: buildProceduralRig(look), procedural: true };
   }
+}
+
+function disposeMaterial(m: Material): void {
+  for (const v of Object.values(m)) if (v && (v as Texture).isTexture) (v as Texture).dispose();
+  m.dispose();
+}
+
+/** Dispose every geometry, material (with its textures) and skeleton under `root`. */
+function disposeObject(root: Object3D): void {
+  root.traverse((o) => {
+    const mesh = o as Mesh & { skeleton?: { dispose(): void } };
+    mesh.geometry?.dispose();
+    mesh.skeleton?.dispose();
+    const mat = mesh.material as Material | Material[] | undefined;
+    if (Array.isArray(mat)) mat.forEach(disposeMaterial);
+    else if (mat) disposeMaterial(mat);
+  });
 }
 
 const UP = new Vector3(0, 1, 0);
@@ -47,6 +70,7 @@ export class Character {
   private readonly tumbleAxis = new Vector3(1, 0, 0.3).normalize();
   private tumble = 0;
   private sinceLand = 10;
+  private readonly weights: PoseWeights = {};
 
   constructor(
     readonly rig: SurferRig,
@@ -98,6 +122,7 @@ export class Character {
       this.tilt.quaternion.setFromAxisAngle(this.tumbleAxis, this.tumble);
       this.tilt.position.y = Math.max(-1.2, this.tilt.position.y - dt * 0.8);
     } else {
+      this.tumble = 0;
       this.tilt.position.y = 0;
       const speed = s.v.length();
       const bank = clamp(s.turnRate * speed * 0.04, -0.6, 0.6) * (s.stanceFlipped ? 1 : -1);
@@ -106,7 +131,7 @@ export class Character {
     }
 
     const speed = s.v.length();
-    this.pose.update(poseWeights(s, this.sinceLand), dt, clamp(0.6 + speed / 20, 0.6, 1.3));
+    this.pose.update(poseWeights(s, this.sinceLand, this.weights), dt, clamp(0.6 + speed / 20, 0.6, 1.3));
     this.plantFeet();
   }
 
@@ -123,11 +148,7 @@ export class Character {
 
   dispose(): void {
     this.board.geometry.dispose();
-    (this.board.material as Material[]).forEach((m) => {
-      (m as Material & { map?: { dispose(): void } | null }).map?.dispose();
-      m.dispose();
-    });
-    this.rig.mesh.geometry.dispose();
-    (this.rig.mesh.material as Material).dispose();
+    (this.board.material as Material[]).forEach(disposeMaterial);
+    disposeObject(this.rig.model);
   }
 }

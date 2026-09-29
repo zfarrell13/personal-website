@@ -88,6 +88,29 @@ describe('poseWeights', () => {
     s.launchKind = 'crest';
     expect(poseWeights(s, 10)).toEqual({ spinTuck: 0.5, stance: 0.5 });
   });
+  it('reuses a caller-owned weights object and zeroes stale poses', () => {
+    const s = make();
+    const out = {};
+    s.mode = 'wipeout';
+    expect(poseWeights(s, 10, out)).toBe(out);
+    expect(out).toEqual({ wipeout: 1 });
+    s.mode = 'riding';
+    expect(poseWeights(s, 10, out)).toBe(out);
+    expect((out as { wipeout: number }).wipeout).toBe(0);
+    expect((out as { stance: number }).stance).toBe(1);
+  });
+  it('leanScale only scales carve lean, not crouch depth', async () => {
+    const layer = new PoseLayer(await TEST_RIGS[0]![1]());
+    layer.snap({ crouch: 1 });
+    const crouch = layer.angles('LeftLeg')[0];
+    for (let i = 0; i < 200; i++) layer.update({ crouch: 1 }, 1 / 60, 0.6);
+    expect(layer.angles('LeftLeg')[0]).toBeCloseTo(crouch, 3);
+    const a = new PoseLayer(await TEST_RIGS[0]![1]());
+    const b = new PoseLayer(await TEST_RIGS[0]![1]());
+    a.snap({ stance: 1 }); b.snap({ stance: 1 });
+    for (let i = 0; i < 200; i++) { a.update({ carveToe: 1 }, 1 / 60, 0.6); b.update({ carveToe: 1 }, 1 / 60, 1.2); }
+    expect(b.angles('Hips')[0]).toBeGreaterThan(a.angles('Hips')[0] + 1);
+  });
   it('weights sum to one', () => {
     const s = make();
     s.v.set(6, 0, 0);

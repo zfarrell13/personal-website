@@ -48,6 +48,20 @@ describe('Character', () => {
     expect(up.dot(s.normal)).toBeGreaterThan(0.95);
   });
 
+  it('resets the wipeout tumble once riding again', () => {
+    const { surfer, ch } = setup();
+    surfer.state.mode = 'wipeout';
+    for (let i = 0; i < 60; i++) ch.update(surfer, 1, 1 / 60);
+    surfer.state.mode = 'riding';
+    ch.update(surfer, 1, 1 / 60);
+    ch.update(surfer, 1, 1 / 60);
+    surfer.state.mode = 'wipeout';
+    ch.update(surfer, 1, 1 / 60);
+    // a fresh tumble starts from ~0 rad (7 rad/s * 1/60), not the accumulated ~7 rad
+    const angle = 2 * Math.acos(Math.min(1, Math.abs((ch as unknown as { tilt: { quaternion: { w: number } } }).tilt.quaternion.w)));
+    expect(angle).toBeLessThan(0.5);
+  });
+
   it('dispose releases geometry, materials and the deck texture', () => {
     const { ch } = setup();
     const spies = [

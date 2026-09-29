@@ -2,19 +2,36 @@ import { Quaternion, Vector3 } from 'three';
 import { clamp, DEG } from '../math/scalar';
 import { springStep, type Spring1 } from '../math/spring';
 import type { SurferState } from '../physics/Surfer';
-import { POSES, type BodyAngles, type PoseName, type PoseWeights } from './poses';
+import { POSE_NAMES, POSES, type BodyAngles, type PoseName, type PoseWeights } from './poses';
 import { DRIVEN_BONES, type BoneName, type SurferRig } from './rig';
 
 const FWD = new Vector3(1, 0, 0);
 const UP = new Vector3(0, 1, 0);
 const LEFT = new Vector3(0, 0, -1);
 
+const QY = new Quaternion();
+const QP = new Quaternion();
+const QR = new Quaternion();
+
 /** Character-space rotation from body angles (degrees): yaw · pitch · roll. */
 export function bodyQuat(a: BodyAngles, out = new Quaternion()): Quaternion {
-  const qy = new Quaternion().setFromAxisAngle(UP, a[1] * DEG);
-  const qp = new Quaternion().setFromAxisAngle(LEFT, a[0] * DEG);
-  const qr = new Quaternion().setFromAxisAngle(FWD, a[2] * DEG);
-  return out.copy(qy).multiply(qp).multiply(qr);
+  QY.setFromAxisAngle(UP, a[1] * DEG);
+  QP.setFromAxisAngle(LEFT, a[0] * DEG);
+  QR.setFromAxisAngle(FWD, a[2] * DEG);
+  return out.copy(QY).multiply(QP).multiply(QR);
+}
+
+const GRAB_POSE = { method: 'grabMethod', rail: 'grabRail', stalefish: 'grabStalefish', indy: 'grabIndy' } as const;
+
+/** Blend `name` in at weight k, scaling every existing weight by 1 − k. */
+function mixIn(w: PoseWeights, name: PoseName, k: number): void {
+  if (k <= 0) return;
+  for (let i = 0; i < POSE_NAMES.length; i++) {
+    const n = POSE_NAMES[i]!;
+    const v = w[n];
+    if (v !== undefined) w[n] = v * (1 - k);
+  }
+  w[name] = (w[name] ?? 0) + k;
 }
 
 /**
@@ -24,32 +41,35 @@ export function bodyQuat(a: BodyAngles, out = new Quaternion()): Quaternion {
  * dismount / drop airs are mode 'airborne' with launchKind null and keep the
  * riding / floater pose.
  */
-export function poseWeights(s: SurferState, sinceLand: number): PoseWeights {
-  const w: PoseWeights = {};
-  if (s.mode === 'wipeout') return { wipeout: 1 };
+export function poseWeights(s: SurferState, sinceLand: number, out: PoseWeights = {}): PoseWeights {
+  const w = out;
+  // A reused `out` may hold last frame's weights: zero them so no stale pose leaks through.
+  for (let i = 0; i < POSE_NAMES.length; i++) if (w[POSE_NAMES[i]!] !== undefined) w[POSE_NAMES[i]!] = 0;
+  if (s.mode === 'wipeout') {
+    w.wipeout = 1;
+    return w;
+  }
   if (s.mode === 'airborne' && s.launchKind !== null) {
-    if (s.grab) {
-      const key = ({ method: 'grabMethod', rail: 'grabRail', stalefish: 'grabStalefish', indy: 'grabIndy' } as const)[s.grab];
-      return { [key]: 1 };
+    if (s.grab) w[GRAB_POSE[s.grab]] = 1;
+    else if (Math.abs(s.turnRate) > 0.1) w.spinTuck = 1;
+    else if (s.airTime < 0.25) w.ollie = 1;
+    else {
+      w.spinTuck = 0.5;
+      w.stance = 0.5;
     }
-    if (Math.abs(s.turnRate) > 0.1) return { spinTuck: 1 };
-    if (s.airTime < 0.25) return { ollie: 1 };
-    return { spinTuck: 0.5, stance: 0.5 };
+    return w;
   }
   const speed = s.v.length();
   const lean = clamp((Math.abs(s.turnRate) / 2.5) * clamp(speed / 8, 0.3, 1.2), 0, 1);
+  // carve > 0 = toward the lip (the wave), whichever way the rider is travelling, so it (not the
+  // sign of turnRate, which also flips with travel direction) decides toe vs heel side.
   const toeSide = s.carve > 0 !== s.stanceFlipped;
   w.stance = 1 - lean;
   if (lean > 0) w[toeSide ? 'carveToe' : 'carveHeel'] = lean;
-  const add = (name: PoseName, k: number) => {
-    if (k <= 0) return;
-    for (const key of Object.keys(w) as PoseName[]) w[key]! *= 1 - k;
-    w[name] = (w[name] ?? 0) + k;
-  };
-  if (s.inTube) add('crouch', 0.85);
-  if (s.sincePump < 0.35) add('pump', 1 - s.sincePump / 0.35);
-  if (s.stalling) add('stall', 1);
-  if (sinceLand < 0.3) add('land', 1 - sinceLand / 0.3);
+  if (s.inTube) mixIn(w, 'crouch', 0.85);
+  if (s.sincePump < 0.35) mixIn(w, 'pump', 1 - s.sincePump / 0.35);
+  if (s.stalling) mixIn(w, 'stall', 1);
+  if (sinceLand < 0.3) mixIn(w, 'land', 1 - sinceLand / 0.3);
   return w;
 }
 
@@ -85,32 +105,40 @@ export class PoseLayer {
     return [s.p.x, s.y.x, s.r.x];
   }
 
-  private blend(weights: PoseWeights): void {
+  /** `leanScale` scales only the carve poses' departure from stance (carve lean grows with speed). */
+  private blend(weights: PoseWeights, leanScale = 1): void {
     let total = 0;
-    for (const k in weights) total += weights[k as PoseName] ?? 0;
+    for (let i = 0; i < POSE_NAMES.length; i++) total += weights[POSE_NAMES[i]!] ?? 0;
     for (const b of DRIVEN_BONES) this.target[b].fill(0);
     if (total <= 0) return;
-    for (const [name, wRaw] of Object.entries(weights) as [PoseName, number][]) {
-      const w = wRaw / total;
+    for (let i = 0; i < POSE_NAMES.length; i++) {
+      const name = POSE_NAMES[i]!;
+      const w = (weights[name] ?? 0) / total;
       if (w <= 0) continue;
       const pose = POSES[name];
+      const carve = name === 'carveToe' || name === 'carveHeel';
       for (const b of DRIVEN_BONES) {
         const a = pose.bones[b];
         if (!a) continue;
         const t = this.target[b];
-        t[0] += a[0] * w;
-        t[1] += a[1] * w;
-        t[2] += a[2] * w;
+        if (carve) {
+          const base = POSES.stance.bones[b] ?? a;
+          for (let k = 0; k < 3; k++) t[k]! += (base[k]! + (a[k]! - base[k]!) * leanScale) * w;
+        } else {
+          t[0] += a[0] * w;
+          t[1] += a[1] * w;
+          t[2] += a[2] * w;
+        }
       }
     }
   }
 
   update(weights: PoseWeights, dt: number, leanScale = 1): void {
-    this.blend(weights);
+    this.blend(weights, leanScale);
     for (const b of DRIVEN_BONES) {
       const s = this.springs[b];
       const t = this.target[b];
-      springStep(s.p, t[0] * leanScale, this.omega, dt);
+      springStep(s.p, t[0], this.omega, dt);
       springStep(s.y, t[1], this.omega, dt);
       springStep(s.r, t[2], this.omega, dt);
     }
