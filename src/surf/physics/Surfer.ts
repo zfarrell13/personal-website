@@ -54,6 +54,8 @@ const BLEND_SPEED = 3;
 /** Riding: if clamping to the face end would move the rider this much (m) beyond |v|·dt, drop off instead. */
 const DROP_SLACK = 0.02;
 const WORLD_UP = new Vector3(0, 1, 0);
+/** The turn sense flips only once the board's line is this far off straight up / down the face (sine of the angle). */
+const TURN_SENSE_HYSTERESIS = 0.2;
 const DROP_IN = { x: 3.5, t: 0.5, along: 2, down: 4 };
 
 /**
@@ -118,6 +120,8 @@ export class Surfer {
   private vp = 0;
   /** Carve yaw rate (rad/s), easing toward the input's target. */
   private yawRate = 0;
+  /** +1 while the board runs toward +x (the shoulder), −1 toward the curl; see TURN_SENSE_HYSTERESIS. */
+  private turnSense = 1;
   private crestMemo = { x: NaN, version: -1, t: 0, y: 0 };
   private readonly path: AirPath = {
     kind: 'jump',
@@ -207,6 +211,7 @@ export class Surfer {
     s.param.x = x;
     this.vp = this.wave.params.peelSpeed;
     this.yawRate = 0;
+    this.turnSense = 1;
     this.crestMemo.x = NaN;
     // Riding starts on the rideable face (never on the vertical / overhanging part).
     t = this.faceEnd(x, Math.min(t, this.crestAt(x).t - CREST_EPS));
@@ -380,8 +385,12 @@ export class Surfer {
     // eases toward carve × carveRate / (1 + speed / carveHalfSpeed) with lag carveLag (a weighty
     // rail); the turn radius speed / rate grows with speed. ---
     const sp = rel.length();
-    const dir = rel.dot(this.e1) >= 0 ? 1 : -1;
-    const target = input.carve * (c.carveRate / (1 + sp / c.carveHalfSpeed)) * dir;
+    // Which way along the wave the board runs sets the turn sense (+carve = toward the lip either way).
+    // It only flips once the board clearly points the other way: pointing straight up or down the
+    // face, a flip every tick would cancel the eased yaw rate and pin the board there.
+    const along = rel.dot(this.e1);
+    if (Math.abs(along) > TURN_SENSE_HYSTERESIS * sp) this.turnSense = along > 0 ? 1 : -1;
+    const target = input.carve * (c.carveRate / (1 + sp / c.carveHalfSpeed)) * this.turnSense;
     this.yawRate += (target - this.yawRate) * (1 - Math.exp(-dt / c.carveLag));
     const ang = this.yawRate * dt;
     if (ang !== 0) rel.applyAxisAngle(n, ang);
@@ -420,7 +429,7 @@ export class Surfer {
           this.beginAir('drop', tb, 0);
           return;
         }
-        if (this.faceEdge(tb, tc)) return;
+        if (this.faceEdge(tb, tc, input.carve)) return;
       } else {
         this.atCrest = false;
         w.profile(s.param.x, s.param.t, s.p);
@@ -482,8 +491,11 @@ export class Surfer {
   /**
    * At the end of the rideable face (param already past it): start a floater (x < floaterMaxX with
    * speed), launch (up-face speed > launchSpeed), or clamp there and slide back. True = left the face.
+   * Carving (either way) into the top with a snap armed or pending is a turn off the lip, not a
+   * launch: the climb comes back down the face at snapRebound × its up-face speed. Airs come from
+   * arriving without a carve held, or from an ollie.
    */
-  private faceEdge(tb: number, tc: number): boolean {
+  private faceEdge(tb: number, tc: number, carve: number): boolean {
     const s = this.state;
     const c = this.cfg;
     const w = this.wave;
@@ -499,7 +511,8 @@ export class Surfer {
       this.beginAir('mount', tc, u);
       return true;
     }
-    if (u > c.launchSpeed) {
+    const lipTurn = carve !== 0 && (this.snapArmed || this.topPending);
+    if (u > c.launchSpeed && !lipTurn) {
       this.enterAir('crest');
       this.beginAir('jump', tb, clamp(u * c.airGain, c.launchSpeed, c.maxAirSpeed));
       return true;
@@ -513,8 +526,11 @@ export class Surfer {
     this.frameAt(s.param.x, tb);
     s.v.addScaledVector(n, -s.v.dot(n));
     // Too slow to launch: the lip sheds the rider back down the face (no balancing on the ridge).
-    const up = s.v.dot(out);
-    if (up > -c.crestShed) s.v.addScaledVector(out, -up - c.crestShed);
+    // A lip turn sends the climb back down across the wave (eUp), keeping the speed along it.
+    const dir = lipTurn ? this.eUp : out;
+    const up = s.v.dot(dir);
+    const back = lipTurn ? Math.max(c.crestShed, c.snapRebound * up) : c.crestShed;
+    if (up > -back) s.v.addScaledVector(dir, -up - back);
     return false;
   }
 

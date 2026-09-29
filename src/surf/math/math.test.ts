@@ -47,7 +47,7 @@ describe('critically damped spring', () => {
 describe('config', () => {
   it('carries the spec numbers', () => {
     expect(SURF_CONFIG.wave).toMatchObject({ height: 2.4, peelSpeed: 8, tubeDepth: 5, shoulderLength: 45, taperEnd: 90, taperMin: 0.4, xMin: -30, xMax: 90 });
-    expect(SURF_CONFIG.physics).toMatchObject({ hz: 120, stallDragMultiplier: 4, pumpPeriod: 0.6, launchSpeed: 3, snapWindow: 0.4, ollieImpulse: 4, spinRate: 540, landTolerance: 40, grabGrace: 0.1, tubeXMax: 1, tubeHeightFrac: 0.6, kickOutX: 70, kickOutTime: 2 });
+    expect(SURF_CONFIG.physics).toMatchObject({ hz: 120, stallDragMultiplier: 4, pumpPeriod: 0.6, launchSpeed: 3, snapWindow: 0.6, snapTopFrac: 0.7, snapRebound: 0.5, carveRate: 6, carveHalfSpeed: 15, ollieImpulse: 4, spinRate: 540, landTolerance: 40, grabGrace: 0.1, tubeXMax: 1, tubeHeightFrac: 0.6, kickOutX: 70, kickOutTime: 2 });
     expect(SURF_CONFIG.scoring).toEqual({ comboWindow: 1.5, repeatFactor: 0.5 });
     expect(SURF_CONFIG.mesh).toEqual({ columns: 160, rows: 64 });
   });

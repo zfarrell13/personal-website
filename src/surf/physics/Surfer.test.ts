@@ -24,6 +24,29 @@ function setup(physics: Partial<typeof SURF_CONFIG.physics> = {}) {
   return { cfg, wave, bus, events, surfer, s: surfer.state, run };
 }
 
+/** Steps `bot` for up to `seconds` (stopping on a wipeout / kick-out); returns each climb's peak heading.y after 2 s. */
+function climbPeaks(h: ReturnType<typeof setup>, bot: (dt: number) => SurferInput, seconds: number): number[] {
+  const peaks: number[] = [];
+  let peak = 0;
+  for (let i = 0; i < seconds * 120; i++) {
+    h.surfer.step(bot(DT), DT);
+    if (h.s.mode === 'wipeout' || h.s.mode === 'kickedOut') break;
+    if (h.s.mode !== 'riding') continue;
+    const hy = h.s.heading.y;
+    if (hy > 0) peak = Math.max(peak, hy);
+    else if (peak > 0) {
+      if (h.s.time > 2) peaks.push(peak);
+      peak = 0;
+    }
+  }
+  return peaks;
+}
+
+function median(xs: number[]): number {
+  const sorted = [...xs].sort((a, b) => a - b);
+  return sorted[sorted.length >> 1] ?? NaN;
+}
+
 describe('Surfer — riding', () => {
   it('no input: stays on the surface and the curl swallows the rider after 3.5–5.2 s (never under 2 s)', () => {
     const { wave, s, surfer } = setup();
@@ -82,12 +105,11 @@ describe('Surfer — riding', () => {
     for (const [low, high] of [[0.35, 0.6], [0.2, 0.7]]) {
       const h = setup();
       const bot = lineBot(h.surfer, h.wave, { pumpEvery, slope, low, high });
-      for (let i = 0; i < 30 * 120; i++) {
-        h.surfer.step(bot(DT), DT);
-        if (h.s.mode === 'wipeout' || h.s.mode === 'kickedOut') break;
-      }
+      const peaks = climbPeaks(h, bot, 30);
       expect(h.s.mode === 'riding' || h.s.mode === 'airborne').toBe(true);
       expect(h.s.time).toBeGreaterThan(29.9);
+      // The bot really rides its line (it is not cut short by turning early).
+      if (slope === 0.5) expect(median(peaks)).toBeGreaterThanOrEqual(0.45);
     }
   });
 
@@ -229,6 +251,20 @@ describe('Surfer — riding', () => {
     }
     expect(top).toBeGreaterThan(0);
     expect(top).toBeLessThanOrEqual(1.5);
+  });
+
+  // Straight up the face the board's run along the wave is ~0 and its sign flips tick to tick; the
+  // turn sense must not flip with it, or the eased yaw rate cancels out and the carve does nothing.
+  it.each([10, 15])('pointing straight up the face, a held carve keeps turning the board (x = %d)', (x) => {
+    for (const off of [-0.1, 0, 0.1]) {
+      const h = setup();
+      h.surfer.reset(x, 0.3);
+      const up = new Vector3().crossVectors(h.s.normal, new Vector3(1, 0, 0)).normalize();
+      h.s.v.set(off - h.surfer.peelSpeed, 0, 0).addScaledVector(up, 8); // world motion: straight up the face
+      h.s.v.addScaledVector(h.s.normal, -h.s.v.dot(h.s.normal));
+      h.run(0.3, () => ({ carve: 1 }));
+      expect(Math.abs(h.s.turnRate)).toBeGreaterThan(2);
+    }
   });
 
   it('the turn radius grows with speed', () => {
@@ -543,31 +579,85 @@ describe('Surfer — floater and kick-out', () => {
     expect(h.events.some((e) => e.type === 'snap')).toBe(true);
   });
 
-  // The open face (apex-armed snap near the top), from riding speed: a hard climb from the trough at
-  // 10 m/s world speed (what the lines reach with pumps), coasted up the face, then carved through the top.
-  it.each([15, 20, 25])('snaps (not launches) on a hard climb at riding speed, carved through at the top (x = %d)', (x) => {
+  /**
+   * From a real riding state: lineBot rides for `warmUp` s, then (at the start of its next climb, low on
+   * the face) the player takes over: carve toward the lip until the board climbs at `steep` (heading.y)
+   * or reaches `at` × crest height, coast up to `at`, then hold `carve` for 1.5 s.
+   */
+  function takeOver(warmUp: number, pumpEvery: number, steep: number, at: number, carve: number) {
     const h = setup();
-    h.surfer.reset(x, 0.15);
-    const d = 10 - h.surfer.peelSpeed;
-    h.s.v.set(d, 0, 0).addScaledVector(h.s.normal, -d * h.s.normal.x);
-    let phase = 'turn';
-    for (let i = 0; i < 3 * 120 && h.s.mode === 'riding'; i++) {
-      const frac = h.s.p.y / h.wave.crestY(h.s.param.x);
-      if (phase === 'turn' && h.s.heading.y >= 0.5) phase = 'coast';
-      if (phase === 'coast' && frac >= 0.6) phase = 'through';
-      h.run(DT, () => ({ carve: phase === 'coast' ? 0 : 1 }));
+    const bot = lineBot(h.surfer, h.wave, { pumpEvery });
+    const frac = () => h.s.p.y / h.wave.crestY(h.s.param.x);
+    while (h.s.time < warmUp && h.s.mode === 'riding') h.surfer.step(bot(DT), DT);
+    let prev = h.s.heading.y;
+    for (let i = 0; i < 5 * 120 && h.s.mode === 'riding'; i++) {
+      h.surfer.step(bot(DT), DT);
+      if (prev < 0 && h.s.heading.y >= 0 && frac() < 0.45) break;
+      prev = h.s.heading.y;
     }
-    expect(h.events.some((e) => e.type === 'launched')).toBe(false);
-    expect(h.events.some((e) => e.type === 'snap')).toBe(true);
+    if (h.s.mode !== 'riding') return null;
+    const e0 = h.events.length;
+    let phase: 'turn' | 'coast' | 'carve' = 'turn';
+    let t0 = 0;
+    for (let i = 0; i < 4 * 120 && h.s.mode === 'riding'; i++) {
+      if (phase === 'turn' && (h.s.heading.y >= steep || frac() >= at)) phase = 'coast';
+      if (phase === 'coast' && frac() >= at) {
+        phase = 'carve';
+        t0 = h.s.time;
+      }
+      if (phase === 'carve' && h.s.time - t0 > 1.5) break;
+      h.surfer.step({ ...NO_INPUT, carve: phase === 'turn' ? 1 : phase === 'coast' ? 0 : carve }, DT);
+    }
+    const events = h.events.slice(e0);
+    return { snap: events.some((e) => e.type === 'snap'), launch: events.some((e) => e.type === 'launched') };
+  }
+
+  /** takeOver over a grid of riding states (6–10 s of lineBot) and climbs; the share of attempts that snap / launch. */
+  function takeOverGrid(carve: number) {
+    let n = 0;
+    let snaps = 0;
+    let launches = 0;
+    for (const warmUp of [6, 8, 10])
+      for (const pumpEvery of [0.6, 1])
+        for (const steep of [0.4, 0.6, 0.8])
+          for (const at of [0.5, 0.6, 0.7]) {
+            const r = takeOver(warmUp, pumpEvery, steep, at, carve);
+            if (!r) continue;
+            n++;
+            if (r.snap) snaps++;
+            if (r.launch) launches++;
+          }
+    return { n, snap: snaps / n, launch: launches / n };
+  }
+
+  it.each([
+    { name: 'carve-back (toward the trough)', carve: -1 },
+    { name: 'carve-through (toward the lip)', carve: 1 },
+  ])('from riding states, a climb + $name at the top snaps in at least 30 percent of attempts', ({ carve }) => {
+    const r = takeOverGrid(carve);
+    expect(r.n).toBeGreaterThanOrEqual(40);
+    expect(r.snap).toBeGreaterThanOrEqual(0.3);
+  });
+
+  it('from riding states, arriving fast at the lip without carving still launches (airs stay easy)', () => {
+    const r = takeOverGrid(0);
+    expect(r.n).toBeGreaterThanOrEqual(40);
+    expect(r.launch).toBeGreaterThanOrEqual(0.8);
   });
 
   it('does not snap on a climb that stays low on the face', () => {
     const h = setup();
-    h.surfer.reset(15, 0.3);
-    const n = h.wave.normal(15, 0.3);
+    h.surfer.reset(15, 0.15);
+    const n = h.wave.normal(15, h.s.param.t);
     const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
-    h.s.v.set(3, 0, 0).addScaledVector(up, 1); // turns well below the top band
-    h.run(1.5, () => ({ carve: 1 }));
+    h.s.v.set(3, 0, 0).addScaledVector(up, 1);
+    // A short climb, then a hard turn back down (a full reversal) well below the top band.
+    let top = 0;
+    h.run(1.5, (i) => {
+      top = Math.max(top, h.s.p.y / h.wave.crestY(h.s.param.x));
+      return { carve: i < 30 ? 1 : -1 };
+    });
+    expect(top).toBeLessThan(h.cfg.physics.snapTopFrac - 0.1);
     expect(h.events.some((e) => e.type === 'snap')).toBe(false);
   });
 });

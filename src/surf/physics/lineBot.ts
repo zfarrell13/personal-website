@@ -3,8 +3,12 @@ import type { WaveShape } from '../wave/WaveShape';
 import { NO_INPUT, type SurferInput } from './input';
 import type { Surfer } from './Surfer';
 
-/** Turn early by this much of the heading's vertical slope, as a fraction of the crest height. */
-const LEAD = 0.8;
+/**
+ * Turn early by this share of the height the board still travels while the turn comes round: the
+ * vertical speed × (carve lag + the time to turn the line flat at the current speed). A competent
+ * rider reads the speed; a fixed lead either cuts steep climbs short or plunges fast drops onto the flats.
+ */
+const ANTICIPATE = 0.6;
 
 export interface LineBotOptions {
   /** Pump every this many seconds (0 = never). */
@@ -29,8 +33,12 @@ export function lineBot(surfer: Surfer, wave: WaveShape, o: LineBotOptions): (dt
   const input: SurferInput = { ...NO_INPUT };
   return (dt) => {
     const s = surfer.state;
-    // Turn a little early: the yaw rate is eased, so the board keeps going the old way for a moment.
-    const frac = s.p.y / wave.crestY(s.param.x) + LEAD * s.heading.y;
+    // Turn early: the yaw rate is eased and the turn radius grows with speed, so the board keeps
+    // climbing (or dropping) for a while after the turn starts.
+    const c = surfer.cfg;
+    const yawRate = c.carveRate / (1 + surfer.worldSpeed(surfer.peelSpeed) / c.carveHalfSpeed);
+    const turnTime = c.carveLag + Math.asin(Math.min(1, Math.abs(s.heading.y))) / yawRate;
+    const frac = (s.p.y + ANTICIPATE * s.v.y * turnTime) / wave.crestY(s.param.x);
     if (climbing && frac > high) climbing = false;
     else if (!climbing && frac < low) climbing = true;
     const hy = s.heading.y;

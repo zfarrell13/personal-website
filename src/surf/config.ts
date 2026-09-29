@@ -45,8 +45,8 @@ export const SURF_CONFIG = {
     drag: 0.04,
     stallDragMultiplier: 4,
     /** Carve yaw rate = carveRate / (1 + speed / carveHalfSpeed) (rad/s); turn radius = speed / rate grows with speed. */
-    carveRate: 4,
-    carveHalfSpeed: 10,
+    carveRate: 6,
+    carveHalfSpeed: 15,
     /** The yaw rate eases toward its target with this time constant (s): a weighty rail. */
     carveLag: 0.12,
     /** Speed bled while a carve is held (m/s²). */
@@ -62,9 +62,14 @@ export const SURF_CONFIG = {
     launchSpeed: 3,
     /** Reaching the top of the face too slow to launch pushes the rider back down at this speed (m/s). */
     crestShed: 1,
-    snapWindow: 0.4,
+    snapWindow: 0.6,
     /** A climb whose apex is above this fraction of the crest height arms a snap (open face; spec: "at the crest"). */
-    snapTopFrac: 0.85,
+    snapTopFrac: 0.7,
+    /**
+     * Carving at the top of the face with a snap armed or pending turns off the lip instead of
+     * launching: the climb comes back down the face at this fraction of its up-face speed (≥ crestShed).
+     */
+    snapRebound: 0.5,
     /** Snap requires the heading to turn at least this much at the crest (deg). */
     snapAngle: 110,
     ollieImpulse: 4,
