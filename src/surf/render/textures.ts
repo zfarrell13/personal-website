@@ -3,6 +3,7 @@ import { retroTexture } from '@/retro/retroMaterial';
 
 /** Radial glow texture (no canvas needed): white core fading to transparent. */
 export function makeRadialTexture(size: number, rgb: [number, number, number], falloff = 2): DataTexture {
+  size = Math.min(256, Math.max(1, Math.floor(size)));
   const data = new Uint8Array(size * size * 4);
   const c = (size - 1) / 2;
   for (let y = 0; y < size; y++) {

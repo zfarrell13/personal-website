@@ -29,7 +29,7 @@ import {
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { retroMaterial } from '@/retro/retroMaterial';
 import { FOG_CONFIG } from '../config';
-import { scrollWrap } from './scroll';
+import { REEF_TILES, scrollWrap } from './scroll';
 import { makeRadialTexture } from './textures';
 
 export const FOG_COLOR = new Color(FOG_CONFIG.color);
@@ -70,6 +70,9 @@ interface Scroller {
  */
 export class Environment {
   readonly frameStuff = new Group();
+  private readonly scene: Scene;
+  private readonly fog: Fog;
+  private readonly hemi: HemisphereLight;
   private readonly sky: Mesh;
   private readonly sun: Sprite;
   private readonly sunLight: DirectionalLight;
@@ -88,7 +91,9 @@ export class Environment {
     scene: Scene,
     private readonly camera: PerspectiveCamera,
   ) {
-    scene.fog = new Fog(FOG_COLOR, FOG_CONFIG.near, FOG_CONFIG.far);
+    this.scene = scene;
+    this.fog = new Fog(FOG_COLOR, FOG_CONFIG.near, FOG_CONFIG.far);
+    scene.fog = this.fog;
     scene.background = FOG_COLOR.clone();
 
     // Sky dome — follows the camera, gradient by height.
@@ -101,7 +106,8 @@ export class Environment {
     scene.add(this.sky);
 
     // Lights (sun direction shared with the sprite; mirrored per side in update()).
-    scene.add(new HemisphereLight('#cfe8ff', '#1b4b5a', 1.1));
+    this.hemi = new HemisphereLight('#cfe8ff', '#1b4b5a', 1.1);
+    scene.add(this.hemi);
     this.sunLight = new DirectionalLight('#ffe0b0', 1.7);
     this.sunLight.position.copy(SUN_DIR).multiplyScalar(100);
     scene.add(this.sunLight);
@@ -132,7 +138,7 @@ export class Environment {
     this.frameStuff.add(sea);
 
     // Reef floor: two seamless tiles (periodic noise over the tile span).
-    const TILE = 200;
+    const TILE = REEF_TILES.tile;
     const reefGeo = paint(new PlaneGeometry(TILE, 140, 40, 24).rotateX(-Math.PI / 2), (x, _y, z, c) => {
       const n = 0.5 + 0.25 * Math.sin((x / TILE) * Math.PI * 2 * 3 + z * 0.1) + 0.25 * Math.sin((x / TILE) * Math.PI * 2 * 7 + z * 0.23);
       c.set(n > 0.62 ? '#b86a5c' : n > 0.4 ? '#d9c28f' : '#3c6e63');
@@ -145,11 +151,11 @@ export class Environment {
     }
     reefGeo.computeVertexNormals();
     const reefMat = retroMaterial(new MeshLambertMaterial({ vertexColors: true }));
-    for (let k = 0; k < 2; k++) {
+    for (let k = 0; k < REEF_TILES.count; k++) {
       const reef = new Mesh(reefGeo, reefMat);
       reef.position.z = 70;
       this.frameStuff.add(reef);
-      this.scrollers.push({ obj: reef, worldX: k * TILE + TILE / 2, span: 2 * TILE, start: -100 });
+      this.scrollers.push({ obj: reef, worldX: k * TILE + TILE / 2, span: REEF_TILES.count * TILE, start: REEF_TILES.start });
     }
 
     // Islands with palms, merged into one mesh (one draw call).
@@ -168,7 +174,9 @@ export class Environment {
       parts.push(paint(cone, (_x, y, _z, c) => c.set(y < 3 ? '#e6d3a0' : y < h * 0.6 ? '#2f7a3a' : '#4d5b3a')));
       for (let p = 0; p < 3; p++) {
         const px = x + (p - 1) * r * 0.3;
-        const py = h * 0.35;
+        // Stand the palm on the cone surface (radius shrinks linearly to the apex at y = h − 2).
+        const dist = Math.min(r, Math.hypot(px - x, r * 0.3));
+        const py = -2 + h * (1 - dist / r);
         const trunk = paint(new CylinderGeometry(0.8, 1.2, 16, 5).translate(px, py + 8, z + r * 0.3), (_a, _b, _c, c) => c.set('#8a6a3c'));
         parts.push(trunk);
         for (let f = 0; f < 5; f++) {
@@ -190,7 +198,7 @@ export class Environment {
     const pier = new Mesh(mergeGeometries(pierParts), retroMaterial(new MeshLambertMaterial({ vertexColors: true })));
     pier.position.z = 110;
     this.frameStuff.add(pier);
-    this.scrollers.push({ obj: pier, worldX: 60, span: 700, start: -250 });
+    this.scrollers.push({ obj: pier, worldX: 60, span: 1300, start: -650 }); // wraps beyond fog far
 
     // Gulls: 5 instanced "V"s circling over the pocket.
     const gullGeo = new BufferGeometry();
@@ -200,12 +208,12 @@ export class Environment {
     this.gulls.frustumCulled = false;
     this.frameStuff.add(this.gulls);
 
-    for (const obj of [this.sky, this.sun, sea, islandMesh, pier, this.gulls]) {
+    for (const obj of [this.sky, sea, islandMesh, pier, this.gulls]) {
       const mesh = obj as unknown as { geometry?: { dispose(): void }; material?: { dispose(): void } };
       if (mesh.geometry) this.disposables.push(mesh.geometry);
       if (mesh.material) this.disposables.push(mesh.material);
     }
-    this.disposables.push(reefGeo, reefMat, ...this.flares.map((f) => f.material));
+    this.disposables.push(reefGeo, reefMat, this.sun.material, ...this.flares.map((f) => f.material));
   }
 
   /**
@@ -247,6 +255,9 @@ export class Environment {
   }
 
   dispose(): void {
+    for (const f of this.flares) this.camera.remove(f);
+    this.scene.remove(this.sky, this.sunLight, this.hemi, this.sun, this.camera);
+    if (this.scene.fog === this.fog) this.scene.fog = null;
     this.disposables.forEach((d) => d.dispose());
   }
 }

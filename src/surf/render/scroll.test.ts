@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scrollWrap } from './scroll';
+import { REEF_TILES, scrollWrap } from './scroll';
 
 describe('scrollWrap', () => {
   it('moves world objects toward −x as the frame travels, wrapping into the window', () => {
@@ -21,5 +21,34 @@ describe('scrollWrap', () => {
       prev = x;
     }
     expect(jumps).toBe(2);
+  });
+});
+
+describe('reef tiling', () => {
+  const { tile, count, start } = REEF_TILES;
+  const span = tile * count;
+  const centres = (travel: number) => Array.from({ length: count }, (_, k) => scrollWrap(k * tile + tile / 2, travel, span, start));
+  const LO = -200;
+  const HI = 450;
+  it('always covers the visible range with no gaps', () => {
+    for (let travel = 0; travel < span * 3; travel += 3) {
+      const cs = centres(travel).sort((a, b) => a - b);
+      expect(cs[0] - tile / 2).toBeLessThanOrEqual(LO);
+      expect(cs[count - 1] + tile / 2).toBeGreaterThanOrEqual(HI);
+      for (let i = 1; i < count; i++) expect(cs[i] - cs[i - 1]).toBeCloseTo(tile, 6);
+    }
+  });
+  it('only wraps while the tile is outside the visible range', () => {
+    for (let k = 0; k < count; k++) {
+      let prev = scrollWrap(k * tile + tile / 2, 0, span, start);
+      for (let travel = 1; travel < span * 3; travel += 1) {
+        const x = scrollWrap(k * tile + tile / 2, travel, span, start);
+        if (Math.abs(x - prev) > span / 2) {
+          expect(prev + tile / 2).toBeLessThan(LO); // vanishes entirely behind the curl range
+          expect(x - tile / 2).toBeGreaterThan(HI); // reappears beyond the visible range
+        }
+        prev = x;
+      }
+    }
   });
 });
