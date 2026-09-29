@@ -57,9 +57,9 @@ export interface ScreenView {
 }
 
 export function formatClock(sec: number): string {
-  const s = Math.max(0, sec);
-  const m = Math.floor(s / 60);
-  const rest = s - m * 60;
+  const tenths = Math.round(Math.max(0, sec) * 10);
+  const m = Math.floor(tenths / 600);
+  const rest = (tenths - m * 600) / 10;
   return `${String(m).padStart(2, "0")}:${rest.toFixed(1).padStart(4, "0")}`;
 }
 
@@ -116,10 +116,15 @@ export const endFlashOn = (
   );
 };
 
+/** Largest extrapolation error we treat as loop-boundary jitter (about one telemetry interval plus latency slop). */
+const LOOP_EDGE_TOLERANCE_SEC = 0.15;
+
 /**
- * Display position from the extrapolated audible position. While a loop is active the
- * extrapolation can run past the loop-out (and, for ~80 ms after a wrap, shows the
- * pre-jump spot), so keep the playhead inside the loop instead of flying past its end.
+ * Display position from the extrapolated audible position. With a loop active, the
+ * extrapolation can run a hair past loop-out before the wrap snapshot arrives, and just
+ * after a wrap the latency-adjusted position can sit a hair before loop-in. Both are
+ * clamped to the loop edge, but only within a small tolerance so a jump that lands
+ * elsewhere (hot cue, needle, scratch) is shown as is.
  */
 export function displayPosSec(
   audibleSec: number,
@@ -129,10 +134,11 @@ export function displayPosSec(
 ): number {
   if (!loopActive || Number.isNaN(loopInSec) || Number.isNaN(loopOutSec))
     return audibleSec;
-  return audibleSec > loopOutSec &&
-    audibleSec - loopOutSec < loopOutSec - loopInSec
-    ? loopOutSec
-    : audibleSec;
+  const tol = Math.min(LOOP_EDGE_TOLERANCE_SEC, loopOutSec - loopInSec);
+  if (audibleSec > loopOutSec && audibleSec - loopOutSec < tol)
+    return loopOutSec;
+  if (audibleSec < loopInSec && loopInSec - audibleSec < tol) return loopInSec;
+  return audibleSec;
 }
 
 type Ctx = Pick<
@@ -168,7 +174,9 @@ function passValue(band: Band, low: number, mid: number, high: number): number {
 
 /**
  * Draws 3-band bars for columns [0, width) in three colour passes (one fillStyle
- * change per pass, not per column). `binAt(x)` returns a bin index or −1.
+ * change per pass, not per column). Column x covers bins
+ * [startBin + x*binsPerCol, startBin + (x+1)*binsPerCol) and shows the max over them,
+ * so peaks neither drop nor shimmer at wide zoom. Bins outside the track are skipped.
  */
 export function drawWaveColumns(
   ctx: Ctx,
@@ -176,15 +184,27 @@ export function drawWaveColumns(
   width: number,
   midY: number,
   halfHeight: number,
-  binAt: (x: number) => number,
+  startBin: number,
+  binsPerCol: number,
 ): void {
+  if (!Number.isFinite(startBin) || !(binsPerCol > 0)) return;
+  const n = wf.binCount;
   for (const band of PASSES) {
     ctx.fillStyle = WAVE_COLORS[band];
     const k = halfHeight * PASS_SCALE[band];
     for (let x = 0; x < width; x++) {
-      const b = binAt(x);
-      if (b < 0) continue;
-      const h = passValue(band, wf.low[b]!, wf.mid[b]!, wf.high[b]!) * k;
+      const lo = startBin + x * binsPerCol;
+      let b0 = Math.floor(lo);
+      let b1 = Math.max(b0, Math.ceil(lo + binsPerCol) - 1);
+      if (b1 < 0 || b0 >= n) continue;
+      if (b0 < 0) b0 = 0;
+      if (b1 >= n) b1 = n - 1;
+      let m = 0;
+      for (let b = b0; b <= b1; b++) {
+        const p = passValue(band, wf.low[b]!, wf.mid[b]!, wf.high[b]!);
+        if (p > m) m = p;
+      }
+      const h = m * k;
       if (h > 0.5) ctx.fillRect(x, midY - h, 1, h * 2);
     }
   }
@@ -199,12 +219,19 @@ export function renderOverview(
 ): void {
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, width, height);
-  drawWaveColumns(ctx, ov, width, height / 2, height / 2 - 4, (x) =>
-    Math.min(ov.binCount - 1, Math.floor((x / width) * ov.binCount)),
+  drawWaveColumns(
+    ctx,
+    ov,
+    width,
+    height / 2,
+    height / 2 - 4,
+    0,
+    ov.binCount / width,
   );
 }
 
 // Font strings hoisted so drawScreen does not rebuild them every frame.
+const MAX_GRID_TICKS = 256;
 const F_DECK = "600 22px system-ui, sans-serif";
 const F_TITLE = "600 30px system-ui, sans-serif";
 const F_ARTIST = "20px system-ui, sans-serif";
@@ -259,7 +286,10 @@ export function drawScreen(ctx: Ctx, v: ScreenView): void {
   ctx.fillText(v.loaded ? v.bpm.toFixed(1) : "--.-", W - 150, 46);
   ctx.font = F_BPM_LABEL;
   ctx.fillStyle = "#9aa6bb";
-  ctx.fillText("BPM", W - 150, 82);
+  // Beside the number, above the badge row, so it cannot overlap SYNC/Q.
+  ctx.textAlign = "left";
+  ctx.fillText("BPM", W - 144, 58);
+  ctx.textAlign = "right";
   ctx.fillStyle = v.tempoPct === 0 ? "#9aa6bb" : "#ffcf40";
   ctx.font = F_TEMPO;
   ctx.fillText(
@@ -295,8 +325,14 @@ export function drawScreen(ctx: Ctx, v: ScreenView): void {
   ctx.fillRect(0, D.y, W, D.h);
   if (v.detail && v.loaded) {
     const wf = v.detail;
-    drawWaveColumns(ctx, wf, W, midY, D.h / 2 - 8, (x) =>
-      detailBin(x, W, v.posSec, v.zoomSec, wf.binsPerSec, wf.binCount),
+    drawWaveColumns(
+      ctx,
+      wf,
+      W,
+      midY,
+      D.h / 2 - 8,
+      (v.posSec - v.zoomSec / 2) * wf.binsPerSec,
+      (v.zoomSec * wf.binsPerSec) / W,
     );
     const x0Sec = v.posSec - v.zoomSec / 2;
     const pxPerSec = W / v.zoomSec;
@@ -316,7 +352,9 @@ export function drawScreen(ctx: Ctx, v: ScreenView): void {
     const firstVisible = Math.ceil(
       (v.posSec - v.zoomSec / 2 - v.firstBeatSec) / spb,
     );
-    for (let beat = firstVisible; ; beat++) {
+    const gridOk = Number.isFinite(firstVisible) && v.zoomSec > 0;
+    const lastBeat = gridOk ? firstVisible + MAX_GRID_TICKS : -Infinity;
+    for (let beat = firstVisible; beat <= lastBeat; beat++) {
       const s = v.firstBeatSec + beat * spb;
       const x = (s - x0Sec) * pxPerSec;
       if (x > W) break;
@@ -428,6 +466,20 @@ export interface JogView {
   touched: boolean;
 }
 
+/** Intrinsic size of an image-like canvas source (0×0 when unknown). */
+function sourceSize(src: CanvasImageSource): { w: number; h: number } {
+  const o = src as {
+    naturalWidth?: number;
+    naturalHeight?: number;
+    width?: number;
+    height?: number;
+  };
+  return {
+    w: o.naturalWidth || o.width || 0,
+    h: o.naturalHeight || o.height || 0,
+  };
+}
+
 let jogFontSize = 0;
 let jogFont = "";
 
@@ -447,9 +499,22 @@ export function drawJog(
   ctx.beginPath();
   ctx.arc(c, c, c * 0.62, 0, Math.PI * 2);
   ctx.clip();
-  if (v.artwork)
-    ctx.drawImage(v.artwork, c - c * 0.62, c - c * 0.62, c * 1.24, c * 1.24);
-  else {
+  if (v.artwork) {
+    const { w, h } = sourceSize(v.artwork);
+    const side = Math.min(w, h);
+    if (side > 0)
+      ctx.drawImage(
+        v.artwork,
+        (w - side) / 2,
+        (h - side) / 2,
+        side,
+        side,
+        c - c * 0.62,
+        c - c * 0.62,
+        c * 1.24,
+        c * 1.24,
+      );
+  } else {
     ctx.fillStyle = "#1a2233";
     ctx.fillRect(0, 0, s, s);
   }
