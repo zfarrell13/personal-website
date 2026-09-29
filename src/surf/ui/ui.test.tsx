@@ -88,6 +88,15 @@ describe('TouchControls', () => {
   });
 });
 
+describe('TouchControls pause', () => {
+  it('the pause button calls onPause', () => {
+    const onPause = vi.fn();
+    render(<TouchControls actions={{ press: vi.fn(), release: vi.fn() }} onPause={onPause} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    expect(onPause).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('TouchControls release paths', () => {
   it('releases on pointercancel and pointerleave', () => {
     const actions = { press: vi.fn(), release: vi.fn() };

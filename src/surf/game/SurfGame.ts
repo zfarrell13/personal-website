@@ -89,6 +89,7 @@ export class SurfGame {
   private configSeen = configVersion();
   private gizmo: Group | null = null;
   private normalArrow: ArrowHelper | null = null;
+  private readonly gizmoMarkers: Line[] = [];
   private readonly cleanups: Array<() => void> = [];
 
   constructor(
@@ -159,14 +160,8 @@ export class SurfGame {
     if (this.disposed || this.phase === 'loading' || this.phase === 'playing') return;
     this.side = side;
     this.frame.scale.x = sideSign(side);
-    this.surfer.reset();
+    this.resetView();
     this.scoring.reset();
-    this.particles.clear();
-    this.character?.reset();
-    this.rig.snap(this.surfer.state, side);
-    this.surfaceView();
-    this.travel = 0;
-    this.endAt = -1;
     this.ticker = [];
     this.stepper.reset();
     this.actions.reset();
@@ -193,7 +188,10 @@ export class SurfGame {
   quitToTitle(): void {
     if (this.phase === 'loading' || this.phase === 'title') return;
     this.audio?.pause();
-    this.surfaceView();
+    // The title shows a fresh wave: no underwater camera or tumbling rider left from a wipeout.
+    this.resetView();
+    this.writer.flush(performance.now());
+    this.store.setState({ run: null, underwater: false });
     this.setPhase('title');
   }
 
@@ -211,6 +209,7 @@ export class SurfGame {
     if (v === this.configSeen) return;
     this.configSeen = v;
     this.waveMesh.rebuild();
+    this.placeGizmoMarkers();
   }
 
   private startAudio(): void {
@@ -223,10 +222,16 @@ export class SurfGame {
     this.audio.start(this.tracks).catch((e: unknown) => console.warn('Audio failed to start', e));
   }
 
-  /** Back above water: surface fog and sky, no bubbles. */
-  private surfaceView(): void {
+  /** Surfer back at the drop-in, camera snapped behind, above water, no end-of-run timer. */
+  private resetView(): void {
+    this.surfer.reset();
+    this.character?.reset();
+    this.rig.snap(this.surfer.state, this.side);
     this.env.setUnderwater(false);
+    this.particles.clear();
     this.particles.setBubbles(false);
+    this.travel = 0;
+    this.endAt = -1;
   }
 
   private setPhase(phase: Phase): void {
@@ -327,11 +332,13 @@ export class SurfGame {
   }
 
   private render(now: number, dt: number, alpha: number): void {
+    // `dt` (real frame time) drives the camera springs; the sim clock drives everything that pauses.
     const s = this.surfer.state;
     const underwater = s.mode === 'wipeout' && this.endAt >= 0;
     // Frame coordinates: the rig mirrors once for the side.
     this.renderP.lerpVectors(this.surfer.prevP, s.p, alpha);
-    this.character?.update(this.surfer, alpha, dt);
+    // Sim dt: a pause freezes the rider's pose springs too.
+    this.character?.update(this.surfer, alpha, this.frameSimDt);
     this.rig.update(s, this.renderP, this.side, underwater, dt);
     this.env.update(Number.isFinite(now) ? now / 1000 : 0, this.travel, sideSign(this.side));
     this.particles.update(Math.min(MAX_PARTICLE_DT, this.frameSimDt), this.phase === 'playing');
@@ -376,20 +383,23 @@ export class SurfGame {
   private buildGizmo(): void {
     const g = new Group();
     g.add(new AxesHelper(3));
-    const { tubeDepth, shoulderLength } = SURF_CONFIG.wave;
-    const marks: Array<[number, string]> = [
-      [-tubeDepth, '#ff4040'],
-      [0, '#ffe040'],
-      [shoulderLength, '#40ff80'],
-    ];
-    for (const [x, color] of marks) {
-      const geo = new BufferGeometry().setFromPoints([new Vector3(x, 0, 0), new Vector3(x, 5, 0)]);
-      g.add(new Line(geo, new LineBasicMaterial({ color, depthTest: false })));
+    for (const color of ['#ff4040', '#ffe040', '#40ff80']) {
+      const geo = new BufferGeometry().setFromPoints([new Vector3(0, 0, 0), new Vector3(0, 5, 0)]);
+      const line = new Line(geo, new LineBasicMaterial({ color, depthTest: false }));
+      this.gizmoMarkers.push(line);
+      g.add(line);
     }
     this.normalArrow = new ArrowHelper(new Vector3(0, 1, 0), new Vector3(), 1.2, '#ff00ff');
     g.add(this.normalArrow);
     this.gizmo = g;
     this.frame.add(g);
+    this.placeGizmoMarkers();
+  }
+
+  /** Red / yellow / green markers at x = −D, 0, Ls (tracks live config edits). */
+  private placeGizmoMarkers(): void {
+    const { tubeDepth, shoulderLength } = this.wave.params;
+    [-tubeDepth, 0, shoulderLength].forEach((x, i) => this.gizmoMarkers[i]?.position.setX(x));
   }
 
   private disposeGizmo(): void {

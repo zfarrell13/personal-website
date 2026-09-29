@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bumpConfig } from '../config';
 import type { SurferInput } from '../physics/input';
+import { CameraRig } from '../camera/CameraRig';
+import { Character } from '../character/Character';
 import { Environment } from '../render/Environment';
 import { WaveMesh } from '../render/WaveMesh';
 import { createSurfStore, type SurfStore } from '../state/store';
@@ -230,6 +232,79 @@ describe('SurfGame', () => {
     game.start('right');
     expect(underwater).toHaveBeenLastCalledWith(false);
     expect(store.getState()).toMatchObject({ phase: 'playing', underwater: false, run: null });
+    game.dispose();
+  });
+
+  it('quitting to the title after a wipeout surfaces the camera and resets the surfer', async () => {
+    const { game, store } = await playing();
+    const s = game.surfer.state;
+    const step = vi.spyOn(game.surfer, 'step').mockImplementation((_i, dt) => {
+      s.mode = 'wipeout';
+      s.wipeoutReason = 'swallowed';
+      s.time += dt;
+    });
+    for (let i = 0; i < 120; i++) frame();
+    expect(store.getState().phase).toBe('results');
+    step.mockRestore();
+    const rigUpdate = vi.spyOn(CameraRig.prototype, 'update');
+    game.quitToTitle();
+    frame();
+    expect(store.getState()).toMatchObject({ phase: 'title', run: null, underwater: false });
+    expect(game.surfer.state.mode).toBe('riding');
+    expect(rigUpdate).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), 'right', false, expect.any(Number));
+    game.dispose();
+  });
+
+  it('quitting from a paused wipeout also surfaces', async () => {
+    const { game, store } = await playing();
+    const s = game.surfer.state;
+    vi.spyOn(game.surfer, 'step').mockImplementation((_i, dt) => {
+      s.mode = 'wipeout';
+      s.time += dt;
+    });
+    frame();
+    game.pause();
+    const rigUpdate = vi.spyOn(CameraRig.prototype, 'update');
+    game.quitToTitle();
+    frame();
+    expect(store.getState().underwater).toBe(false);
+    expect(rigUpdate.mock.lastCall![3]).toBe(false);
+    game.dispose();
+  });
+
+  it('pause (touch button / Esc) freezes the character animation', async () => {
+    const charUpdate = vi.spyOn(Character.prototype, 'update');
+    const { game, store } = await playing();
+    game.pause();
+    expect(store.getState().phase).toBe('paused');
+    expect(audioInstances[0]!.pause).toHaveBeenCalled();
+    charUpdate.mockClear();
+    frame();
+    expect(charUpdate).toHaveBeenCalledWith(game.surfer, expect.any(Number), 0);
+    game.dispose();
+  });
+
+  it('keeps the debug gizmo markers at x = -D, 0, Ls after config edits', async () => {
+    const { SURF_CONFIG } = await import('../config');
+    const store = createSurfStore();
+    const game = new SurfGame(canvas, store, { debug: true });
+    const markers = () =>
+      (game as unknown as { gizmo: { children: Array<{ type: string; position: { x: number } }> } }).gizmo.children
+        .filter((c) => c.type === 'Line')
+        .map((c) => c.position.x);
+    const { tubeDepth, shoulderLength } = SURF_CONFIG.wave;
+    expect(markers()).toEqual([-tubeDepth, 0, shoulderLength]);
+    try {
+      SURF_CONFIG.wave.tubeDepth = 7;
+      SURF_CONFIG.wave.shoulderLength = 50;
+      bumpConfig();
+      game.configChanged();
+      expect(markers()).toEqual([-7, 0, 50]);
+    } finally {
+      SURF_CONFIG.wave.tubeDepth = tubeDepth;
+      SURF_CONFIG.wave.shoulderLength = shoulderLength;
+      bumpConfig();
+    }
     game.dispose();
   });
 
