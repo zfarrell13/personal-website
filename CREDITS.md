@@ -4,3 +4,11 @@ Third-party assets and libraries used in this project. Added to as assets are in
 
 - three.js — MIT
 - Fonts: Russo One, VT323 — SIL Open Font License (Google Fonts)
+
+## Surf game
+
+- Surfer model: "Animated Human" by Quaternius — CC0 1.0 (public domain).
+  https://poly.pizza/m/c3Ibh9I3udk (file `public/surf/surfer.glb`, unmodified; recolored at runtime).
+- Crowd hoots, ocean ambience, board spray, tube whoosh and trick stingers are synthesized
+  procedurally with the Web Audio API — no samples.
+- Board, wave, environment and particles are procedural.
