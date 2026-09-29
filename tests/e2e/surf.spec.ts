@@ -64,11 +64,25 @@ test.describe('surf game', () => {
 
   test('stays inside the draw-call and triangle budget', async ({ page }) => {
     await dropIn(page);
-    await page.waitForTimeout(1500);
-    const { calls, triangles } = await page.evaluate(() => window.__surf!);
-    expect(calls).toBeGreaterThan(0);
-    expect(calls).toBeLessThan(80);
-    expect(triangles).toBeLessThan(150_000);
+    const f0 = await page.evaluate(() => window.__surf!.frames);
+    await page.waitForFunction((f) => (window.__surf?.frames ?? 0) > f + 30, f0);
+    // Sample 20 distinct rendered frames while riding and keep the worst.
+    const samples = await page.evaluate(async () => {
+      const out: { calls: number; triangles: number; mode: string }[] = [];
+      let last = -1;
+      while (out.length < 20) {
+        await new Promise((r) => requestAnimationFrame(r));
+        const h = window.__surf!;
+        if (h.frames === last) continue;
+        last = h.frames;
+        out.push({ calls: h.calls, triangles: h.triangles, mode: h.mode });
+      }
+      return out;
+    });
+    expect(samples.every((s) => s.mode === 'riding')).toBe(true);
+    expect(Math.min(...samples.map((s) => s.calls))).toBeGreaterThan(0);
+    expect(Math.max(...samples.map((s) => s.calls))).toBeLessThan(80);
+    expect(Math.max(...samples.map((s) => s.triangles))).toBeLessThan(150_000);
   });
 
   test('?debug shows the live tuning panel', async ({ page }) => {

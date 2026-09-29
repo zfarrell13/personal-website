@@ -44,3 +44,20 @@ See `content/tracks/README.md`.
 ## Credits
 
 See `CREDITS.md` (third-party models, samples and libraries).
+
+## Surf game (`/surf`)
+
+| Input | On the face | In the air |
+|---|---|---|
+| ← / → | Carve (screen-relative) | Spin |
+| ↑ | Pump (rhythm beats mashing) | — |
+| ↓ | Stall (the curl catches you) | — |
+| Space | Ollie | — |
+| W / A / S / D (hold) | — | Method / Rail / Stalefish / Indy |
+| Esc | Pause | Pause |
+
+- Mobile (landscape): left thumb pad, right OLLIE + grab buttons.
+- `/surf?debug` — live tuning sliders for `src/surf/config.ts`, fps / draw calls / triangles, wave-frame gizmo.
+- Your avatar: edit `SURFER_LOOK` in `src/surf/config.ts` (hair, skin, outfit colors, board text, or `boardImage` for your own deck art ≤ 256 px).
+- Soundtrack: tracks with `"surf": true` in `content/tracks/tracks.json`.
+- High scores are stored locally (`localStorage['zf-surf-highscores']`).

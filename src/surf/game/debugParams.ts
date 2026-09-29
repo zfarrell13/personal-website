@@ -20,6 +20,9 @@ export const DEBUG_PARAMS: ReadonlyArray<readonly [string, number, number, numbe
   ['scoring.comboWindow', 0.5, 4, 0.1],
   ['camera.stiffness', 1, 12, 0.5],
   ['camera.lookStiffness', 1, 16, 0.5],
+  ['camera.tubeBlendFloor', 0, 1, 0.05],
+  ['camera.tubeBlendRate', 2, 30, 0.5],
+  ['camera.tubeStiffness', 2, 40, 1],
 ];
 
 type Tree = { [k: string]: unknown };

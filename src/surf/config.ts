@@ -83,6 +83,14 @@ export const SURF_CONFIG = {
     stiffness: 4.5,
     lookStiffness: 7,
     fov: 62,
+    /** Tube blend target on entry (rises with depth to 1); higher = the camera commits to the barrel sooner. */
+    tubeBlendFloor: 0.9,
+    /** Tube blend spring rate (1/s, ≈ 2 / settle time). */
+    tubeBlendRate: 12,
+    /** Position/look spring rate at full tube blend (lerps from `stiffness`). */
+    tubeStiffness: 20,
+    /** Frame x the tube camera never goes behind: the barrel is too thin to see from past x ≈ −4.5. */
+    tubeMinX: -4,
   },
   mesh: {
     columns: 160,

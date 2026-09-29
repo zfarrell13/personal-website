@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { bumpConfig } from '../config';
+import { bumpConfig, SURF_CONFIG } from '../config';
 import type { SurferInput } from '../physics/input';
 import { CameraRig } from '../camera/CameraRig';
 import { Character } from '../character/Character';
@@ -321,6 +321,30 @@ describe('SurfGame', () => {
     expect(store.getState().ticker.map((t) => t.text)).toEqual(['Ollie', 'Snap']);
     unsub();
     game.dispose();
+  });
+
+  it('builds a lighter wave mesh on coarse-pointer (touch) devices only', () => {
+    const saved = { ...SURF_CONFIG.mesh };
+    try {
+      const vertices = (coarse: boolean | null) => {
+        Object.assign(SURF_CONFIG.mesh, saved);
+        (win as unknown as { matchMedia?: unknown }).matchMedia =
+          coarse === null ? undefined : (q: string) => ({ matches: coarse && q === '(pointer: coarse)' });
+        const built = vi.spyOn(WaveMesh.prototype, 'rebuild');
+        const game = new SurfGame(canvas, createSurfStore());
+        const mesh = built.mock.contexts[0] as WaveMesh;
+        const count = mesh.front.geometry.getAttribute('position').count;
+        built.mockRestore();
+        game.dispose();
+        return count;
+      };
+      expect(vertices(true)).toBe(112 * 45);
+      expect(SURF_CONFIG.mesh).toEqual({ columns: 112, rows: 44 });
+      expect(vertices(false)).toBe(160 * 65);
+      expect(vertices(null)).toBe(160 * 65);
+    } finally {
+      Object.assign(SURF_CONFIG.mesh, saved);
+    }
   });
 
   it('rebuilds the wave mesh when the config changes', async () => {

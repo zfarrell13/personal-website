@@ -99,6 +99,12 @@ export class SurfGame {
   ) {
     this.look = opts.look ?? SURFER_LOOK;
     this.writer = new ThrottledWriter(store, 15);
+    const coarse = window.matchMedia?.('(pointer: coarse)').matches === true;
+    if (coarse) {
+      // Phones: fewer wave vertices keeps the ≥ 30 fps budget (desktop stays 160 × 64).
+      SURF_CONFIG.mesh.columns = 112;
+      SURF_CONFIG.mesh.rows = 44;
+    }
     this.retro = new RetroRenderer(canvas);
     this.retro.renderer.info.autoReset = false;
     this.scene.add(this.frame);

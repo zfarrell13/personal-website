@@ -20,10 +20,11 @@ export function springStep(s: Spring1, target: number, omega: number, dt: number
 }
 
 const tmp: Spring1 = { x: 0, v: 0 };
+const AXES = ['x', 'y', 'z'] as const;
 
 /** Component-wise critically damped spring on a Vector3 (pos/vel mutated). */
 export function springStepVec3(pos: Vector3, vel: Vector3, target: Vector3, omega: number, dt: number): void {
-  for (const k of ['x', 'y', 'z'] as const) {
+  for (const k of AXES) {
     tmp.x = pos[k];
     tmp.v = vel[k];
     springStep(tmp, target[k], omega, dt);

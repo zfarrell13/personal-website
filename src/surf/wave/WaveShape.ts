@@ -37,6 +37,17 @@ export class WaveShape {
   private readonly sx = new Vector3();
   private readonly st = new Vector3();
   private readonly r = new Vector3();
+  /** Key of the section blended into `pts` (x plus the params it depends on); NaN = none. */
+  private secX = NaN;
+  private secD = NaN;
+  private secLs = NaN;
+  private secC = NaN;
+  /** Last crestT result and its key. crestT depends only on the section (H scales y uniformly). */
+  private crestX = NaN;
+  private crestD = NaN;
+  private crestLs = NaN;
+  private crestC = NaN;
+  private crestTVal = 0;
 
   constructor(readonly params: WaveParams) {}
 
@@ -63,8 +74,19 @@ export class WaveShape {
   }
 
   /** Blended control points for column x (normalized by H), written to `out` as [z0,y0,z1,y1,…]. */
-  sectionAt(x: number, out: Float64Array = this.pts): Float64Array {
+  sectionAt(x: number, out?: Float64Array): Float64Array {
     const p = this.params;
+    if (!out) {
+      // Hot path: profile() is called many times per column (mesh rows, crestT sweeps, tangents in t).
+      if (x === this.secX && p.tubeDepth === this.secD && p.shoulderLength === this.secLs && p.collapseLength === this.secC) {
+        return this.pts;
+      }
+      this.secX = x;
+      this.secD = p.tubeDepth;
+      this.secLs = p.shoulderLength;
+      this.secC = p.collapseLength;
+      out = this.pts;
+    }
     if (x >= 0) blendInto(out, SWELL, BARREL_OPEN, this.hollowness(x));
     else if (x >= -p.tubeDepth) blendInto(out, BARREL_OPEN, BARREL_CLOSED, smoothstep(0, p.tubeDepth, -x));
     else blendInto(out, BARREL_CLOSED, MOUND, smoothstep(0, p.collapseLength, -x - p.tubeDepth));
@@ -77,22 +99,34 @@ export class WaveShape {
     const s = clamp(t, 0, 1) * SEGMENTS;
     const i = Math.min(Math.floor(s), SEGMENTS - 1);
     const u = s - i;
-    const px = (k: number, comp: 0 | 1): number => {
-      if (k < 0) return 2 * c[comp]! - c[2 + comp]!; // reflected ghost point
-      if (k > SEGMENTS) return 2 * c[SEGMENTS * 2 + comp]! - c[(SEGMENTS - 1) * 2 + comp]!;
-      return c[k * 2 + comp]!;
-    };
     const u2 = u * u;
     const u3 = u2 * u;
-    const cr = (comp: 0 | 1): number => {
-      const p0 = px(i - 1, comp);
-      const p1 = px(i, comp);
-      const p2 = px(i + 1, comp);
-      const p3 = px(i + 2, comp);
-      return 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3);
-    };
+    // Catmull-Rom taps i−1 … i+2 as flat [z, y] offsets; ends use reflected ghost points.
+    const k1 = i * 2;
+    const k2 = k1 + 2;
+    let z0: number, y0: number, z3: number, y3: number;
+    if (i === 0) {
+      z0 = 2 * c[0]! - c[2]!;
+      y0 = 2 * c[1]! - c[3]!;
+    } else {
+      z0 = c[k1 - 2]!;
+      y0 = c[k1 - 1]!;
+    }
+    if (i + 2 > SEGMENTS) {
+      z3 = 2 * c[SEGMENTS * 2]! - c[(SEGMENTS - 1) * 2]!;
+      y3 = 2 * c[SEGMENTS * 2 + 1]! - c[(SEGMENTS - 1) * 2 + 1]!;
+    } else {
+      z3 = c[k2 + 2]!;
+      y3 = c[k2 + 3]!;
+    }
+    const z1 = c[k1]!;
+    const y1 = c[k1 + 1]!;
+    const z2 = c[k2]!;
+    const y2 = c[k2 + 1]!;
+    const cz = 0.5 * (2 * z1 + (-z0 + z2) * u + (2 * z0 - 5 * z1 + 4 * z2 - z3) * u2 + (-z0 + 3 * z1 - 3 * z2 + z3) * u3);
+    const cy = 0.5 * (2 * y1 + (-y0 + y2) * u + (2 * y0 - 5 * y1 + 4 * y2 - y3) * u2 + (-y0 + 3 * y1 - 3 * y2 + y3) * u3);
     const H = this.params.height;
-    return out.set(x, cr(1) * H * this.heightScale(x), cr(0) * H);
+    return out.set(x, cy * H * this.heightScale(x), cz * H);
   }
 
   surfacePoint(x: number, t: number, out: Vector3 = new Vector3()): Vector3 {
@@ -125,6 +159,19 @@ export class WaveShape {
 
   /** t of the highest point of the profile at x (the crest / top of the curl). */
   crestT(x: number): number {
+    const p = this.params;
+    if (x === this.crestX && p.tubeDepth === this.crestD && p.shoulderLength === this.crestLs && p.collapseLength === this.crestC) {
+      return this.crestTVal;
+    }
+    this.crestTVal = this.searchCrestT(x);
+    this.crestX = x;
+    this.crestD = p.tubeDepth;
+    this.crestLs = p.shoulderLength;
+    this.crestC = p.collapseLength;
+    return this.crestTVal;
+  }
+
+  private searchCrestT(x: number): number {
     const N = 48;
     let best = 0;
     let bestY = -Infinity;

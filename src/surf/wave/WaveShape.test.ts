@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Vector3 } from 'three';
 import { SURF_CONFIG } from '../config';
 import { WaveShape } from './WaveShape';
@@ -125,5 +125,102 @@ describe('WaveShape queries', () => {
   it('is steeper in the pocket than on the shoulder', () => {
     const w = shape();
     expect(w.steepness(2, 0.4)).toBeGreaterThan(w.steepness(40, 0.4));
+  });
+});
+
+/** Reference values captured from the closure-based implementation (task 17 hot-path refactor must not move the surface). */
+const GOLDEN_PROFILE: ReadonlyArray<readonly [number, number, number, number]> = [
+  [-12, 0, 0, 7.2],
+  [-12, 0.13, 0.177356928522, 5.43491304],
+  [-12, 0.5, 0.907808237826, 2.145],
+  [-12, 0.77, 1.052246746329, 0.280548],
+  [-12, 1, 0.397943337129, -1.92],
+  [-5, 0, 0, 7.2],
+  [-5, 0.13, 0.09131304, 4.08873912],
+  [-5, 0.5, 2.0775, 0.6525],
+  [-5, 0.77, 2.61323286, 2.4306369],
+  [-5, 1, 0.12, 5.04],
+  [-2.5, 0, 0, 7.2],
+  [-2.5, 0.13, 0.09131304, 4.08873912],
+  [-2.5, 0.5, 2.0775, 0.63],
+  [-2.5, 0.77, 2.660733456, 2.09747103],
+  [-2.5, 1, 0.9, 4.26],
+  [0, 0, 0, 7.2],
+  [0, 0.13, 0.09131304, 4.08873912],
+  [0, 0.5, 2.0775, 0.6075],
+  [0, 0.77, 2.708234052, 1.76430516],
+  [0, 1, 1.68, 3.48],
+  [3, 0, 0, 7.2],
+  [3, 0.13, 0.09167106037, 4.106004319467],
+  [3, 0.5, 2.072722222222, 0.618775555556],
+  [3, 0.77, 2.702982106763, 1.7279798264],
+  [3, 1, 1.670826666667, 3.380622222222],
+  [20, 0, 0, 7.2],
+  [20, 0.13, 0.103031191638, 4.653836087901],
+  [20, 0.5, 1.921121399177, 0.976553497942],
+  [20, 0.77, 2.536335758272, 0.575362285926],
+  [20, 1, 1.37975308642, 0.227325102881],
+  [60, 0, 0, 7.2],
+  [60, 0.13, 0.1008380464, 5.44385652],
+  [60, 0.5, 1.437666666667, 1.4925],
+  [60, 0.77, 1.938859154667, -1.08681114],
+  [60, 1, 0.810666666667, -4.32],
+];
+const GOLDEN_CREST: ReadonlyArray<readonly [number, number, number]> = [
+  [-12, 0.699021374653, 1.096941015239],
+  [-5, 0.699021374653, 2.769396933091],
+  [-2.5, 0.70601448367, 2.762233001613],
+  [0, 0.718185548302, 2.760326488654],
+  [3, 0.717993381034, 2.755709935245],
+  [20, 0.712877051004, 2.609930827344],
+  [60, 0.707622640668, 2.027837960246],
+];
+
+describe('WaveShape hot paths', () => {
+  it('profile, crestT and crestY match the reference surface', () => {
+    const w = shape();
+    const p = new Vector3();
+    for (const [x, t, y, z] of GOLDEN_PROFILE) {
+      w.profile(x, t, p);
+      expect(p.x).toBe(x);
+      expect(p.y).toBeCloseTo(y, 9);
+      expect(p.z).toBeCloseTo(z, 9);
+    }
+    for (const [x, tc, cy] of GOLDEN_CREST) {
+      expect(w.crestT(x)).toBeCloseTo(tc, 9);
+      expect(w.crestY(x)).toBeCloseTo(cy, 9);
+    }
+  });
+
+  it('memoizes crestT per column: repeat queries and crestY do no profile sweeps', () => {
+    const w = shape();
+    w.crestT(3);
+    const spy = vi.spyOn(w, 'profile');
+    w.crestT(3);
+    w.crestY(3);
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+
+  it('caches follow live parameter edits without a config bump', () => {
+    const w = shape();
+    const p = new Vector3();
+    const xs = [-2.5, 3];
+    xs.forEach((x) => {
+      w.crestT(x);
+      w.profile(x, 0.9, p);
+    });
+    w.params.tubeDepth = 7;
+    w.params.shoulderLength = 30;
+    w.params.height = 3;
+    const fresh = new WaveShape({ ...w.params });
+    for (const x of xs) {
+      expect(w.crestT(x)).toBe(fresh.crestT(x));
+      expect(w.crestY(x)).toBe(fresh.crestY(x));
+      expect(w.profile(x, 0.9, p).equals(fresh.profile(x, 0.9))).toBe(true);
+    }
+    w.params.collapseLength = 8;
+    const fresh2 = new WaveShape({ ...w.params });
+    expect(w.crestT(-8)).toBe(fresh2.crestT(-8));
+    expect(w.profile(-8, 0.5, p).equals(fresh2.profile(-8, 0.5))).toBe(true);
   });
 });

@@ -94,6 +94,8 @@ export class SurfAudio {
   private music: HTMLAudioElement | null = null;
   private playlist: Playlist | null = null;
   private disposed = false;
+  /** Set by pause(), cleared by resume(): a pause during start() or a track change keeps the music silent. */
+  private paused = false;
   private musicFailures = 0;
 
   constructor(private readonly onTrack: (t: TrackEntry) => void) {
@@ -167,6 +169,8 @@ export class SurfAudio {
   private async init(tracks: readonly TrackEntry[]): Promise<void> {
     await this.ctx.resume();
     if (this.disposed) return;
+    // pause() may have run while resume() was pending; its suspend() lost that race.
+    if (this.paused) void this.ctx.suspend().catch(() => undefined);
     renderHoots(this.ctx.sampleRate)
       .then((h) => {
         if (!this.disposed) this.hoots = h;
@@ -194,19 +198,28 @@ export class SurfAudio {
     const t = this.playlist?.next();
     if (!t || !this.music || this.disposed) return;
     this.music.src = t.audioUrl;
-    this.music.play().catch((e) => console.warn('Music playback blocked', e));
     this.onTrack(t);
+    if (!this.paused) this.playMusic();
+  }
+
+  private playMusic(): void {
+    this.music?.play().catch((e: unknown) => {
+      // A pause or dispose interrupting a pending play() rejects with AbortError: expected, not a failure.
+      if (!(e instanceof Error && e.name === 'AbortError')) console.warn('Music playback blocked', e);
+    });
   }
 
   pause(): void {
+    this.paused = true;
     this.music?.pause();
     if (!this.disposed) void this.ctx.suspend().catch(() => undefined);
   }
 
   resume(): void {
     if (this.disposed) return;
+    this.paused = false;
     void this.ctx.resume().catch(() => undefined);
-    this.music?.play().catch(() => undefined);
+    if (this.music?.src) this.playMusic();
   }
 
   update(s: SurferState, speed: number): void {
