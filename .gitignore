@@ -2,7 +2,15 @@ node_modules/
 .next/
 out/
 .DS_Store
+*.tsbuildinfo
+next-env.d.ts
 public/tracks/
+content/tracks-test/
+content/tracks/*.wav
+content/tracks/*.aif
+content/tracks/*.aiff
+content/tracks/*.flac
+content/tracks/*.mp3
 test-results/
 playwright-report/
 .env*
