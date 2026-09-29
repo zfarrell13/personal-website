@@ -2,11 +2,22 @@ import { BEAT_FX_DIVISIONS, type BeatFxType } from '../../constants';
 import { Biquad } from '../dsp/biquad';
 import { BeatClock } from './BeatClock';
 
-const MAX_SEC = 16;
+/** 16 beats at 60 BPM is exactly 16 s; the extra 0.5 s keeps that (and ROLL's seam margin) in range. */
+const MAX_SEC = 16.5;
+const FADE_EPS = 0.005;
+/** Feedback soft clip: identity up to the knee, then a tanh shoulder that saturates at 1. */
+const FB_KNEE = 0.8;
 const TWO_PI = Math.PI * 2;
 const COMB_TUNING = [1116, 1188, 1277, 1356];
 const ALLPASS_TUNING = [556, 441];
 const STEREO_SPREAD = 23;
+
+function softClip(x: number): number {
+  const a = x < 0 ? -x : x;
+  if (a <= FB_KNEE) return x;
+  const y = FB_KNEE + (1 - FB_KNEE) * Math.tanh((a - FB_KNEE) / (1 - FB_KNEE));
+  return x < 0 ? -y : y;
+}
 
 /** Delay time in seconds for a beat division at a BPM (quantized to the beat grid). */
 export function beatFxDelaySec(bpm: number, divisionBeats: number): number {
@@ -66,6 +77,9 @@ export class BeatFxCore {
   private readonly cR: Float32Array;
   private cW = 0;
 
+  /** Frames written into dL/dR since the last effect switch; taps older than this read as silence (a logical clear). */
+  private dFill = 0;
+  private pendingType: BeatFxType | null = null;
   private onGain = 0;
   private readonly onAlpha: number;
   private spiralT = 0;
@@ -101,6 +115,22 @@ export class BeatFxCore {
   private brakePos = 0;
   private brakeElapsed = 0;
   private helixPos = 0;
+  // ROLL / SLIP ROLL / HELIX loop from a private copy of their slice in dL/dR (stored index = rollPre + k, the
+  // rollPre frames before the anchor sit in front for the seam cross-fade), so the 16 s capture ring can't overwrite it.
+  private rollPre = 0;
+  private rollXf = 0;
+  private sliceFilled = 0;
+  private sliceEnd = 0;
+  private readonly xfFrames: number;
+  private readonly rollCap: number;
+  // click removal for roll re-anchors
+  private declickArm = false;
+  private declickL = 0;
+  private declickR = 0;
+  private declickF = 0;
+  private readonly declickStep: number;
+  private lastL = 0;
+  private lastR = 0;
 
   constructor(readonly sampleRate: number) {
     this.clock = new BeatClock(sampleRate);
@@ -116,17 +146,33 @@ export class BeatFxCore {
     this.apR = ALLPASS_TUNING.map((t) => new Allpass(new Float32Array(Math.round((t + STEREO_SPREAD) * k))));
     this.combs = this.combsL.concat(this.combsR);
     this.allpasses = this.apL.concat(this.apR);
+    this.xfFrames = Math.ceil(0.003 * sampleRate);
+    this.rollCap = this.max - this.xfFrames - 8;
+    this.declickStep = 1 / this.xfFrames;
     this.paramAlpha = 1 - Math.exp(-1 / (0.01 * sampleRate));
     this.onAlpha = 1 - Math.exp(-1 / (0.005 * sampleRate));
     this.spiralAlpha = 1 - Math.exp(-1 / (0.25 * sampleRate));
     this.transAlpha = 1 - Math.exp(-1 / (0.001 * sampleRate));
   }
 
+  /**
+   * Switches effect. While the effect is audible the switch is deferred to the end of a 5 ms-style fade-out
+   * (applied in `process`), so it never cuts in or out. Nothing large is cleared: the delay buffers are
+   * logically emptied by resetting `dFill`.
+   */
   setType(t: BeatFxType): void {
-    if (t === this.type) return;
+    if (t === this.type) {
+      this.pendingType = null;
+      return;
+    }
+    if (this.onGain > FADE_EPS) this.pendingType = t;
+    else this.applyType(t);
+  }
+
+  private applyType(t: BeatFxType): void {
     this.type = t;
-    this.dL.fill(0);
-    this.dR.fill(0);
+    this.pendingType = null;
+    this.dFill = 0;
     for (let i = 0; i < this.combs.length; i++) this.combs[i]!.clear();
     for (let i = 0; i < this.allpasses.length; i++) this.allpasses[i]!.clear();
     this.phL.fill(0);
@@ -160,22 +206,70 @@ export class BeatFxCore {
     return a + (b - a) * f;
   }
 
+  /** Delay-line tap `dist` frames back; older than what was written since the last switch reads as silence. */
+  private tap(buf: Float32Array, dist: number): number {
+    return dist + 1 > this.dFill ? 0 : this.readRing(buf, this.dW - dist);
+  }
+
+  /** Copy capture-ring frames into the slice store up to stored index `target` (just in time, allocation-free). */
+  private fillSlice(target: number): void {
+    const lim = target < this.sliceEnd ? target : this.sliceEnd;
+    const m = this.max;
+    while (this.sliceFilled < lim) {
+      let s = (this.rollAnchor - this.rollPre + this.sliceFilled) % m;
+      if (s < 0) s += m;
+      this.dL[this.sliceFilled] = this.cL[s]!;
+      this.dR[this.sliceFilled] = this.cR[s]!;
+      this.sliceFilled++;
+    }
+  }
+
+  private beginSlice(anchor: number, len: number): void {
+    this.rollLen = len;
+    this.rollPre = Math.min(this.xfFrames, len >> 2);
+    this.rollXf = this.rollPre;
+    this.rollAnchor = anchor;
+    this.sliceFilled = 0;
+    this.sliceEnd = this.rollPre + len + 2;
+  }
+
   /** Anchor a roll at the latest grid point (grid = min(division, 1 beat)) as seen at `frame`. */
   private anchorRoll(frame: number): void {
     const g = Math.min(this.divisionBeats, 1);
     const beat = this.clock.beatAt(frame);
     const offsetBeats = beat - Math.floor(beat / g + 1e-9) * g;
-    const offsetFrames = Math.round(offsetBeats * this.clock.framesPerBeat);
-    this.rollLen = this.delayFrames();
-    this.rollAnchor = this.cW - offsetFrames;
-    this.rollPos = offsetFrames % this.rollLen;
+    const len = Math.min(this.rollCap, this.delayFrames());
+    const offset = Math.max(0, Math.min(Math.round(offsetBeats * this.clock.framesPerBeat), len - 1));
+    this.beginSlice(this.cW - offset, len);
+    this.rollPos = offset;
+    this.fillSlice(this.rollPre + offset); // the part of the slice already recorded (at most one beat)
+  }
+
+  /** ROLL division change: shorten the loop on the same anchor when enough is captured, else re-anchor. */
+  private retimeRoll(frame: number, T: number): void {
+    const newLen = Math.min(this.rollCap, T);
+    if (newLen <= this.sliceFilled - this.rollPre - 1) {
+      this.rollLen = newLen;
+      this.rollXf = Math.min(this.rollPre, newLen >> 2);
+      this.rollPos %= newLen;
+    } else {
+      this.anchorRoll(frame);
+    }
+    this.declickArm = true;
+  }
+
+  private sliceInterp(buf: Float32Array, pos: number): number {
+    const i = Math.floor(pos);
+    const f = pos - i;
+    return buf[i]! + (buf[i + 1]! - buf[i]!) * f;
   }
 
   process(inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array, n: number, frame: number): void {
     const m = this.max;
     const T = this.delayFrames();
     const depthTarget = this.depth;
-    const target = this.on ? 1 : 0;
+    if (this.pendingType !== null && this.onGain < FADE_EPS) this.applyType(this.pendingType);
+    const target = this.on && this.pendingType === null ? 1 : 0;
 
     // edge + division handling (block rate)
     const rising = this.on && !this.wasOn;
@@ -186,13 +280,15 @@ export class BeatFxCore {
         this.brakeElapsed = 0;
       }
       if (this.type === 'HELIX') {
-        this.rollLen = T;
-        this.rollAnchor = this.cW - T;
+        const len = Math.min(this.rollCap, T);
+        this.beginSlice(this.cW - len, len);
         this.helixPos = 0;
       }
     } else if (this.on && this.divisionBeats !== this.lastDivision) {
-      if (this.type === 'SLIP_ROLL') this.anchorRoll(frame);
-      else if (this.type === 'ROLL') this.rollLen = T;
+      if (this.type === 'SLIP_ROLL') {
+        this.anchorRoll(frame);
+        this.declickArm = true;
+      } else if (this.type === 'ROLL') this.retimeRoll(frame, T);
     }
     this.wasOn = this.on;
     this.lastDivision = this.divisionBeats;
@@ -204,8 +300,6 @@ export class BeatFxCore {
       this.depthS = depthTarget;
       this.roomS = roomTarget;
     }
-    const fpb = this.clock.framesPerBeat;
-    const cycleFrames = Math.max(1, this.divisionBeats * fpb);
 
     for (let i = 0; i < n; i++) {
       const xL = inL[i]!;
@@ -225,8 +319,9 @@ export class BeatFxCore {
       switch (this.type) {
         case 'DELAY': {
           const r = (this.dW - T + m) % m;
-          const dl = this.dL[r]!;
-          const dr = this.dR[r]!;
+          const ok = T <= this.dFill;
+          const dl = ok ? this.dL[r]! : 0;
+          const dr = ok ? this.dR[r]! : 0;
           this.dL[this.dW] = xL * g;
           this.dR[this.dW] = xR * g;
           yL = xL + depth * dl;
@@ -236,10 +331,11 @@ export class BeatFxCore {
         case 'ECHO': {
           const fb = 0.3 + 0.55 * depth;
           const r = (this.dW - T + m) % m;
-          const dl = this.dL[r]!;
-          const dr = this.dR[r]!;
-          this.dL[this.dW] = xL * g + dl * fb;
-          this.dR[this.dW] = xR * g + dr * fb;
+          const ok = T <= this.dFill;
+          const dl = ok ? this.dL[r]! : 0;
+          const dr = ok ? this.dR[r]! : 0;
+          this.dL[this.dW] = xL * g + softClip(dl * fb);
+          this.dR[this.dW] = xR * g + softClip(dr * fb);
           yL = xL + depth * dl;
           yR = xR + depth * dr;
           break;
@@ -247,10 +343,11 @@ export class BeatFxCore {
         case 'PING_PONG': {
           const fb = 0.3 + 0.55 * depth;
           const r = (this.dW - T + m) % m;
-          const dl = this.dL[r]!;
-          const dr = this.dR[r]!;
-          this.dL[this.dW] = (xL + xR) * 0.5 * g + dr * fb;
-          this.dR[this.dW] = dl * fb;
+          const ok = T <= this.dFill;
+          const dl = ok ? this.dL[r]! : 0;
+          const dr = ok ? this.dR[r]! : 0;
+          this.dL[this.dW] = (xL + xR) * 0.5 * g + softClip(dr * fb);
+          this.dR[this.dW] = softClip(dl * fb);
           yL = xL + depth * dl;
           yR = xR + depth * dr;
           break;
@@ -258,10 +355,10 @@ export class BeatFxCore {
         case 'SPIRAL': {
           this.spiralT += (T - this.spiralT) * this.spiralAlpha;
           const fb = 0.75 + 0.2 * depth;
-          const dl = this.readRing(this.dL, this.dW - this.spiralT);
-          const dr = this.readRing(this.dR, this.dW - this.spiralT);
-          this.dL[this.dW] = xL * g + dl * fb;
-          this.dR[this.dW] = xR * g + dr * fb;
+          const dl = this.tap(this.dL, this.spiralT);
+          const dr = this.tap(this.dR, this.spiralT);
+          this.dL[this.dW] = xL * g + softClip(dl * fb);
+          this.dR[this.dW] = xR * g + softClip(dr * fb);
           yL = xL + depth * dl;
           yR = xR + depth * dr;
           break;
@@ -306,10 +403,10 @@ export class BeatFxCore {
           break;
         }
         case 'FLANGER': {
-          const lfo = 0.5 - 0.5 * Math.cos((TWO_PI * (frame + i)) / cycleFrames);
+          const lfo = 0.5 - 0.5 * Math.cos(TWO_PI * (this.clock.beatAt(frame + i) / this.divisionBeats));
           const d = (0.0005 + 0.0055 * lfo) * this.sampleRate;
-          const dl = this.readRing(this.dL, this.dW - d);
-          const dr = this.readRing(this.dR, this.dW - d);
+          const dl = this.tap(this.dL, d);
+          const dr = this.tap(this.dR, d);
           this.dL[this.dW] = xL + dl * 0.5;
           this.dR[this.dW] = xR + dr * 0.5;
           const w = g * depth;
@@ -318,7 +415,7 @@ export class BeatFxCore {
           break;
         }
         case 'PHASER': {
-          const lfo = 0.5 - 0.5 * Math.cos((TWO_PI * (frame + i)) / cycleFrames);
+          const lfo = 0.5 - 0.5 * Math.cos(TWO_PI * (this.clock.beatAt(frame + i) / this.divisionBeats));
           const f = 300 * 10 ** lfo;
           const t = Math.tan((Math.PI * f) / this.sampleRate);
           const a = (t - 1) / (t + 1);
@@ -345,14 +442,21 @@ export class BeatFxCore {
           const ratio = 2 ** (((depth - 0.5) * 24) / 12);
           this.dL[this.dW] = xL;
           this.dR[this.dW] = xR;
-          this.pitchPhase += (1 - ratio) / win;
+          if (Math.abs(ratio - 1) < 0.002) {
+            // no shift: settle onto the nearest single-tap phase (0, 0.5 or 1) instead of leaving two taps combing
+            const d = Math.round(this.pitchPhase * 2) / 2 - this.pitchPhase;
+            const step = 0.5 / win;
+            this.pitchPhase += d > step ? step : d < -step ? -step : d;
+          } else {
+            this.pitchPhase += (1 - ratio) / win;
+          }
           this.pitchPhase -= Math.floor(this.pitchPhase);
           const p1 = this.pitchPhase;
           const p2 = (p1 + 0.5) % 1;
           const w1 = 1 - Math.abs(2 * p1 - 1);
           const w2 = 1 - Math.abs(2 * p2 - 1);
-          const sl = this.readRing(this.dL, this.dW - 1 - p1 * win) * w1 + this.readRing(this.dL, this.dW - 1 - p2 * win) * w2;
-          const sr = this.readRing(this.dR, this.dW - 1 - p1 * win) * w1 + this.readRing(this.dR, this.dW - 1 - p2 * win) * w2;
+          const sl = this.tap(this.dL, 1 + p1 * win) * w1 + this.tap(this.dL, 1 + p2 * win) * w2;
+          const sr = this.tap(this.dR, 1 + p1 * win) * w1 + this.tap(this.dR, 1 + p2 * win) * w2;
           yL = xL + (sl - xL) * g;
           yR = xR + (sr - xR) * g;
           break;
@@ -360,9 +464,19 @@ export class BeatFxCore {
         case 'ROLL':
         case 'SLIP_ROLL': {
           if (this.on || g > 1e-4) {
-            const idx = this.rollAnchor + (this.rollPos % this.rollLen);
-            const rl = this.readRing(this.cL, idx);
-            const rr = this.readRing(this.cR, idx);
+            const len = this.rollLen;
+            this.fillSlice(this.rollPre + this.rollPos + 1);
+            const k = this.rollPos % len;
+            const base = this.rollPre + k;
+            let rl = this.dL[base]!;
+            let rr = this.dR[base]!;
+            const tail = len - this.rollXf;
+            if (this.rollXf > 0 && k >= tail) {
+              // seam: fade toward the audio just before the anchor, which is what follows the last frame when looping
+              const a = (k - tail) / this.rollXf;
+              rl = rl * (1 - a) + this.dL[base - len]! * a;
+              rr = rr * (1 - a) + this.dR[base - len]! * a;
+            }
             this.rollPos++;
             const w = g * (0.5 + 0.5 * depth);
             yL = xL + (rl - xL) * w;
@@ -386,18 +500,42 @@ export class BeatFxCore {
         }
         case 'HELIX': {
           if (this.on || g > 1e-4) {
+            const len = this.rollLen;
             const r = 2 ** ((depth - 0.5) * 2);
-            this.helixPos = (this.helixPos + r) % this.rollLen;
-            const hl = this.readRing(this.cL, this.rollAnchor + this.helixPos);
-            const hr = this.readRing(this.cR, this.rollAnchor + this.helixPos);
+            let p = this.helixPos + r;
+            if (p >= len) p -= len;
+            this.helixPos = p;
+            this.fillSlice(this.rollPre + Math.ceil(p) + 3);
+            let hl = this.sliceInterp(this.dL, this.rollPre + p);
+            let hr = this.sliceInterp(this.dR, this.rollPre + p);
+            const tail = len - this.rollXf;
+            if (this.rollXf > 0 && p >= tail) {
+              const a = (p - tail) / this.rollXf;
+              hl = hl * (1 - a) + this.sliceInterp(this.dL, this.rollPre + p - len) * a;
+              hr = hr * (1 - a) + this.sliceInterp(this.dR, this.rollPre + p - len) * a;
+            }
             yL = xL + (hl - xL) * 0.7 * g;
             yR = xR + (hr - xR) * 0.7 * g;
           }
           break;
         }
       }
+      if (this.declickArm) {
+        this.declickL = this.lastL - yL;
+        this.declickR = this.lastR - yR;
+        this.declickF = 1;
+        this.declickArm = false;
+      }
+      if (this.declickF > 0) {
+        yL += this.declickL * this.declickF;
+        yR += this.declickR * this.declickF;
+        this.declickF = Math.max(0, this.declickF - this.declickStep);
+      }
+      this.lastL = yL;
+      this.lastR = yR;
       outL[i] = yL;
       outR[i] = yR;
+      if (this.dFill < m) this.dFill++;
       if (++this.dW >= m) this.dW = 0;
       if (++this.cW >= m) this.cW = 0;
     }
