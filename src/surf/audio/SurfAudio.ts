@@ -96,6 +96,8 @@ export class SurfAudio {
   private disposed = false;
   /** Set by pause(), cleared by resume(): a pause during start() or a track change keeps the music silent. */
   private paused = false;
+  /** Track queued while paused: announced (NOW PLAYING) when it actually starts on resume(). */
+  private unannounced: TrackEntry | null = null;
   private musicFailures = 0;
 
   constructor(private readonly onTrack: (t: TrackEntry) => void) {
@@ -198,14 +200,19 @@ export class SurfAudio {
     const t = this.playlist?.next();
     if (!t || !this.music || this.disposed) return;
     this.music.src = t.audioUrl;
+    if (this.paused) {
+      this.unannounced = t;
+      return;
+    }
+    this.unannounced = null;
     this.onTrack(t);
-    if (!this.paused) this.playMusic();
+    this.playMusic();
   }
 
   private playMusic(): void {
     this.music?.play().catch((e: unknown) => {
       // A pause or dispose interrupting a pending play() rejects with AbortError: expected, not a failure.
-      if (!(e instanceof Error && e.name === 'AbortError')) console.warn('Music playback blocked', e);
+      if ((e as { name?: unknown } | null)?.name !== 'AbortError') console.warn('Music playback blocked', e);
     });
   }
 
@@ -219,7 +226,12 @@ export class SurfAudio {
     if (this.disposed) return;
     this.paused = false;
     void this.ctx.resume().catch(() => undefined);
-    if (this.music?.src) this.playMusic();
+    if (!this.music?.src) return;
+    if (this.unannounced) {
+      this.onTrack(this.unannounced);
+      this.unannounced = null;
+    }
+    this.playMusic();
   }
 
   update(s: SurferState, speed: number): void {

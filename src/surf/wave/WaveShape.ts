@@ -40,12 +40,12 @@ export class WaveShape {
   /** Key of the section blended into `pts` (x plus the params it depends on); NaN = none. */
   private secX = NaN;
   private secD = NaN;
-  private secLs = NaN;
+  private secH = NaN;
   private secC = NaN;
   /** Last crestT result and its key. crestT depends only on the section (H scales y uniformly). */
   private crestX = NaN;
   private crestD = NaN;
-  private crestLs = NaN;
+  private crestH = NaN;
   private crestC = NaN;
   private crestTVal = 0;
 
@@ -53,7 +53,7 @@ export class WaveShape {
 
   /** 1 in the barrel, fading to 0 across the shoulder. */
   hollowness(x: number): number {
-    return x >= 0 ? 1 - smoothstep(0, this.params.shoulderLength, x) : 1;
+    return x >= 0 ? 1 - smoothstep(0, this.params.hollowLength, x) : 1;
   }
 
   zone(x: number): WaveZone {
@@ -78,12 +78,12 @@ export class WaveShape {
     const p = this.params;
     if (!out) {
       // Hot path: profile() is called many times per column (mesh rows, crestT sweeps, tangents in t).
-      if (x === this.secX && p.tubeDepth === this.secD && p.shoulderLength === this.secLs && p.collapseLength === this.secC) {
+      if (x === this.secX && p.tubeDepth === this.secD && p.hollowLength === this.secH && p.collapseLength === this.secC) {
         return this.pts;
       }
       this.secX = x;
       this.secD = p.tubeDepth;
-      this.secLs = p.shoulderLength;
+      this.secH = p.hollowLength;
       this.secC = p.collapseLength;
       out = this.pts;
     }
@@ -160,13 +160,13 @@ export class WaveShape {
   /** t of the highest point of the profile at x (the crest / top of the curl). */
   crestT(x: number): number {
     const p = this.params;
-    if (x === this.crestX && p.tubeDepth === this.crestD && p.shoulderLength === this.crestLs && p.collapseLength === this.crestC) {
+    if (x === this.crestX && p.tubeDepth === this.crestD && p.hollowLength === this.crestH && p.collapseLength === this.crestC) {
       return this.crestTVal;
     }
     this.crestTVal = this.searchCrestT(x);
     this.crestX = x;
     this.crestD = p.tubeDepth;
-    this.crestLs = p.shoulderLength;
+    this.crestH = p.hollowLength;
     this.crestC = p.collapseLength;
     return this.crestTVal;
   }

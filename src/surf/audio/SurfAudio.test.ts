@@ -102,7 +102,8 @@ afterEach(() => {
 describe('SurfAudio music', () => {
   it('ignores the AbortError a pause/dispose gives an in-flight play(), but still warns on real failures', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    playResult = () => Promise.reject(domError('AbortError'));
+    // Some engines reject with a DOMException that is not an Error instance: match on the name.
+    playResult = () => Promise.reject({ name: 'AbortError', message: 'interrupted' });
     const audio = new SurfAudio(() => undefined);
     await audio.start(TRACKS);
     await flush();
@@ -129,15 +130,18 @@ describe('SurfAudio music', () => {
     const music = elements[0]!;
     expect(music.src).not.toBe(''); // the track is queued …
     expect(music.play).not.toHaveBeenCalled(); // … but not playing
+    expect(onTrack).not.toHaveBeenCalled(); // no NOW PLAYING toast for a silent track
     expect(ctx.suspend.mock.invocationCallOrder.at(-1)!).toBeGreaterThan(ctx.resume.mock.invocationCallOrder[0]!);
 
     audio.resume();
     expect(music.play).toHaveBeenCalledTimes(1);
+    expect(onTrack).toHaveBeenCalledTimes(1);
     audio.dispose();
   });
 
   it('does not start the next track while paused', async () => {
-    const audio = new SurfAudio(() => undefined);
+    const onTrack = vi.fn();
+    const audio = new SurfAudio(onTrack);
     await audio.start(TRACKS);
     const music = elements[0]!;
     expect(music.play).toHaveBeenCalledTimes(1);
@@ -146,8 +150,12 @@ describe('SurfAudio music', () => {
     music.emit('ended');
     expect(music.src).not.toBe(before);
     expect(music.play).toHaveBeenCalledTimes(1);
+    expect(onTrack).toHaveBeenCalledTimes(1);
     audio.resume();
     expect(music.play).toHaveBeenCalledTimes(2);
+    expect(onTrack).toHaveBeenCalledTimes(2);
+    audio.resume(); // a second resume does not re-announce
+    expect(onTrack).toHaveBeenCalledTimes(2);
     audio.dispose();
   });
 });

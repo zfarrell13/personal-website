@@ -163,20 +163,64 @@ describe('CameraRig in the barrel (real wave mesh, real surfer)', () => {
     return { tubeFrames, firstVisible, hiddenAfter, wet };
   }
 
-  it('holding the stall until swallowed: rider in view within 0.4 s of entering, and stays in view', () => {
+  // With hollowLength 12 the approach face is more open and the move settles at 0.50 s (0.35 s on the old 45 m fade).
+  it('holding the stall until swallowed: rider in view within 0.55 s of entering, and stays in view', () => {
     const r = rideTube(null);
     expect(r.tubeFrames).toBeGreaterThan(60);
     expect(r.firstVisible).toBeGreaterThanOrEqual(0);
-    expect(r.firstVisible).toBeLessThan(0.4);
+    expect(r.firstVisible).toBeLessThan(0.55);
     expect(r.hiddenAfter).toBe(0);
     expect(r.wet).toBe(0);
   });
 
+  // Released after 0.3 s the rider now climbs out of the barrel (height rule); 0.6 s commits them to a deep ride.
   it('stall in, then let go and ride deep: the rider stays in view', () => {
-    const r = rideTube(0.3);
-    expect(r.tubeFrames).toBeGreaterThan(240);
-    expect(r.firstVisible).toBeLessThan(0.4);
+    const r = rideTube(0.6);
+    expect(r.tubeFrames).toBeGreaterThan(180);
+    expect(r.firstVisible).toBeLessThan(0.55);
     expect(r.hiddenAfter).toBe(0);
     expect(r.wet).toBe(0);
+  });
+});
+
+describe('chase framing on the open face (real wave mesh, real surfer)', () => {
+  it('riding straight for 10 s: the lip stays ≥ 1.8 m off the board and the chase camera sees the chest ≥ 90% of frames', () => {
+    const cfg = structuredClone(SURF_CONFIG);
+    const wave = new WaveShape(cfg.wave);
+    const surfer = new Surfer(wave, cfg.physics, new EventBus<SurfEvent>());
+    const front = new Mesh(buildWaveGeometry(wave, columnsX(cfg.mesh.columns, cfg.wave.xMin, cfg.wave.xMax), cfg.mesh.rows), new MeshBasicMaterial({ side: DoubleSide }));
+    front.updateMatrixWorld();
+    const rig = new CameraRig(new PerspectiveCamera(cfg.camera.fov, 16 / 9, 0.1, 650), cfg.camera);
+    rig.snap(surfer.state, 'right');
+    const s = surfer.state;
+    const ray = new Raycaster();
+    const from = new Vector3();
+    const dir = new Vector3();
+    let frames = 0;
+    let chestSeen = 0;
+    let minClearance = Infinity;
+    for (let f = 0; f < 60 * 10; f++) {
+      for (let k = 0; k < 2; k++) surfer.step(NO_INPUT, 1 / 120);
+      rig.update(s, s.p, 'right', false, 1 / 60);
+      expect(s.mode).toBe('riding');
+      // Skip the drop-in (0.5 s): the rider starts at x = 4, t 0.55, right under the lip, and dives to the face.
+      if (f < 30 || s.p.x <= 1) continue;
+      frames++;
+      // Clearance: first wave surface straight out along the normal from just above the board.
+      from.copy(s.p).addScaledVector(s.normal, 0.05);
+      ray.set(from, s.normal);
+      ray.far = 10;
+      const hit = ray.intersectObject(front, false)[0];
+      minClearance = Math.min(minClearance, hit ? hit.distance + 0.05 : Infinity);
+      from.copy(s.p).addScaledVector(s.normal, 0.9);
+      dir.subVectors(from, rig.pos);
+      const dist = dir.length();
+      ray.set(rig.pos, dir.normalize());
+      ray.far = dist - 0.2;
+      if (ray.intersectObject(front, false).length === 0) chestSeen++;
+    }
+    expect(frames).toBeGreaterThan(450);
+    expect(minClearance).toBeGreaterThanOrEqual(1.8);
+    expect(chestSeen / frames).toBeGreaterThanOrEqual(0.9);
   });
 });

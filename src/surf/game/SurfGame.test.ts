@@ -344,6 +344,7 @@ describe('SurfGame', () => {
       expect(vertices(null)).toBe(160 * 65);
     } finally {
       Object.assign(SURF_CONFIG.mesh, saved);
+      delete (win as unknown as { matchMedia?: unknown }).matchMedia;
     }
   });
 

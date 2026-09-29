@@ -350,8 +350,10 @@ describe('Surfer — floater and kick-out', () => {
 
   it('snaps when carving through a reversal at the crest', () => {
     const h = setup();
-    h.surfer.reset(15, 0.4);
-    const n = h.wave.normal(15, 0.4);
+    // x = 4 has the section the old 45 m hollowness fade had at x = 15 (hollowness 0.74): on the
+    // open face beyond x ≈ 5.5 the crest is too gentle for a 110° reversal inside the snap window.
+    h.surfer.reset(4, 0.4);
+    const n = h.wave.normal(4, 0.4);
     const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
     h.s.v.set(3, 0, 0).addScaledVector(up, 3); // reaches the crest below launch speed
     h.run(1.5, () => ({ carve: 1 }));

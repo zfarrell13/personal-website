@@ -4,6 +4,7 @@ export const DEBUG_PARAMS: ReadonlyArray<readonly [string, number, number, numbe
   ['wave.peelSpeed', 3, 12, 0.5],
   ['wave.tubeDepth', 2, 9, 0.5],
   ['wave.shoulderLength', 15, 70, 1],
+  ['wave.hollowLength', 4, 45, 1],
   ['physics.lift', 10, 30, 0.1],
   ['physics.faceDamping', 0, 4, 0.1],
   ['physics.drive', 0, 8, 0.05],

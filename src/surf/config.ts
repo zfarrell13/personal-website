@@ -13,8 +13,14 @@ export const SURF_CONFIG = {
     peelSpeed: 7,
     /** D — tube depth (m): the lip lands in the trough D metres behind the curl. */
     tubeDepth: 5,
-    /** Ls — shoulder length (m): hollowness fades 1 → 0 over 0 < x < Ls. */
+    /** Ls — shoulder length (m): the shoulder zone and where the height taper starts. */
     shoulderLength: 45,
+    /**
+     * Hollowness (the pitching lip) fades 1 → 0 over 0 < x < hollowLength. Spec deviation
+     * (task 17 ruling): fading over all of Ls left the rider under a closed curtain on the
+     * open face; 12 m keeps the barrel near the curl and an open, visible face beyond it.
+     */
+    hollowLength: 12,
     /** Height tapers from 100% at x = Ls to `taperMin` at x = `taperEnd`. */
     taperEnd: 90,
     taperMin: 0.4,

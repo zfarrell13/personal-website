@@ -92,7 +92,8 @@ describe('WaveShape.profile', () => {
     expect(w.zone(10)).toBe('shoulder');
     expect(w.zone(60)).toBe('swell');
     expect(w.hollowness(0)).toBe(1);
-    expect(w.hollowness(45)).toBe(0);
+    expect(w.hollowness(SURF_CONFIG.wave.hollowLength)).toBe(0);
+    expect(w.hollowness(6)).toBeCloseTo(0.5, 9);
   });
 });
 
@@ -179,6 +180,7 @@ const GOLDEN_CREST: ReadonlyArray<readonly [number, number, number]> = [
 describe('WaveShape hot paths', () => {
   it('profile, crestT and crestY match the reference surface', () => {
     const w = shape();
+    w.params.hollowLength = 45; // the reference was captured when hollowness faded over Ls = 45 m
     const p = new Vector3();
     for (const [x, t, y, z] of GOLDEN_PROFILE) {
       w.profile(x, t, p);
@@ -211,6 +213,7 @@ describe('WaveShape hot paths', () => {
     });
     w.params.tubeDepth = 7;
     w.params.shoulderLength = 30;
+    w.params.hollowLength = 20;
     w.params.height = 3;
     const fresh = new WaveShape({ ...w.params });
     for (const x of xs) {
