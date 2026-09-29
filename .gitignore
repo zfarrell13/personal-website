@@ -1,0 +1,8 @@
+node_modules/
+.next/
+out/
+.DS_Store
+public/tracks/
+test-results/
+playwright-report/
+.env*
