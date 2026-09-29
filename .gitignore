@@ -15,3 +15,7 @@ test-results/
 playwright-report/
 .env*
 .worktrees/
+public/worklets/
+public/models/
+public/vendor/
+content/models/*.glb

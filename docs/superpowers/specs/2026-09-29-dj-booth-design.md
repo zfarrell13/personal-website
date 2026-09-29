@@ -232,7 +232,9 @@ position and toggle. The engine subscribes and applies changes. Telemetry
   - The PLL converges below 1 ms within 2 s and stays there over 10 min of
     simulated playback.
 - **Vitest, MixerCore:**
-  - EQ kill attenuates a band by more than 60 dB (on synthesized sine tests).
+  - EQ kill: a band's own path is exactly zero; sines far from the
+    neighbouring crossovers are > 60 dB down (a 1 kHz tone with MID killed is
+    ≈ −40 dB due to LR4 neighbour skirts).
   - Crossfader curves.
   - Beat FX delay times match the BPM and division.
 - **Playwright:**
