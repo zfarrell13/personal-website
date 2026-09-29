@@ -74,30 +74,77 @@ describe('Surfer — riding', () => {
     expect(rhythm.s.v.length()).toBeGreaterThan(spam.s.v.length() + 0.3);
   });
 
-  it('carving toward the lip climbs the face', () => {
-    const { s, run } = setup();
-    run(1);
-    const y0 = s.p.y;
-    run(0.4, () => ({ carve: 1 }));
-    expect(s.p.y).toBeGreaterThan(y0);
+  it('carving toward the lip climbs the face (vs a no-carve control from the identical state)', () => {
+    const climb = (carve: number) => {
+      const h = setup();
+      h.run(1);
+      const y0 = h.s.p.y;
+      h.run(0.4, () => ({ carve }));
+      return h.s.p.y - y0;
+    };
+    const straight = climb(0);
+    expect(climb(1)).toBeGreaterThan(straight + 0.03);
+    expect(climb(-1)).toBeLessThan(straight - 0.03);
   });
 });
 
 describe('Surfer — air', () => {
-  function climbFast(h: ReturnType<typeof setup>) {
-    // Mid-face on the open shoulder, heading straight up the face at 12 m/s.
-    h.surfer.reset(20, 0.3);
-    const n = h.wave.normal(20, 0.3);
-    const e1 = new Vector3(1, 0, 0);
-    const up = new Vector3().crossVectors(n, e1).normalize();
-    h.s.v.copy(up).multiplyScalar(12);
+  /** From reset at (x, 0.3), heading straight up the face at `speed`. */
+  function climbFast(h: ReturnType<typeof setup>, x: number, speed: number) {
+    h.surfer.reset(x, 0.3);
+    const n = h.wave.normal(x, 0.3);
+    const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
+    h.s.v.copy(up).multiplyScalar(speed);
   }
 
-  it('launches at the crest with enough upward speed', () => {
+  // x = 40 is a gentler face (33°), so gravity bleeds more speed before the crest: it needs 18 m/s.
+  it.each([
+    [10, 12],
+    [20, 12],
+    [40, 18],
+  ])('launches into real air (≥ 0.3 s, not a one-tick hop) at the crest (x=%d, %d m/s)', (x, speed) => {
     const h = setup();
-    climbFast(h);
-    h.run(1);
-    expect(h.events.some((e) => e.type === 'launched' && e.kind === 'crest')).toBe(true);
+    climbFast(h, x, speed);
+    let maxAir = 0;
+    for (let i = 0; i < 3 * 120; i++) {
+      h.run(DT);
+      maxAir = Math.max(maxAir, h.s.airTime);
+    }
+    expect(h.events.filter((e) => e.type === 'launched' && e.kind === 'crest')).toHaveLength(1);
+    expect(maxAir).toBeGreaterThanOrEqual(0.3);
+  });
+
+  it('too slow at the top of the face: no launch, clamps and slides back down', () => {
+    const h = setup();
+    climbFast(h, 15, 8);
+    let maxT = 0;
+    for (let i = 0; i < 4 * 120; i++) {
+      h.run(DT);
+      maxT = Math.max(maxT, h.s.param.t);
+    }
+    expect(h.events.some((e) => e.type === 'launched')).toBe(false);
+    expect(h.s.mode).toBe('riding');
+    expect(h.s.param.t).toBeLessThan(maxT - 0.05);
+    const slow = setup();
+    climbFast(slow, 10, 4);
+    slow.run(2);
+    expect(slow.events.some((e) => e.type === 'launched')).toBe(false);
+  });
+
+  it('never rides where the surface normal points down', () => {
+    const nrm = new Vector3();
+    for (const x of [0, 2, 5, 10, 20, 40]) {
+      for (const speed of [4, 8, 12, 18]) {
+        const h = setup();
+        climbFast(h, x, speed);
+        for (let i = 0; i < 4 * 120; i++) {
+          h.run(DT);
+          if (h.s.mode === 'riding' && !h.s.floating) {
+            expect(h.wave.normal(h.s.param.x, h.s.param.t, nrm).y, `x=${x} v=${speed} tick=${i}`).toBeGreaterThanOrEqual(0);
+          }
+        }
+      }
+    }
   });
 
   function bigOllie(spinTicks: number) {
@@ -179,7 +226,7 @@ describe('Surfer — floater and kick-out', () => {
     h.surfer.reset(15, 0.4);
     const n = h.wave.normal(15, 0.4);
     const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
-    h.s.v.set(3, 0, 0).addScaledVector(up, 7);
+    h.s.v.set(3, 0, 0).addScaledVector(up, 5); // reaches the crest below launch speed
     h.run(1.5, () => ({ carve: 1 }));
     expect(h.events.some((e) => e.type === 'snap')).toBe(true);
   });

@@ -41,6 +41,10 @@ export interface SurferState {
 }
 
 const CREST_EPS = 0.004;
+/** The rideable face ends where the surface normal's y drops below this (face going vertical / overhanging). */
+/** Airborne below still-water level (y = 0) by more than this = fell off the back. */
+const WATER_LEVEL_SLACK = 0.5;
+const FACE_MIN_NY = 0.2;
 const DROP_IN = { x: 4, t: 0.55, along: 2, down: 4 };
 
 /**
@@ -61,6 +65,8 @@ export class Surfer {
   private readonly tmp = new Vector3();
   private readonly tmp2 = new Vector3();
   private readonly q: WaveParam = { x: 0, t: 0 };
+  private readonly outward = new Vector3();
+  private crestMemo = { x: NaN, t: 0, y: 0 };
   private readonly crestHeading = new Vector3();
   private atCrest = false;
   private crestTime = -Infinity;
@@ -160,6 +166,39 @@ export class Surfer {
     else if (s.mode === 'airborne') this.air(input, dt);
   }
 
+  /** Crest param and height at column x, memoized (crestT is expensive). */
+  private crestAt(x: number): { x: number; t: number; y: number } {
+    const m = this.crestMemo;
+    if (m.x !== x) {
+      m.x = x;
+      m.t = this.wave.crestT(x);
+      m.y = this.wave.profile(x, m.t, this.tmp).y;
+    }
+    return m;
+  }
+
+  /**
+   * Largest t ≤ tMax at column x whose surface normal still has n.y ≥ FACE_MIN_NY:
+   * the end of the rideable face (before it turns vertical or overhangs).
+   */
+  private faceEnd(x: number, tMax: number): number {
+    const w = this.wave;
+    const ny = (t: number): number => w.normal(x, t, this.tmp).y;
+    if (ny(tMax) >= FACE_MIN_NY) return tMax;
+    let hi = tMax;
+    let lo = tMax;
+    while (lo > 0 && ny(lo) < FACE_MIN_NY) {
+      hi = lo;
+      lo = Math.max(0, lo - 0.02);
+    }
+    for (let i = 0; i < 12; i++) {
+      const mid = (lo + hi) / 2;
+      if (ny(mid) >= FACE_MIN_NY) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  }
+
   /** Fill e1 (along +x), eUp (up the face) and state.normal at (x, t). */
   private frameAt(x: number, t: number): void {
     this.wave.tangents(x, t, this.sx, this.st);
@@ -193,7 +232,7 @@ export class Surfer {
     a.addScaledVector(n, -a.dot(n));
     const steep = w.steepness(s.param.x, s.param.t);
     if (!s.floating) {
-      const crestY = w.crestY(s.param.x);
+      const crestY = this.crestAt(s.param.x).y;
       const depth = clamp((crestY - s.p.y) / Math.max(crestY, 0.1), 0, 1);
       a.addScaledVector(this.eUp, c.lift * steep * depth);
       a.addScaledVector(this.eUp, -c.faceDamping * s.v.dot(this.eUp));
@@ -232,13 +271,23 @@ export class Surfer {
     // --- integrate + re-project onto the surface ---
     s.p.addScaledVector(s.v, dt);
     w.closestParam(s.p, s.param, s.param);
-    const tc = w.crestT(s.param.x);
+    const crest = this.crestAt(s.param.x);
+    const tc = crest.t;
+    const tb = s.floating ? tc : this.faceEnd(s.param.x, Math.min(s.param.t, tc - CREST_EPS));
+    const atEdge = s.param.t >= tc - CREST_EPS || tb < s.param.t;
 
     if (s.floating) {
       this.floatTick(input, tc);
       if (s.mode !== 'riding') return;
-    } else if (s.param.t >= tc - CREST_EPS) {
-      if (s.v.y > c.launchSpeed) {
+    } else if (atEdge) {
+      // End of the rideable face. Speed leaving the face (along ∂S/∂t) decides launch vs clamp.
+      const canFloat = s.param.x < c.floaterMaxX && s.v.length() >= c.floaterMinSpeed;
+      w.tangents(s.param.x, tb, this.sx, this.st);
+      const out = this.outward.copy(this.st).normalize();
+      if (!canFloat && s.v.dot(out) > c.launchSpeed) {
+        w.profile(s.param.x, tb, s.p);
+        w.normal(s.param.x, tb, n);
+        s.p.addScaledVector(n, 0.02);
         this.launch('crest');
         return;
       }
@@ -248,13 +297,13 @@ export class Surfer {
         this.crestHeading.copy(s.heading);
         this.snapArmed = true;
       }
-      s.param.t = tc - CREST_EPS;
-      w.profile(s.param.x, s.param.t, s.p);
-      this.frameAt(s.param.x, s.param.t);
+      s.param.t = tb;
+      w.profile(s.param.x, tb, s.p);
+      this.frameAt(s.param.x, tb);
       s.v.addScaledVector(n, -s.v.dot(n));
-      const up = s.v.dot(this.eUp);
-      if (up > 0) s.v.addScaledVector(this.eUp, -up);
-      if (s.param.x < c.floaterMaxX && s.v.length() >= c.floaterMinSpeed) {
+      const up = s.v.dot(out);
+      if (up > 0) s.v.addScaledVector(out, -up);
+      if (canFloat) {
         s.floating = true;
         this.floatStart = s.time;
         s.floatTime = 0;
@@ -279,7 +328,7 @@ export class Surfer {
       }
     }
 
-    this.tubeTick(w.crestY(s.param.x));
+    this.tubeTick(this.crestAt(s.param.x).y);
     if (s.mode !== 'riding') return;
 
     // --- lost the wave ---
@@ -307,7 +356,7 @@ export class Surfer {
     const done = s.param.x >= c.tubeXMax || s.floatTime >= c.floaterMaxTime || input.carve < 0;
     if (done) {
       s.floating = false;
-      s.param.t = tc - 0.03;
+      s.param.t = this.faceEnd(s.param.x, tc - 0.03);
       w.profile(s.param.x, s.param.t, s.p);
       this.frameAt(s.param.x, s.param.t);
       s.v.addScaledVector(s.normal, -s.v.dot(s.normal)).addScaledVector(this.eUp, -2);
@@ -399,12 +448,21 @@ export class Surfer {
     }
     if (s.grab) this.lastGrabTime = s.time;
 
+    // Flew off the back of the wave into open water: nothing to land on.
+    if (s.p.y < -WATER_LEVEL_SLACK) {
+      this.endGrab();
+      this.wipe('whitewater');
+      return;
+    }
+
     // Landing: test against the face (t ≤ crestT) each tick.
     const q = w.closestParam(s.p, s.param, this.q);
-    const tc = w.crestT(q.x);
+    const tc = this.crestAt(q.x).t;
     if (q.t > tc) q.t = tc;
     s.param.x = q.x;
     s.param.t = q.t;
+    // Only the rideable face is ground: above its end (vertical / overhanging lip) there is nothing to land on.
+    if (q.t > this.faceEnd(q.x, Math.min(q.t, tc - CREST_EPS)) + 1e-9) return;
     const S = w.profile(q.x, q.t, this.tmp);
     const n = w.normal(q.x, q.t, this.tmp2);
     const d = this.acc.subVectors(s.p, S).dot(n);
