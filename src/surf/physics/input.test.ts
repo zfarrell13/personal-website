@@ -10,6 +10,10 @@ describe('carveFromKeys (screen-relative)', () => {
     expect(carveFromKeys(true, false, 'right')).toBe(-1);
     expect(carveFromKeys(true, true, 'right')).toBe(0);
   });
+  it('flips when the camera faces back toward the curl (keyFacing −1)', () => {
+    expect(carveFromKeys(false, true, 'right', -1)).toBe(-1);
+    expect(carveFromKeys(false, true, 'left', -1)).toBe(1);
+  });
 });
 
 describe('readSurferInput', () => {
@@ -26,6 +30,8 @@ describe('readSurferInput', () => {
     a.tick();
     expect(readSurferInput(a, 'left').ollie).toBe(false);
     expect(readSurferInput(a, 'left').carve).toBe(-1);
+    expect(readSurferInput(a, 'left', undefined, -1).carve).toBe(1);
+    expect(readSurferInput(a, 'left', undefined, -1).spin).toBe(1);
   });
 
   it('spin is screen-relative like carving: → spins the same way on screen on both sides', () => {

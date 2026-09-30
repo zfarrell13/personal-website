@@ -63,19 +63,21 @@ const GRAB_ORDER: ReadonlyArray<readonly [SurfAction, GrabKind]> = [
  * Screen-relative carve: the chase camera sits behind the rider looking down the
  * line, so on a RIGHT the face (and the lip) rises on screen-right and → turns
  * toward the lip; on a LEFT the face is on screen-left, so → turns down the face.
+ * `facing` −1 = the camera has swung round to look back toward the curl (the lip
+ * is then on the other side of the screen).
  */
-export function carveFromKeys(left: boolean, right: boolean, side: Side): number {
+export function carveFromKeys(left: boolean, right: boolean, side: Side, facing: 1 | -1 = 1): number {
   const raw = (right ? 1 : 0) - (left ? 1 : 0);
-  return side === 'right' ? raw : -raw;
+  return (side === 'right' ? raw : -raw) * facing;
 }
 
 type Readable = Pick<ActionState<SurfAction>, 'isDown' | 'pressedThisFrame'>;
 
-export function readSurferInput(actions: Readable, side: Side, out: SurferInput = { ...NO_INPUT }): SurferInput {
+export function readSurferInput(actions: Readable, side: Side, out: SurferInput = { ...NO_INPUT }, facing: 1 | -1 = 1): SurferInput {
   const l = actions.isDown('carveLeft');
   const r = actions.isDown('carveRight');
-  out.carve = carveFromKeys(l, r, side);
-  out.spin = carveFromKeys(l, r, side);
+  out.carve = carveFromKeys(l, r, side, facing);
+  out.spin = carveFromKeys(l, r, side, facing);
   out.pump = actions.pressedThisFrame('pump');
   out.stall = actions.isDown('stall');
   out.ollie = actions.pressedThisFrame('ollie');

@@ -36,18 +36,15 @@ describe('cameraGoal', () => {
     expect(g.look.x).toBeCloseTo(s.p.x + C.chaseAhead, 9);
     expect(g.look.y).toBeLessThan(g.pos.y - 3); // looking down
   });
-  it('follows the travel direction, but never further than chaseMaxYaw off down the line (it stays on the curl side)', () => {
+  it('sits behind the actual travel direction, whichever way the rider is going', () => {
     const { wave, s } = world();
     const yaw = 30 * (Math.PI / 180);
-    s.heading.set(Math.cos(yaw), -0.3, -Math.sin(yaw)).normalize(); // climbing the face (−z) and down the line
-    let g = cameraGoal(s, 'left', 'chase', wave, goal());
-    const back = flat(new Vector3().subVectors(s.p, g.pos));
-    expect(back.dot(flat(s.heading))).toBeCloseTo(1, 9);
-    s.heading.set(-1, 0, 0.2).normalize(); // heading back toward the curl
-    g = cameraGoal(s, 'left', 'chase', wave, goal());
-    expect(g.pos.x).toBeLessThan(s.p.x);
-    const max = C.chaseMaxYaw * (Math.PI / 180);
-    expect(flat(new Vector3().subVectors(s.p, g.pos)).x).toBeCloseTo(Math.cos(max), 9);
+    for (const h of [new Vector3(Math.cos(yaw), -0.3, -Math.sin(yaw)), new Vector3(-1, 0, 0.2), new Vector3(-0.3, 0.1, 1)]) {
+      s.heading.copy(h).normalize();
+      const g = cameraGoal(s, 'left', 'chase', wave, goal());
+      expect(flat(new Vector3().subVectors(s.p, g.pos)).dot(flat(s.heading))).toBeCloseTo(1, 9);
+      expect(g.pos.y).toBeGreaterThanOrEqual(wave.crestY(g.pos.x) + CAMERA_OFFSETS.crestClearance - 1e-9);
+    }
   });
   it('mirrors exactly for a RIGHT', () => {
     const { wave, s } = world();
@@ -68,6 +65,15 @@ describe('cameraGoal', () => {
     expect(g.pos.x).toBeCloseTo(s.p.x - CAMERA_OFFSETS.tube.back, 9);
     expect(g.pos.z).toBeGreaterThan(s.p.z);
     expect(g.look.x).toBeGreaterThan(s.p.x);
+  });
+  it('tube, heading deeper toward the curl: behind the rider on the mouth side, looking in', () => {
+    const { wave, s } = world();
+    s.p.set(-2, 0.8, 2);
+    s.normal.set(0, 0.3, 1).normalize();
+    s.heading.set(-1, 0, 0);
+    const g = cameraGoal(s, 'left', 'tube', wave, goal());
+    expect(g.pos.x).toBeCloseTo(s.p.x + CAMERA_OFFSETS.tube.back, 9);
+    expect(g.look.x).toBeLessThan(s.p.x);
   });
   it('never puts a tube camera behind tubeMinX (the barrel is closed there)', () => {
     const { wave, s } = world();
@@ -112,15 +118,24 @@ describe('camera shake', () => {
 });
 
 describe('CameraRig', () => {
-  it("carries the rider's own motion without lag (the springs smooth only changes of the shot) and settles on the chase goal", () => {
+  it("follows the rider's own motion closely but smooths jolts (a pump's kick doesn't lurch the view), and settles on the chase goal", () => {
     const { wave, s } = world();
     const rig = new CameraRig(new PerspectiveCamera(), SURF_CONFIG.camera, wave);
     s.heading.set(1, 0, 0);
     rig.snap(s, 'left');
     const offset = rig.pos.clone().sub(s.p);
-    s.p.add(new Vector3(-2, 0.3, 1)); // e.g. a stall: the rider slides back toward the curl
+    // A jolt: the rider jumps 0.2 m in one frame. The camera takes a fraction of it.
+    const before = rig.pos.clone();
+    s.p.z += 0.2;
     rig.update(s, s.p, 'left', false, 1 / 60);
-    expect(rig.pos.clone().sub(s.p).distanceTo(offset)).toBeLessThan(0.05);
+    expect(rig.pos.z - before.z).toBeLessThan(0.1);
+    expect(rig.pos.z - before.z).toBeGreaterThan(0);
+    // A stall: the rider slides back toward the curl at 5 m/s for 1 s. The camera keeps up.
+    for (let i = 0; i < 60; i++) {
+      s.p.x -= 5 / 60;
+      rig.update(s, s.p, 'left', false, 1 / 60);
+    }
+    expect(rig.pos.clone().sub(s.p).distanceTo(offset)).toBeLessThan(0.8);
     for (let i = 0; i < 600; i++) rig.update(s, s.p, 'left', false, 1 / 60);
     expect(rig.pos.distanceTo(cameraGoal(s, 'left', 'chase', wave, goal()).pos)).toBeLessThan(0.01);
   });
@@ -298,6 +313,69 @@ describe('CameraRig on the real wave (ray / visibility probes)', () => {
   });
 });
 
+describe('a cutback: the camera swings round behind the new travel direction', () => {
+  it('turning back toward the curl: the camera is in front of the travel for ≤ 0.8 s at a stretch, never sways sideways, stays above the crest and out of the water', () => {
+    for (const x0 of [26, 18]) {
+      const { cfg, wave, surfer, s } = world();
+      const front = new Mesh(buildWaveGeometry(wave, columnsX(cfg.mesh.columns, cfg.wave.xMin, cfg.wave.xMax), cfg.mesh.rows), new MeshBasicMaterial({ side: DoubleSide }));
+      front.updateMatrixWorld();
+      surfer.reset(x0, 0.5);
+      const cam = new PerspectiveCamera(cfg.camera.fov, 16 / 9, 0.1, 650);
+      const rig = new CameraRig(cam, cfg.camera, wave);
+      rig.snap(s, 'left');
+      const bot = lineBot(surfer, wave, { pumpEvery: 1 });
+      const ray = new Raycaster();
+      const UP = new Vector3(0, 1, 0);
+      const back = new Vector3();
+      let run = 0;
+      let longest = 0;
+      let reversed = 0;
+      let wet = 0;
+      let below = 0;
+      let facingBack = 0;
+      const zs: number[] = [];
+      let lastZ = NaN;
+      let maxStep = 0;
+      for (let f = 0; f < 5 * 60; f++) {
+        for (let k = 0; k < 2; k++) {
+          const t = s.time;
+          // Down the line, then hold a carve until the board heads back toward the curl, then straight.
+          surfer.step(t < 1.5 ? bot(1 / 120) : t < 2.2 && s.heading.x > -0.9 ? { ...NO_INPUT, carve: -1 } : NO_INPUT, 1 / 120);
+        }
+        rig.update(s, s.p, 'left', false, 1 / 60, s.time);
+        if (s.mode !== 'riding' && s.mode !== 'airborne') break;
+        if (s.heading.x < -0.9) reversed++;
+        const inFront = rig.shot !== 'underwater' && flat(back.subVectors(s.p, rig.pos)).dot(flat(s.heading)) < 0;
+        run = inFront ? run + 1 : 0;
+        longest = Math.max(longest, run);
+        if (rig.shot === 'chase' && rig.pos.y <= wave.crestY(rig.pos.x)) below++;
+        ray.set(rig.pos, UP);
+        ray.far = 50;
+        const above = ray.intersectObject(front, false)[0];
+        if (above && above.face!.normal.y > 0) wet++;
+        // A straight run toward the curl, long after the swing: the camera holds its line.
+        // Heading straight for the curl: the camera never lurches sideways (no ±yaw flips) …
+        if (s.heading.x < -0.9 && rig.shot === 'chase') {
+          const z = rig.pos.z - s.p.z;
+          if (!Number.isNaN(lastZ)) maxStep = Math.max(maxStep, Math.abs(z - lastZ));
+          lastZ = z;
+          // … and once the swing has settled it holds its line.
+          if (s.time > 4) zs.push(z);
+        } else lastZ = NaN;
+        if (rig.keyFacing === -1) facingBack++;
+      }
+      expect(reversed).toBeGreaterThan(60);
+      expect(longest / 60).toBeLessThanOrEqual(0.8);
+      expect(below).toBe(0);
+      expect(wet).toBe(0);
+      expect(facingBack).toBeGreaterThan(0);
+      expect(maxStep).toBeLessThan(0.15); // m per frame (the old ±50° target flips swayed it ~5 m)
+      expect(zs.length).toBeGreaterThan(10);
+      expect(Math.max(...zs) - Math.min(...zs)).toBeLessThan(0.3);
+    }
+  });
+});
+
 describe('screen-relative carving matches the camera', () => {
   it.each(['left', 'right'] as const)('on a %s, the → key (carve +1 = toward the lip) is the side of the screen the lip is on', (side: Side) => {
     const { wave, surfer, s } = world();
@@ -312,6 +390,21 @@ describe('screen-relative carving matches the camera', () => {
     const riderScreen = frameToView(s.p, side, new Vector3()).project(cam).x;
     const lipScreen = frameToView(lip, side, new Vector3()).project(cam).x;
     const lipOnRight = lipScreen > riderScreen;
-    expect(carveFromKeys(false, true, side) === 1).toBe(lipOnRight);
+    expect(carveFromKeys(false, true, side, rig.keyFacing) === 1).toBe(lipOnRight);
+  });
+  it.each(['left', 'right'] as const)('on a %s with the camera swung round behind a rider heading for the curl, → is still toward the lip on screen', (side: Side) => {
+    const { wave, s } = world();
+    s.p.copy(wave.profile(20, 0.3));
+    s.param.x = 20;
+    s.param.t = 0.3;
+    s.heading.set(-1, 0, 0);
+    const cam = new PerspectiveCamera(SURF_CONFIG.camera.fov, 16 / 9, 0.1, 650);
+    const rig = new CameraRig(cam, SURF_CONFIG.camera, wave);
+    rig.snap(s, side);
+    cam.updateMatrixWorld();
+    expect(rig.keyFacing).toBe(-1);
+    const lip = wave.profile(s.param.x, Math.min(1, s.param.t + 0.05));
+    const lipOnRight = frameToView(lip, side, new Vector3()).project(cam).x > frameToView(s.p, side, new Vector3()).project(cam).x;
+    expect(carveFromKeys(false, true, side, rig.keyFacing) === 1).toBe(lipOnRight);
   });
 });

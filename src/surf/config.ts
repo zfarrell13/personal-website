@@ -111,10 +111,13 @@ export const SURF_CONFIG = {
     chaseHeight: 4,
     /** … looking down at the point this far ahead of them along their travel direction (m). */
     chaseAhead: 3,
-    /** The chase's travel direction stays within this yaw of down the line (deg), so it never swings round to the shoulder side … */
-    chaseMaxYaw: 50,
-    /** … and eases toward the board's heading at this rate (1/s), so carves don't whip the camera. */
+    /**
+     * The chase's travel direction eases toward the board's heading (shortest arc) at this rate (1/s):
+     * carves don't whip the camera, and a cutback swings it round behind the new line.
+     */
     chaseYawRate: 3,
+    /** The camera follows the rider through a spring this stiff (1/s): keeps up, but smooths pump kicks and landings. */
+    followStiffness: 15,
     /** The tube view cuts in after the rider has been in the barrel this long (s) … */
     tubeCutIn: 0.2,
     /** … and back out after this long out of it (s). */

@@ -1,7 +1,7 @@
 import { Vector3, type PerspectiveCamera } from 'three';
 import { SURF_CONFIG, type Side, type SurfConfig } from '../config';
 import { springStepVec3 } from '../math/spring';
-import { clamp, DEG } from '../math/scalar';
+import { wrapAngle } from '../math/scalar';
 import type { SurferState } from '../physics/Surfer';
 import { impactDistance } from '../wave/impact';
 import { frameToView } from '../wave/mirror';
@@ -40,14 +40,15 @@ type Subject = Pick<SurferState, 'p' | 'normal' | 'heading' | 'mode' | 'launchKi
 type CameraParams = SurfConfig['camera'];
 
 /**
- * The chase's travel yaw (rad, 0 = down the line +x, positive toward shore +z) for a heading: the
- * board's heading is its world direction of travel; the yaw is clamped to ±chaseMaxYaw so the chase
- * stays behind the rider on the curl side (and the screen-relative keys keep their meaning).
+ * The travel yaw (rad, 0 = down the line +x, positive toward shore +z) of a heading: the board's
+ * heading is its world direction of travel.
  */
-export function travelYaw(heading: Vector3, cfg: CameraParams): number {
-  const max = cfg.chaseMaxYaw * DEG;
-  return heading.x === 0 && heading.z === 0 ? 0 : clamp(Math.atan2(heading.z, heading.x), -max, max);
+export function travelYaw(heading: Vector3): number {
+  return heading.x === 0 && heading.z === 0 ? 0 : Math.atan2(heading.z, heading.x);
 }
+
+/** |cos(camera yaw)| past which the carve keys' screen meaning follows the camera (hysteresis around side-on). */
+const FACING_SWITCH = 0.3;
 
 /**
  * Where the camera wants to be (VIEW coordinates, i.e. already mirrored) for a shot.
@@ -55,7 +56,8 @@ export function travelYaw(heading: Vector3, cfg: CameraParams): number {
  * `chaseHeight` m above them (floored above the local crest so it never clips the lip), looking down
  * at the point `chaseAhead` m ahead of them along their travel.
  * Only a TRICK air (launchKind set) pulls back; silent floater mount/dismount/drop airs do not.
- * The tube camera never goes behind `cfg.tubeMinX` (frame x): the barrel is closed there.
+ * Tube: behind the rider inside the barrel, looking along their line; it never goes behind
+ * `cfg.tubeMinX` (frame x): the barrel is closed there.
  */
 export function cameraGoal(s: Subject, side: Side, shot: CameraShot, wave: CrestProbe | null, out: CameraGoal, cfg: CameraParams = SURF_CONFIG.camera): CameraGoal {
   const O = CAMERA_OFFSETS;
@@ -63,11 +65,15 @@ export function cameraGoal(s: Subject, side: Side, shot: CameraShot, wave: Crest
     out.pos.copy(s.p).add(O.underwater.pos);
     out.look.copy(s.p).add(O.underwater.look);
   } else if (shot === 'tube') {
+    // Behind the rider along their line through the barrel: normally deeper in, looking out the
+    // mouth; heading deeper toward the curl, on the mouth side looking in.
+    const dir = s.heading.x < 0 ? -1 : 1;
     out.pos.copy(s.p).addScaledVector(s.normal, O.tube.lift);
-    out.pos.x = Math.max(out.pos.x - O.tube.back, cfg.tubeMinX);
+    out.pos.x = dir > 0 ? Math.max(out.pos.x - O.tube.back, cfg.tubeMinX) : out.pos.x + O.tube.back;
     out.look.copy(s.p).add(O.tube.look);
+    out.look.x = s.p.x + dir * O.tube.look.x;
   } else {
-    const yaw = travelYaw(s.heading, cfg);
+    const yaw = travelYaw(s.heading);
     const dx = Math.cos(yaw);
     const dz = Math.sin(yaw);
     const air = s.mode === 'airborne' && s.launchKind !== null;
@@ -100,10 +106,13 @@ export function shakeAmplitude(x: number, tubeDepth: number, maxAmp: number, fad
 }
 
 /**
- * Critically damped springs on the camera's position and look target RELATIVE to the rider (so the
- * rider's own motion never drags them out of frame; the springs smooth changes of the shot: the eased
- * travel direction, the crest floor, the air pull-back), plus an eased travel direction for the chase
- * (so carves don't whip it round). The tube view is a CUT (the chase camera sits above the
+ * The camera = a follow point + an offset. The follow point is a stiff spring on the rider
+ * (`followStiffness`: it keeps up with the rider's own motion, so they never leave the frame, but
+ * smooths pump kicks and landings). The offset (position and look target relative to the follow
+ * point) is on the weighty shot springs, which smooth changes of the shot: the eased travel
+ * direction, the crest floor, the air pull-back. The chase's travel direction eases toward the
+ * board's heading along the shortest arc (`chaseYawRate`), so carves don't whip it round and a
+ * cutback swings it round behind the new line. The tube view is a CUT (the chase camera sits above the
  * lip; any glide into the barrel would pass through it), entered after the rider has been in the tube
  * for `tubeCutIn` s and left after `tubeCutOut` s out of it; the underwater wipeout is also a cut.
  */
@@ -119,6 +128,9 @@ export class CameraRig {
   private readonly vPos = new Vector3();
   private readonly vLook = new Vector3();
   private readonly viewP = new Vector3();
+  private readonly follow = new Vector3();
+  private readonly vFollow = new Vector3();
+  private facing: 1 | -1 = 1;
   private readonly shake = new Vector3();
   private yaw = 0;
   private inFor = 0;
@@ -137,11 +149,20 @@ export class CameraRig {
     }
   }
 
+  /**
+   * +1 while the camera looks down the line, −1 once it has swung round to look back toward the
+   * curl (the lip is then on the other side of the screen): what the screen-relative carve keys mean.
+   */
+  get keyFacing(): 1 | -1 {
+    return this.facing;
+  }
+
   snap(s: SurferState, side: Side): void {
     this.shot = 'chase';
     this.inFor = 0;
     this.outFor = 0;
-    this.yaw = travelYaw(s.heading, this.cfg);
+    this.yaw = travelYaw(s.heading);
+    this.facing = Math.cos(this.yaw) < -FACING_SWITCH ? -1 : 1;
     this.track(s, s.p, side);
     cameraGoal(this.subject, side, 'chase', this.wave, this.goal, this.cfg);
     this.cut();
@@ -151,25 +172,31 @@ export class CameraRig {
   /** `renderP` = the interpolated surfer position being drawn; `time` = sim clock (drives the shake). */
   update(s: SurferState, renderP: Vector3, side: Side, underwater: boolean, dt: number, time = 0): void {
     const c = this.cfg;
-    // The tube view also covers riding low in the pocket, under the pitching lip: from above the
-    // crest the lip hides the rider there.
-    const tubed = s.mode === 'riding' && (s.inTube || (s.p.x <= c.pocketX && s.p.x >= -this.wave.params.tubeDepth && s.p.y < c.pocketHeightFrac * this.wave.crestY(s.p.x)));
+    // The tube view also covers riding low in the pocket down the line, under the pitching lip: from
+    // above the crest the lip hides the rider there. (Not while heading for the curl: the tube camera
+    // looks down the line, so it would face the rider.)
+    const tubed = s.mode === 'riding' && (s.inTube || (Math.cos(this.yaw) > 0 && s.p.x <= c.pocketX && s.p.x >= -this.wave.params.tubeDepth && s.p.y < c.pocketHeightFrac * this.wave.crestY(s.p.x)));
     this.inFor = tubed ? this.inFor + dt : 0;
     this.outFor = tubed ? 0 : this.outFor + dt;
     const shot: CameraShot = underwater ? 'underwater' : this.shot === 'tube' ? (this.outFor >= c.tubeCutOut ? 'chase' : 'tube') : this.inFor >= c.tubeCutIn ? 'tube' : 'chase';
-    this.yaw += (travelYaw(s.heading, c) - this.yaw) * (1 - Math.exp(-c.chaseYawRate * dt));
+    // Shortest arc toward the heading, in continuous angle: no sign-picking at ±180°.
+    this.yaw = wrapAngle(this.yaw + wrapAngle(travelYaw(s.heading) - this.yaw) * (1 - Math.exp(-c.chaseYawRate * dt)));
     this.track(s, renderP, side);
     cameraGoal(this.subject, side, shot, this.wave, this.goal, c);
     if (shot !== this.shot || shot === 'underwater') this.cut();
     else {
+      springStepVec3(this.follow, this.vFollow, this.viewP, Math.max(c.followStiffness, shot === 'tube' ? c.tubeStiffness : 0), dt);
       this.offPosGoal.subVectors(this.goal.pos, this.viewP);
       this.offLookGoal.subVectors(this.goal.look, this.viewP);
       springStepVec3(this.offPos, this.vPos, this.offPosGoal, shot === 'tube' ? c.tubeStiffness : c.stiffness, dt);
       springStepVec3(this.offLook, this.vLook, this.offLookGoal, shot === 'tube' ? c.tubeStiffness : c.lookStiffness, dt);
-      this.pos.addVectors(this.viewP, this.offPos);
-      this.look.addVectors(this.viewP, this.offLook);
+      this.pos.addVectors(this.follow, this.offPos);
+      this.look.addVectors(this.follow, this.offLook);
     }
     this.shot = shot;
+    const cos = Math.cos(this.yaw);
+    if (shot !== 'chase' || cos > FACING_SWITCH) this.facing = 1;
+    else if (cos < -FACING_SWITCH) this.facing = -1;
     const x = side === 'right' ? -this.pos.x : this.pos.x;
     this.apply(shot === 'underwater' ? 0 : shakeAmplitude(x, this.wave.params.tubeDepth, c.shake), time);
   }
@@ -188,6 +215,8 @@ export class CameraRig {
   private cut(): void {
     this.pos.copy(this.goal.pos);
     this.look.copy(this.goal.look);
+    this.follow.copy(this.viewP);
+    this.vFollow.set(0, 0, 0);
     this.offPos.subVectors(this.goal.pos, this.viewP);
     this.offLook.subVectors(this.goal.look, this.viewP);
     this.vPos.set(0, 0, 0);

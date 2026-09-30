@@ -83,6 +83,8 @@ export class SurfGame {
   private frameSimDt = 0;
   /** Water/particle clock: advances with the sim while playing, freezes on pause. */
   private waterTime = 0;
+  /** Carve keys' screen meaning (see CameraRig.keyFacing), latched while a carve key is held. */
+  private keyFacing: 1 | -1 = 1;
   private endAt = -1;
   private raf = 0;
   private last: number | null = null;
@@ -309,7 +311,10 @@ export class SurfGame {
       return;
     }
     const s = this.surfer.state;
-    readSurferInput(this.actions, this.side, this.input);
+    // The keys' screen meaning follows the camera, but is latched while a carve key is held: a camera
+    // swinging round mid-cutback never inverts the turn in progress.
+    if (!this.actions.isDown('carveLeft') && !this.actions.isDown('carveRight')) this.keyFacing = this.rig.keyFacing;
+    readSurferInput(this.actions, this.side, this.input, this.keyFacing);
     this.surfer.step(this.input, dt);
     this.frameSimDt += dt;
     this.scoring.update(s.time, (s.mode === 'airborne' && s.launchKind !== null) || s.inTube || s.floating);

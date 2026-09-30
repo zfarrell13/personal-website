@@ -30,6 +30,7 @@ export const DEBUG_PARAMS: ReadonlyArray<readonly [string, number, number, numbe
   ['camera.chaseHeight', 1, 10, 0.25],
   ['camera.chaseAhead', 0, 12, 0.5],
   ['camera.chaseYawRate', 0.5, 10, 0.25],
+  ['camera.followStiffness', 4, 40, 1],
   ['camera.tubeCutIn', 0, 1, 0.05],
   ['camera.tubeCutOut', 0, 1, 0.05],
   ['camera.tubeStiffness', 2, 40, 1],

@@ -152,6 +152,37 @@ describe('SurfGame', () => {
     game.dispose();
   });
 
+  it("latches the carve keys' screen meaning while one is held, so a camera swing never inverts a turn", async () => {
+    const facing = vi.spyOn(CameraRig.prototype, 'keyFacing', 'get').mockReturnValue(1);
+    const { game } = await playing(); // a RIGHT: → = +1 (toward the lip) while the camera looks down the line
+    const carves: number[] = [];
+    const orig = game.surfer.step.bind(game.surfer);
+    vi.spyOn(game.surfer, 'step').mockImplementation((input: SurferInput, dt: number) => {
+      carves.push(input.carve);
+      orig(input, dt);
+    });
+    key('keydown', 'ArrowRight');
+    frame();
+    expect(carves.at(-1)).toBe(1);
+    facing.mockReturnValue(-1); // the camera swings round behind a rider heading for the curl
+    frame();
+    frame();
+    expect(carves.at(-1)).toBe(1); // still held: latched
+    key('keyup', 'ArrowRight');
+    frame();
+    key('keydown', 'ArrowRight');
+    frame();
+    expect(carves.at(-1)).toBe(-1); // pressed afresh: follows the camera
+    game.dispose();
+  });
+
+  it('resets the character (snapping its rate-limited board heading) at the start of every run', async () => {
+    const reset = vi.spyOn(Character.prototype, 'reset');
+    const { game } = await playing();
+    expect(reset).toHaveBeenCalled();
+    game.dispose();
+  });
+
   it('Esc pauses (sim frozen) and Esc again resumes', async () => {
     const { game, store } = await playing();
     frame();
