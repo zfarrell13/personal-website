@@ -16,6 +16,13 @@ async function dropIn(page: Page) {
 }
 
 test.describe('surf game', () => {
+  test('title and share card name the page from the content file', async ({ page }) => {
+    await page.goto('/surf');
+    await expect(page).toHaveTitle('Free Surf — Zach Farrell');
+    await expect(page.locator('meta[property="og:title"]')).toHaveAttribute('content', 'Free Surf — Zach Farrell');
+    await expect(page.locator('meta[property="og:image"]')).toHaveAttribute('content', /\/opengraph-image/);
+  });
+
   test('boots to the title menu and the break side is selectable', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     await page.goto('/surf');
