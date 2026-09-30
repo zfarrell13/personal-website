@@ -1,22 +1,15 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+import { isBackToMenuKey } from '@/shared/input/backKey';
 
-/** True when a key press belongs to a text field (Backspace deletes, Esc may clear it). */
-export function typingInField(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    (target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)
-  );
-}
-
-/** Esc or Backspace goes back to the title menu (`/`), except while typing in a field. */
+/** Esc or Backspace goes back to the title menu (`/`); see isBackToMenuKey for what doesn't count. */
 export function useBackToMenu(): void {
   const router = useRouter();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.key !== 'Escape' && e.key !== 'Backspace') || e.repeat || e.defaultPrevented) return;
-      if (typingInField(e.target) || typingInField(document.activeElement)) return;
+      // defaultPrevented: something on the page already used the key (a dialog closing on Esc).
+      if (e.defaultPrevented || !isBackToMenuKey(e)) return;
       e.preventDefault();
       router.push('/');
     };

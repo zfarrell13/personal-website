@@ -7,6 +7,7 @@ import {
   ShaderMaterial,
   UniformsLib,
   UniformsUtils,
+  Vector2,
   Vector3,
   type PerspectiveCamera,
 } from 'three';
@@ -23,6 +24,13 @@ export const NEAR_FADE = [0.8, 2.5] as const;
 export const MAX_POINT_FRACTION = 0.06;
 /** View depth (m) over which drops grow from nothing to full size (they shrink away toward the lens). */
 export const NEAR_SHRINK = [0.8, 3.5] as const;
+/**
+ * Attract mode (the dimmed wave behind a site page): the camera sits by the lip, so near spray would be big
+ * flat discs behind the page's text. They fade and shrink away much further out, points stay small, and
+ * the lip curtain and shoulder feathering are thinned (`thin` × their rates). The distant spray line and the
+ * impact plume are untouched.
+ */
+export const ATTRACT_PARTICLES = { nearFade: [4, 6], nearShrink: [4, 8], maxPointFraction: 0.02, thin: 0.35 } as const;
 /** A dying drop shrinks to this fraction of its size as it fades … */
 export const DROP_MIN_SIZE = 0.3;
 /** … and is fully opaque until its fade value (ParticlePool alpha, 1 → 0 over the last 30% of life) drops below this. */
@@ -34,6 +42,8 @@ attribute float aSize;
 attribute float aShade;
 uniform float uScale;
 uniform float uMaxSize;
+uniform vec2 uNearFade;
+uniform vec2 uNearShrink;
 varying float vAlpha;
 varying float vShade;
 ${ShaderChunk.fog_pars_vertex}
@@ -45,8 +55,9 @@ void main() {
   // translucent white over the teal read as dirty grey discs. Drops near the lens do the same: they
   // shrink away over NEAR_SHRINK (big discs right at the camera cluttered the title and the tube
   // view) and only go transparent within NEAR_FADE.
-  float nearFade = smoothstep(${NEAR_FADE[0].toFixed(1)}, ${NEAR_FADE[1].toFixed(1)}, -mvPosition.z);
-  float nearShrink = smoothstep(${NEAR_SHRINK[0].toFixed(1)}, ${NEAR_SHRINK[1].toFixed(1)}, -mvPosition.z);
+  // uNearFade / uNearShrink are NEAR_FADE / NEAR_SHRINK in play, further out in attract mode.
+  float nearFade = smoothstep(uNearFade.x, uNearFade.y, -mvPosition.z);
+  float nearShrink = smoothstep(uNearShrink.x, uNearShrink.y, -mvPosition.z);
   vAlpha = smoothstep(0.0, ${DROP_FADE_ALPHA.toFixed(2)}, aAlpha) * smoothstep(0.0, 0.4, nearFade);
   vShade = aShade;
   gl_Position = projectionMatrix * mvPosition;
@@ -126,6 +137,9 @@ export class Particles {
   /** Set by the game while the tube camera is on (it sits right behind the rider): board spray is cut to BOARD_SPRAY.inTube. */
   tubeView = false;
   private readonly bubbleAt = new Vector3();
+  private attract = false;
+  /** The last internal render height given to setScale (uMaxSize is a fraction of it). */
+  private renderHeight = 448;
 
   constructor(
     private readonly wave: WaveShape,
@@ -140,7 +154,12 @@ export class Particles {
     geo.setAttribute('aSize', new BufferAttribute(this.pool.size, 1));
     geo.setAttribute('aShade', new BufferAttribute(this.pool.shade, 1));
     const material = new ShaderMaterial({
-      uniforms: UniformsUtils.merge([UniformsLib.fog, { uScale: { value: 400 }, uMaxSize: { value: 27 } }]),
+      uniforms: UniformsUtils.merge([UniformsLib.fog, {
+          uScale: { value: 400 },
+          uMaxSize: { value: 27 },
+          uNearFade: { value: new Vector2(...NEAR_FADE) },
+          uNearShrink: { value: new Vector2(...NEAR_SHRINK) },
+        }]),
       vertexShader: VERT,
       fragmentShader: FRAG,
       transparent: true,
@@ -164,7 +183,21 @@ export class Particles {
   /** Projected point size scale: internal render height × focal factor. */
   setScale(camera: PerspectiveCamera, internalHeight: number): void {
     this.points.material.uniforms.uScale!.value = internalHeight * 0.5 * camera.projectionMatrix.elements[5]!;
-    this.points.material.uniforms.uMaxSize!.value = internalHeight * MAX_POINT_FRACTION;
+    this.renderHeight = internalHeight;
+    this.points.material.uniforms.uMaxSize!.value = internalHeight * this.maxPointFraction();
+  }
+
+  /** Attract mode (see ATTRACT_PARTICLES); off restores the play-mode look exactly. */
+  setAttract(on: boolean): void {
+    this.attract = on;
+    const u = this.points.material.uniforms;
+    (u.uNearFade!.value as Vector2).fromArray(on ? ATTRACT_PARTICLES.nearFade : NEAR_FADE);
+    (u.uNearShrink!.value as Vector2).fromArray(on ? ATTRACT_PARTICLES.nearShrink : NEAR_SHRINK);
+    u.uMaxSize!.value = this.renderHeight * this.maxPointFraction();
+  }
+
+  private maxPointFraction(): number {
+    return this.attract ? ATTRACT_PARTICLES.maxPointFraction : MAX_POINT_FRACTION;
   }
 
   setBubbles(on: boolean, at?: Vector3): void {
@@ -175,9 +208,10 @@ export class Particles {
   update(dt: number, playing: boolean): void {
     const w = this.wave;
     const D = w.params.tubeDepth;
+    const thin = this.attract ? ATTRACT_PARTICLES.thin : 1;
     // Falling lip: a curtain streaming off the lip tip where it pitches over into the trough, thrown
     // out and down (behind the barrel's mouth: from the tube camera it is the tube's outer wall).
-    for (let n = this.lipRate.take(PARTICLE_RATES.lip, dt); n > 0; n--) {
+    for (let n = this.lipRate.take(PARTICLE_RATES.lip * thin, dt); n > 0; n--) {
       const x = this.rnd(-D, CURTAIN_TO);
       w.profile(x, 1, this.p);
       w.profile(x, 0.96, this.q);
@@ -201,7 +235,7 @@ export class Particles {
     // Feathering: spray blown back off the crest (seaward, away from the face), thickest near the curl
     // and thinning down the shoulder. It starts FEATHER_FROM ahead: nearer, the crest lies on the tube
     // camera's line out through the eye (lip smoke covers the curl itself).
-    for (let n = this.featherRate.take(PARTICLE_RATES.feather, dt); n > 0; n--) {
+    for (let n = this.featherRate.take(PARTICLE_RATES.feather * thin, dt); n > 0; n--) {
       const u = this.random();
       const x = FEATHER_FROM + (w.params.shoulderLength - FEATHER_FROM) * u * u;
       w.profile(x, w.crestT(x), this.p);

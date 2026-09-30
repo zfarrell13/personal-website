@@ -6,7 +6,7 @@ import { site } from '@/content/site';
 import { DEFAULT_INDEX, MENU, moveIndex } from './menu';
 import { menuMove, menuSelect } from './sfx';
 import styles from './site.module.css';
-import { typingInField } from './useBackToMenu';
+import { typingInField } from '@/shared/input/backKey';
 
 /**
  * The home page: the PS2 title menu over the dimmed attract wave. One cursor: the selected item is also the

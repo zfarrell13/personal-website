@@ -4,6 +4,7 @@ import type { SurferInput } from '../physics/input';
 import { CameraRig } from '../camera/CameraRig';
 import { Character } from '../character/Character';
 import { Environment } from '../render/Environment';
+import { Particles } from '../render/Particles';
 import { WaveMesh } from '../render/WaveMesh';
 import type { OceanLayout } from '../render/waveGeometry';
 import { createSurfStore, type SurfStore } from '../state/store';
@@ -711,6 +712,21 @@ describe('SurfGame', () => {
     win.dispatchEvent(again);
     expect(again.defaultPrevented).toBe(true);
     game.dispose();
+  });
+
+  it('the spray follows the mode: attract particles behind a site page, the play look on /surf', async () => {
+    const spy = vi.spyOn(Particles.prototype, 'setAttract');
+    const played = new SurfGame(canvas, createSurfStore());
+    expect(spy.mock.calls).toEqual([[false]]); // play mode: the play look from the start
+    played.dispose();
+    spy.mockClear();
+    const game = new SurfGame(canvas, createSurfStore(), { attract: true });
+    await game.load();
+    game.setAttract(false);
+    game.setAttract(true);
+    expect(spy.mock.calls).toEqual([[true], [false], [true]]);
+    game.dispose();
+    spy.mockRestore();
   });
 
   it('attract mode draws at ~30 fps (every other 60 Hz frame); play mode draws every frame', async () => {

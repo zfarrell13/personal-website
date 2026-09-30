@@ -155,6 +155,7 @@ export class SurfGame {
     this.waveMesh = new WaveMesh(this.wave, SURF_CONFIG.mesh);
     this.frame.add(this.waveMesh.group);
     this.particles = new Particles(this.wave, this.bus, this.surfer.state);
+    this.particles.setAttract(this.attract);
     this.frame.add(this.particles.points);
     // Environment sets the fog/background and adds the camera to the scene.
     this.env = new Environment(this.scene, this.camera);
@@ -266,6 +267,7 @@ export class SurfGame {
     if (this.disposed || on === this.attract) return;
     if (on) this.quitToTitle();
     this.attract = on;
+    this.particles.setAttract(on);
     this.actions.reset();
     // Detached, the page keeps its keys: Space scrolls, arrows move, Enter follows a link.
     this.detachKeys?.();

@@ -47,7 +47,19 @@ describe('TitleMenu — back to the site menu', () => {
     key('Backspace');
     expect(onMenu).toHaveBeenCalledTimes(3);
     fireEvent.keyDown(window, { key: 'Escape', repeat: true });
+    fireEvent.keyDown(window, { key: 'Backspace', altKey: true });
     expect(onMenu).toHaveBeenCalledTimes(3);
+  });
+
+  it('Backspace typed into a field (the ?debug panel inputs) stays in the field', () => {
+    const onMenu = vi.fn();
+    render(<TitleMenu initialSide="right" onStart={vi.fn()} onMenu={onMenu} />);
+    const input = document.createElement('input');
+    document.body.append(input);
+    input.focus();
+    fireEvent.keyDown(input, { key: 'Backspace' });
+    input.remove();
+    expect(onMenu).not.toHaveBeenCalled();
   });
 
   it('Enter on a focused ◀ MENU goes back rather than dropping in', () => {

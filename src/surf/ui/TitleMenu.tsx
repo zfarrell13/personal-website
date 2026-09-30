@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Panel } from '@/retro/ui/Panel';
 import { RetroButton } from '@/retro/ui/RetroButton';
+import { isBackToMenuKey } from '@/shared/input/backKey';
 import { browserStorage } from '@/shared/storage';
 import type { Side } from '../config';
 import { loadHighScores } from '../scoring/highScores';
@@ -29,9 +30,9 @@ export function TitleMenu({ initialSide, onStart, guide = true, onGuide, onMenu 
       if (e.key === 'ArrowLeft') setSide('left');
       else if (e.key === 'ArrowRight') setSide('right');
       else if ((e.key === 'g' || e.key === 'G') && !e.repeat) onGuide?.(!guide);
-      else if ((e.key === 'Escape' || e.key === 'Backspace') && onMenu) {
-        // A held Esc from the results screen (which also leaves on Esc) must not carry on to the menu.
-        if (e.repeat) return;
+      // The site's shared back-key rule; its repeat check also stops a held Esc from the results screen
+      // (which leaves on Esc too) carrying on to the menu.
+      else if (onMenu && isBackToMenuKey(e)) {
         e.preventDefault();
         onMenu();
       }

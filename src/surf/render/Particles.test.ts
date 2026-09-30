@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { PerspectiveCamera, Vector3 } from 'three';
+import { PerspectiveCamera, Vector2, Vector3 } from 'three';
 import { cameraGoal } from '../camera/CameraRig';
 import { SURF_CONFIG } from '../config';
 import { EventBus, type SurfEvent } from '../physics/events';
 import { Surfer } from '../physics/Surfer';
 import { mulberry32 } from '../math/random';
 import { WaveShape } from '../wave/WaveShape';
-import { BOARD_SPRAY, DROP_MIN_SIZE, MAX_POINT_FRACTION, NEAR_FADE, NEAR_SHRINK, Particles } from './Particles';
+import { ATTRACT_PARTICLES, BOARD_SPRAY, DROP_MIN_SIZE, MAX_POINT_FRACTION, NEAR_FADE, NEAR_SHRINK, Particles, PARTICLE_RATES } from './Particles';
 
 function alive(p: Particles, filter: (x: number, y: number, z: number) => boolean): number {
   const { pos, life } = p.pool;
@@ -80,11 +80,67 @@ describe('Particles — near the lens', () => {
     const cam = new PerspectiveCamera(62, 16 / 9, 0.1, 650);
     p.setScale(cam, 448);
     expect(p.points.material.uniforms.uMaxSize!.value).toBeCloseTo(448 * MAX_POINT_FRACTION, 9);
-    expect(p.points.material.vertexShader).toContain(`smoothstep(${NEAR_FADE[0].toFixed(1)}, ${NEAR_FADE[1].toFixed(1)}, -mvPosition.z)`);
-    expect(p.points.material.vertexShader).toContain(`smoothstep(${NEAR_SHRINK[0].toFixed(1)}, ${NEAR_SHRINK[1].toFixed(1)}, -mvPosition.z)`);
+    expect(p.points.material.vertexShader).toContain('smoothstep(uNearFade.x, uNearFade.y, -mvPosition.z)');
+    expect(p.points.material.vertexShader).toContain('smoothstep(uNearShrink.x, uNearShrink.y, -mvPosition.z)');
+    expect(nearRanges(p)).toEqual({ fade: [...NEAR_FADE], shrink: [...NEAR_SHRINK] });
     // Dying and near-lens drops shrink (they stay white), capped to a fraction of the render height.
     expect(p.points.material.vertexShader).toContain(`clamp(aSize * (${DROP_MIN_SIZE.toFixed(2)} + ${(1 - DROP_MIN_SIZE).toFixed(2)} * aAlpha) * nearShrink * uScale / -mvPosition.z, 1.0, uMaxSize)`);
     p.dispose();
+  });
+});
+
+const nearRanges = (p: Particles) => {
+  const u = p.points.material.uniforms;
+  return { fade: (u.uNearFade!.value as Vector2).toArray(), shrink: (u.uNearShrink!.value as Vector2).toArray() };
+};
+
+describe('Particles — attract mode (the dimmed wave behind a site page)', () => {
+  it('pushes near spray far out, keeps points small and thins the lip curtain and feathering', () => {
+    const { p } = setup();
+    p.setScale(new PerspectiveCamera(62, 16 / 9, 0.1, 650), 448);
+    p.setAttract(true);
+    expect(nearRanges(p)).toEqual({ fade: [...ATTRACT_PARTICLES.nearFade], shrink: [...ATTRACT_PARTICLES.nearShrink] });
+    expect(ATTRACT_PARTICLES.nearFade[0]).toBeGreaterThanOrEqual(4);
+    expect(p.points.material.uniforms.uMaxSize!.value).toBeCloseTo(448 * ATTRACT_PARTICLES.maxPointFraction, 9);
+    // A later resize keeps the attract cap.
+    p.setScale(new PerspectiveCamera(62, 16 / 9, 0.1, 650), 300);
+    expect(p.points.material.uniforms.uMaxSize!.value).toBeCloseTo(300 * ATTRACT_PARTICLES.maxPointFraction, 9);
+    p.dispose();
+  });
+
+  it('spawns fewer lip and feather drops, and still keeps the impact plume', () => {
+    const { cfg, wave, p: play } = setup();
+    const { p: attract } = setup();
+    attract.setAttract(true);
+    for (let i = 0; i < 60; i++) {
+      play.update(1 / 60, false);
+      attract.update(1 / 60, false);
+    }
+    const feather = (x: number, y: number) => x > 5 && x < cfg.wave.shoulderLength && y > wave.crestY(x) - 0.3;
+    expect(alive(attract, feather)).toBeLessThan(alive(play, feather) * 0.6);
+    expect(alive(attract, (x) => x >= -cfg.wave.tubeDepth - 3 && x <= 0)).toBeGreaterThan(60);
+    expect(PARTICLE_RATES.lip).toBe(240); // play-mode rates are constants, untouched
+    play.dispose();
+    attract.dispose();
+  });
+
+  it('switching attract off restores the play-mode look exactly (uniforms and spawn stream)', () => {
+    const cam = new PerspectiveCamera(62, 16 / 9, 0.1, 650);
+    const { p: fresh } = setup(11);
+    const { p: toggled } = setup(11);
+    fresh.setScale(cam, 448);
+    toggled.setScale(cam, 448);
+    toggled.setAttract(true);
+    toggled.setAttract(false);
+    expect(nearRanges(toggled)).toEqual(nearRanges(fresh));
+    expect(toggled.points.material.uniforms.uMaxSize!.value).toBe(fresh.points.material.uniforms.uMaxSize!.value);
+    for (let i = 0; i < 30; i++) {
+      fresh.update(1 / 60, false);
+      toggled.update(1 / 60, false);
+    }
+    expect(toggled.pool.pos).toEqual(fresh.pool.pos);
+    fresh.dispose();
+    toggled.dispose();
   });
 });
 

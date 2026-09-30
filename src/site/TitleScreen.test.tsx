@@ -110,4 +110,14 @@ describe('useBackToMenu', () => {
     input.remove();
     expect(nav.push).not.toHaveBeenCalled();
   });
+
+  it('ignores a modified key, a held key and one a dialog already handled', () => {
+    renderHook(() => useBackToMenu());
+    fireEvent.keyDown(window, { key: 'Backspace', altKey: true });
+    fireEvent.keyDown(window, { key: 'Escape', repeat: true });
+    const handled = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+    handled.preventDefault();
+    window.dispatchEvent(handled);
+    expect(nav.push).not.toHaveBeenCalled();
+  });
 });

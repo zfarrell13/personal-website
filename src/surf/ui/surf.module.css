@@ -85,11 +85,14 @@
 }
 .debug label { display: grid; grid-template-columns: 1fr 60px; gap: 2px 6px; margin-bottom: 4px; }
 .debug input[type='range'] { grid-column: 1 / -1; width: 100%; }
-/* Attract mode (the stage behind a site page): dimmed, with a soft vignette, and out of the pointer's way.
-   No blur: a full-screen filter blur is too costly on phones. */
+/* Attract mode (the stage behind a site page): dimmed toward navy, with a soft vignette, and out of the pointer's way.
+   The dim is a light brightness cut plus a multiplied periwinkle wash: whites (spray, foam) come out blue-white
+   rather than the flat grey a neutral brightness() cut gives them. No blur: a full-screen filter blur is too
+   costly on phones. */
 .root[data-mode='attract'] { pointer-events: none; }
-.root[data-mode='attract'] canvas { filter: brightness(0.55) saturate(0.9); }
+.root[data-mode='attract'] canvas { filter: brightness(0.85) saturate(0.9); }
 .root[data-mode='attract']::after {
   content: ''; position: fixed; inset: 0; pointer-events: none;
-  background: radial-gradient(ellipse at center, transparent 55%, rgba(3, 4, 15, 0.55) 100%);
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(3, 4, 15, 0.55) 100%), rgb(96, 122, 196);
+  mix-blend-mode: multiply;
 }

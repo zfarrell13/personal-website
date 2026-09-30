@@ -21,7 +21,9 @@ test.describe('site stage', () => {
     const canvas = page.getByTestId('surf-canvas');
     await expect(canvas).toHaveAttribute('aria-hidden', 'true');
     expect(await canvas.evaluate((c) => getComputedStyle(c).pointerEvents)).toBe('none');
-    expect(await canvas.evaluate((c) => getComputedStyle(c).filter)).toContain('brightness(0.55)');
+    expect(await canvas.evaluate((c) => getComputedStyle(c).filter)).toContain('brightness(0.85)');
+    // The navy wash over it (multiplied, so spray reads blue-white rather than grey).
+    expect(await canvas.evaluate((c) => getComputedStyle(c.parentElement!, '::after').mixBlendMode)).toBe('multiply');
     // The music tag stays on top of the stage: the topmost element at its centre is the tag itself.
     const onTop = await page.getByRole('button', { name: /PRESS ANY KEY/ }).evaluate((b) => {
       const r = b.getBoundingClientRect();
@@ -43,6 +45,9 @@ test.describe('site stage', () => {
     await expect(page.getByRole('button', { name: 'DROP IN' })).toBeVisible();
     await expect(page.getByTestId('surf-canvas')).toHaveAttribute('data-e2e-tag', 'first');
     await expect(page.getByTestId('surf-canvas')).not.toHaveAttribute('aria-hidden', 'true');
+    // Play mode has no attract dim or wash.
+    expect(await page.getByTestId('surf-canvas').evaluate((c) => getComputedStyle(c).filter)).toBe('none');
+    expect(await page.getByTestId('surf-canvas').evaluate((c) => getComputedStyle(c.parentElement!, '::after').content)).toBe('none');
     await page.waitForFunction((f) => (window.__surf?.frames ?? 0) > f + 10, last);
     const onSurf = await frames(page);
     expect(onSurf).toBeGreaterThan(last);
@@ -130,6 +135,7 @@ test.describe('title menu', () => {
   });
 
   test('on /surf, Esc on the game title goes to the menu; during a run Esc pauses instead', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
     await page.goto('/surf');
     await page.getByRole('button', { name: 'DROP IN' }).click();
     await page.waitForFunction(() => window.__surf?.phase === 'playing');
@@ -141,5 +147,6 @@ test.describe('title menu', () => {
     await page.keyboard.press('Escape');
     await page.waitForURL((u) => u.pathname === '/');
     await expect(page.getByRole('link', { name: 'FREE SURF' })).toBeFocused();
+    expect(errors()).toEqual([]);
   });
 });
