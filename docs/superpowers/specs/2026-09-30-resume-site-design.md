@@ -37,7 +37,7 @@ User: "now i feel like i need to make this more of a resume website now. i only 
 
 ## 4. Content
 
-- All site content in one typed file `content/site.ts` (profile, seasons, trophies, links, resume PDF path, photo path), filled with clearly marked sample text ("SAMPLE — replace me") the user replaces later. Photo and PDF slots under `public/` with placeholders.
+- All site content in one typed file `src/content/site.ts` (under `src/` so it imports as `@/content/site`) (profile, seasons, trophies, links, resume PDF path, photo path), filled with clearly marked sample text ("SAMPLE — replace me") the user replaces later. Photo and PDF slots under `public/` with placeholders.
 - Page metadata (title/description/OG) derived from the same file.
 
 ## 5. Removed
