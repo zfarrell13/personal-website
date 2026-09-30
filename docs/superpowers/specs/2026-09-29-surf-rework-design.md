@@ -102,3 +102,10 @@ Headless (Vitest, real Surfer + WaveShape + CameraRig):
    rider visible (raycast) ≥ 90% of chase frames.
 6. Side naming test (§1).
 Browser: screenshots (riding, fast section, tube, air) inspected; e2e suite green.
+
+
+## Playtest 2 amendments (user feedback)
+
+- **Camera:** close bird's-eye view from behind the rider — about 3–4 m behind along the direction of travel, 4–6 m above (always above the crest), looking down at the rider and a few metres ahead down the line; the rider is large in frame. Tube: behind the rider looking out.
+- **Pumping:** a player pumping on a sensible line must be able to beat the section down the line; pumping is the primary speed tool. (Supersedes "pump-only dies" tuning.) No input is still caught in ~4–5 s.
+- **Background:** the horizon must be seamless — sea runs into haze and sky with no visible seam or band; sky gradient and fog match; distant water reads as water.
