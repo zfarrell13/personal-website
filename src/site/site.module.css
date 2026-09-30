@@ -1,0 +1,3 @@
+/* z-order: the surf stage at the back, page content over it, NOW PLAYING (z 900) over both. */
+.stage { position: fixed; inset: 0; z-index: 0; }
+.page { position: relative; z-index: 1; }

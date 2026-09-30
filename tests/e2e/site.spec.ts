@@ -1,0 +1,76 @@
+import { expect, test, type Page } from '@playwright/test';
+import { trackConsoleErrors } from './helpers';
+
+/** Client-side (soft) navigation through the app router: the root layout, and so the stage, persists. */
+async function softNavigate(page: Page, href: string) {
+  await page.waitForFunction(() => !!(window as { next?: { router?: unknown } }).next?.router);
+  await page.evaluate((h) => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push(h), href);
+  await page.waitForURL(`**${href}`);
+}
+
+const frames = (page: Page) => page.evaluate(() => window.__surf?.frames ?? -1);
+
+test.describe('site stage', () => {
+  // /dev/retro stands in for a site page until Task 5 adds real ones (`/` still redirects to /surf).
+  test('a non-surf page shows the wave in attract mode: no menus, canvas hidden and click-through', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await page.goto('/dev/retro');
+    await page.waitForFunction(() => (window.__surf?.frames ?? 0) > 10);
+    expect(await page.evaluate(() => window.__surf?.phase)).toBe('title');
+    await expect(page.getByRole('button', { name: 'DROP IN' })).toHaveCount(0);
+    const canvas = page.getByTestId('surf-canvas');
+    await expect(canvas).toHaveAttribute('aria-hidden', 'true');
+    expect(await canvas.evaluate((c) => getComputedStyle(c).pointerEvents)).toBe('none');
+    expect(await canvas.evaluate((c) => getComputedStyle(c).filter)).toContain('brightness(0.55)');
+    // The music tag stays on top of the stage: the topmost element at its centre is the tag itself.
+    const onTop = await page.getByRole('button', { name: /PRESS ANY KEY/ }).evaluate((b) => {
+      const r = b.getBoundingClientRect();
+      return b.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    });
+    expect(onTop).toBe(true);
+    expect(errors()).toEqual([]);
+  });
+
+  test('the stage survives client-side navigation: attract → /surf (title menu) → attract, one game throughout', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await page.goto('/dev/retro');
+    await page.waitForFunction(() => (window.__surf?.frames ?? 0) > 10);
+    // Tag the stage's canvas: a re-created game would bring a new canvas.
+    await page.getByTestId('surf-canvas').evaluate((c) => c.setAttribute('data-e2e-tag', 'first'));
+    let last = await frames(page);
+
+    await softNavigate(page, '/surf');
+    await expect(page.getByRole('button', { name: 'DROP IN' })).toBeVisible();
+    await expect(page.getByTestId('surf-canvas')).toHaveAttribute('data-e2e-tag', 'first');
+    await expect(page.getByTestId('surf-canvas')).not.toHaveAttribute('aria-hidden', 'true');
+    await page.waitForFunction((f) => (window.__surf?.frames ?? 0) > f + 10, last);
+    const onSurf = await frames(page);
+    expect(onSurf).toBeGreaterThan(last);
+    last = onSurf;
+
+    await softNavigate(page, '/dev/retro');
+    await expect(page.getByRole('button', { name: 'DROP IN' })).toHaveCount(0);
+    await expect(page.getByTestId('surf-canvas')).toHaveAttribute('data-e2e-tag', 'first');
+    await page.waitForFunction((f) => (window.__surf?.frames ?? 0) > f + 10, last);
+    expect(errors()).toEqual([]);
+  });
+
+  test('a run in progress quits to the title when you leave /surf', async ({ page }) => {
+    await page.goto('/surf');
+    await page.getByRole('button', { name: 'DROP IN' }).click();
+    await page.waitForFunction(() => window.__surf?.phase === 'playing');
+    await softNavigate(page, '/dev/retro');
+    await page.waitForFunction(() => window.__surf?.phase === 'title');
+    await expect(page.getByTestId('score')).toHaveCount(0);
+  });
+
+  test('reduced motion freezes the attract stage', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/dev/retro');
+    await page.waitForFunction(() => (window.__surf?.phase ?? 'loading') === 'title');
+    await page.waitForTimeout(500);
+    const f0 = await frames(page);
+    await page.waitForTimeout(1000);
+    expect(await frames(page)).toBe(f0);
+  });
+});

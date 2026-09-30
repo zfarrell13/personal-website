@@ -112,6 +112,12 @@ export class SurfGame {
   private keyFacing: 1 | -1 = 1;
   private endAt = -1;
   private raf = 0;
+  /** A frame is requested (the loop is running). */
+  private looping = false;
+  /** Attract mode: the stage behind a site page. Title camera only, no input, no runs. */
+  private attract = false;
+  /** Reduced motion: in attract mode, one still frame instead of a loop. */
+  private frozen = false;
   private last: number | null = null;
   private frames = 0;
   private fps = 60;
@@ -121,6 +127,8 @@ export class SurfGame {
   private normalArrow: ArrowHelper | null = null;
   private readonly gizmoMarkers: Line[] = [];
   private readonly cleanups: Array<() => void> = [];
+  /** Removes the game's key listeners (they preventDefault the bound keys); null while detached (attract). */
+  private detachKeys: (() => void) | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -160,8 +168,9 @@ export class SurfGame {
       this.bus.on('landed', () => this.character?.onLanded()),
       this.bus.on('pump', (e) => this.coach.onPump(e.time)),
       this.bus.onAny((e) => this.audio?.onEvent(e)),
-      this.actions.attach(window),
+      () => this.detachKeys?.(),
     );
+    this.detachKeys = this.actions.attach(window);
     if (typeof document !== 'undefined') {
       // A hidden tab stops requestAnimationFrame; pause so the ride doesn't resume mid-air. Resume is manual.
       const onVisibility = () => {
@@ -178,7 +187,7 @@ export class SurfGame {
     this.resize();
     this.surfer.reset();
     this.rig.snap(this.surfer.state, this.side);
-    this.raf = requestAnimationFrame(this.loop);
+    this.wake();
   }
 
   /** Loads the character model, then shows the title. */
@@ -194,11 +203,12 @@ export class SurfGame {
     // The title shows whatever way the frame currently faces (canonical = a LEFT): stay regular there too.
     character.setSide(this.frame.scale.x < 0 ? 'right' : 'left');
     this.setPhase('title');
+    this.wake(); // a frozen stage redraws its still with the rider in it
   }
 
   /** DROP IN (must be called from a user gesture: it starts the effects audio and the site music). */
   start(side: Side): void {
-    if (this.disposed || this.phase === 'loading' || this.phase === 'playing') return;
+    if (this.disposed || this.attract || this.phase === 'loading' || this.phase === 'playing') return;
     this.side = side;
     this.frame.scale.x = sideSign(side);
     this.character?.setSide(side);
@@ -241,6 +251,36 @@ export class SurfGame {
     this.coach.reset(false);
     this.store.setState({ run: null, underwater: false, fastSection: false, pumpPrompt: false });
     this.setPhase('title');
+  }
+
+  /**
+   * Attract mode (the stage behind a site page): any run quits to the title, input is ignored and DROP IN
+   * refused; the title camera keeps rendering. Off: back to the playable title.
+   */
+  setAttract(on: boolean): void {
+    if (this.disposed || on === this.attract) return;
+    if (on) this.quitToTitle();
+    this.attract = on;
+    this.actions.reset();
+    // Detached, the page keeps its keys: Space scrolls, arrows move, Enter follows a link.
+    this.detachKeys?.();
+    this.detachKeys = on ? null : this.actions.attach(window);
+    this.wake();
+  }
+
+  /** Reduced motion: in attract mode the stage draws one frame and stops. Play mode is unaffected. */
+  setFrozen(on: boolean): void {
+    if (this.disposed || on === this.frozen) return;
+    this.frozen = on;
+    this.wake();
+  }
+
+  /** Starts the loop if it is stopped (a frozen stage, or at construction); the first frame has dt = 0. */
+  private wake(): void {
+    if (this.disposed || this.looping) return;
+    this.looping = true;
+    this.last = null;
+    this.raf = requestAnimationFrame(this.loop);
   }
 
   setGizmo(visible: boolean): void {
@@ -317,10 +357,13 @@ export class SurfGame {
     this.camera.aspect = w / Math.max(1, h);
     this.camera.updateProjectionMatrix();
     this.particles.setScale(this.camera, this.retro.internalResolution.height);
+    this.wake(); // a frozen stage redraws at the new size
   }
 
   private readonly loop = (now: number): void => {
-    this.raf = requestAnimationFrame(this.loop);
+    // Frozen in attract: this frame is drawn, and no next one is asked for (wake() restarts it).
+    this.looping = !(this.attract && this.frozen);
+    if (this.looping) this.raf = requestAnimationFrame(this.loop);
     let dt = 0;
     if (Number.isFinite(now)) {
       if (this.last !== null) {
@@ -336,6 +379,8 @@ export class SurfGame {
     if (this.phase === 'playing') {
       // Input is ticked inside each physics step (edges are per tick).
       alpha = this.stepper.advance(dt, this.step);
+    } else if (this.attract) {
+      this.frameSimDt = dt; // the title water keeps moving; keys belong to the page
     } else {
       this.actions.tick();
       if (this.phase === 'paused' && this.actions.pressedThisFrame('pause')) this.resume();
@@ -524,6 +569,7 @@ export class SurfGame {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.looping = false;
     cancelAnimationFrame(this.raf);
     this.cleanups.forEach((c) => c());
     this.bus.clear();

@@ -55,6 +55,8 @@ const { SurfGame } = await import('./SurfGame');
 // --- Browser globals the engine touches. ------------------------------------
 
 let rafCb: ((t: number) => void) | null = null;
+/** requestAnimationFrame calls so far (a stopped loop stops asking). */
+let rafRequests = 0;
 const cancelRaf = vi.fn();
 let win: EventTarget & { __surf?: unknown };
 
@@ -67,8 +69,10 @@ beforeEach(() => {
   cancelRaf.mockClear();
   win = new EventTarget();
   vi.stubGlobal('window', win);
+  rafRequests = 0;
   vi.stubGlobal('requestAnimationFrame', (cb: (t: number) => void) => {
     rafCb = cb;
+    rafRequests++;
     return 1;
   });
   vi.stubGlobal('cancelAnimationFrame', cancelRaf);
@@ -655,5 +659,71 @@ describe('SurfGame', () => {
     game.dispose();
     await p;
     expect(store.getState().phase).toBe('loading');
+  });
+
+  it('attract mode quits a run to the title, ignores input and DROP IN, and keeps rendering the title', async () => {
+    const { game, store } = await playing();
+    frame();
+    game.setAttract(true);
+    expect(store.getState().phase).toBe('title');
+    const retro = retroInstances[0]!;
+    const renders = retro.render.mock.calls.length;
+    const tick = vi.spyOn(game.actions, 'tick');
+    const press = Object.assign(new Event('keydown', { cancelable: true }), { code: 'Space', repeat: false });
+    win.dispatchEvent(press);
+    expect(press.defaultPrevented).toBe(false); // the page keeps its keys
+    frame();
+    frame();
+    expect(tick).not.toHaveBeenCalled();
+    expect(retro.render.mock.calls.length).toBe(renders + 2);
+    game.start('left');
+    expect(store.getState().phase).toBe('title');
+    game.setAttract(false);
+    frame();
+    expect(tick).toHaveBeenCalledTimes(1);
+    const again = Object.assign(new Event('keydown', { cancelable: true }), { code: 'Space', repeat: false });
+    win.dispatchEvent(again);
+    expect(again.defaultPrevented).toBe(true); // play mode: the game has its keys back
+    game.start('left');
+    expect(store.getState().phase).toBe('playing');
+    game.dispose();
+  });
+
+  it('attract mode from a paused run or the results also lands on the title', async () => {
+    const { game, store } = await playing();
+    game.pause();
+    game.setAttract(true);
+    expect(store.getState().phase).toBe('title');
+    game.dispose();
+  });
+
+  it('frozen (reduced motion) in attract: renders one frame and stops the loop; play mode keeps running', async () => {
+    const store = createSurfStore();
+    const game = new SurfGame(canvas, store);
+    await game.load();
+    clock = performance.now();
+    frame();
+    const retro = retroInstances[0]!;
+    game.setFrozen(true); // play mode: unaffected
+    const before = rafRequests;
+    frame();
+    frame();
+    expect(rafRequests).toBe(before + 2);
+    game.setAttract(true);
+    const renders = retro.render.mock.calls.length;
+    const asked = rafRequests;
+    frame(); // the one frozen frame
+    expect(retro.render.mock.calls.length).toBe(renders + 1);
+    expect(rafRequests).toBe(asked); // loop stopped
+    game.setFrozen(false); // motion allowed again: the loop restarts
+    expect(rafRequests).toBe(asked + 1);
+    frame();
+    expect(rafRequests).toBe(asked + 2);
+    game.setFrozen(true);
+    frame();
+    const stopped = rafRequests;
+    game.setAttract(false); // back to play: the loop runs even though frozen is set
+    expect(rafRequests).toBe(stopped + 1);
+    game.dispose();
   });
 });

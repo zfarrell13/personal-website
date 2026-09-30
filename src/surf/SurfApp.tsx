@@ -15,7 +15,15 @@ import { TitleMenu } from './ui/TitleMenu';
 import { TouchControls } from './ui/TouchControls';
 import styles from './ui/surf.module.css';
 
-export default function SurfApp() {
+export interface SurfAppProps {
+  /** 'play': the game as on /surf. 'attract': the wave behind a site page — no UI, no input. */
+  mode?: 'play' | 'attract';
+  /** prefers-reduced-motion: the attract stage holds a still frame. */
+  reducedMotion?: boolean;
+}
+
+/** The surf game. Created once per mount: mode changes switch it in place, never re-create it. */
+export default function SurfApp({ mode = 'play', reducedMotion = false }: SurfAppProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [store] = useState(createSurfStore);
   const [game, setGame] = useState<SurfGame | null>(null);
@@ -38,6 +46,10 @@ export default function SurfApp() {
     };
   }, [store]);
 
+  const attract = mode === 'attract';
+  useEffect(() => game?.setAttract(attract), [game, attract]);
+  useEffect(() => game?.setFrozen(reducedMotion), [game, reducedMotion]);
+
   const start = useCallback((s: Side) => game?.start(s), [game]);
   const again = useCallback(() => game?.start(store.getState().side), [game, store]);
   const toTitle = useCallback(() => game?.quitToTitle(), [game]);
@@ -51,17 +63,19 @@ export default function SurfApp() {
     [store],
   );
 
+  // One tree for both modes: the canvas element (which the game owns) is never re-created.
+  const ui = !attract;
   return (
-    <div className={styles.root}>
-      <canvas ref={canvasRef} className="retro-canvas" data-testid="surf-canvas" />
-      {phase === 'loading' ? <LoadingScreen label="Paddling out" /> : null}
-      {game && phase === 'title' ? <TitleMenu initialSide={side} onStart={start} guide={guide} onGuide={setGuide} /> : null}
-      {phase === 'playing' || phase === 'paused' ? <Hud store={store} /> : null}
-      {game && phase === 'paused' ? <PauseMenu onResume={resume} onQuit={toTitle} /> : null}
-      {game && phase === 'results' && run ? <Results run={run} onAgain={again} onTitle={toTitle} /> : null}
-      <Underwater store={store} />
-      {game && phase === 'playing' ? <TouchControls actions={game.actions} onPause={pause} /> : null}
-      {game && debug ? <DebugPanel game={game} /> : null}
+    <div className={styles.root} data-mode={mode}>
+      <canvas ref={canvasRef} className="retro-canvas" data-testid="surf-canvas" aria-hidden={attract || undefined} />
+      {ui && phase === 'loading' ? <LoadingScreen label="Paddling out" /> : null}
+      {ui && game && phase === 'title' ? <TitleMenu initialSide={side} onStart={start} guide={guide} onGuide={setGuide} /> : null}
+      {ui && (phase === 'playing' || phase === 'paused') ? <Hud store={store} /> : null}
+      {ui && game && phase === 'paused' ? <PauseMenu onResume={resume} onQuit={toTitle} /> : null}
+      {ui && game && phase === 'results' && run ? <Results run={run} onAgain={again} onTitle={toTitle} /> : null}
+      {ui ? <Underwater store={store} /> : null}
+      {ui && game && phase === 'playing' ? <TouchControls actions={game.actions} onPause={pause} /> : null}
+      {ui && game && debug ? <DebugPanel game={game} /> : null}
     </div>
   );
 }
