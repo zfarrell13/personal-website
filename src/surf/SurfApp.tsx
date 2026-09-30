@@ -20,10 +20,12 @@ export interface SurfAppProps {
   mode?: 'play' | 'attract';
   /** prefers-reduced-motion: the attract stage holds a still frame. */
   reducedMotion?: boolean;
+  /** Back to the site's title menu, offered on the game's title screen ("◀ MENU", Esc). */
+  onMenu?: () => void;
 }
 
 /** The surf game. Created once per mount: mode changes switch it in place, never re-create it. */
-export default function SurfApp({ mode = 'play', reducedMotion = false }: SurfAppProps) {
+export default function SurfApp({ mode = 'play', reducedMotion = false, onMenu }: SurfAppProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [store] = useState(createSurfStore);
   const [game, setGame] = useState<SurfGame | null>(null);
@@ -75,7 +77,7 @@ export default function SurfApp({ mode = 'play', reducedMotion = false }: SurfAp
     <div className={styles.root} data-mode={mode}>
       <canvas ref={canvasRef} className="retro-canvas" data-testid="surf-canvas" aria-hidden={attract || undefined} />
       {ui && phase === 'loading' ? <LoadingScreen label="Paddling out" /> : null}
-      {ui && game && phase === 'title' ? <TitleMenu initialSide={side} onStart={start} guide={guide} onGuide={setGuide} /> : null}
+      {ui && game && phase === 'title' ? <TitleMenu initialSide={side} onStart={start} guide={guide} onGuide={setGuide} onMenu={onMenu} /> : null}
       {ui && (phase === 'playing' || phase === 'paused') ? <Hud store={store} /> : null}
       {ui && game && phase === 'paused' ? <PauseMenu onResume={resume} onQuit={toTitle} /> : null}
       {ui && game && phase === 'results' && run ? <Results run={run} onAgain={again} onTitle={toTitle} /> : null}

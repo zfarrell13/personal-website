@@ -11,7 +11,7 @@ async function softNavigate(page: Page, href: string) {
 const frames = (page: Page) => page.evaluate(() => window.__surf?.frames ?? -1);
 
 test.describe('site stage', () => {
-  // /dev/retro stands in for a site page until Task 5 adds real ones (`/` still redirects to /surf).
+  // /dev/retro: a plain page with no menu of its own, so only the stage is under test.
   test('a non-surf page shows the wave in attract mode: no menus, canvas hidden and click-through', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     await page.goto('/dev/retro');
@@ -72,5 +72,74 @@ test.describe('site stage', () => {
     const f0 = await frames(page);
     await page.waitForTimeout(1000);
     expect(await frames(page)).toBe(f0);
+  });
+});
+
+const MENU_LABELS = ['FREE SURF', 'RIDER PROFILE', 'CAREER MODE', 'TROPHY ROOM', 'CREDITS'];
+
+test.describe('title menu', () => {
+  test('/ lists the five items in order with FREE SURF selected; Enter drops into the game; ◀ MENU comes back', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('ZACH FARRELL');
+    const items = page.getByRole('navigation', { name: 'Main menu' }).getByRole('link');
+    await expect(items).toHaveText(MENU_LABELS);
+    await expect(items.first()).toHaveAttribute('data-selected', 'true');
+    await expect(items.first()).toBeFocused();
+    await expect(page.locator('[data-selected="true"]')).toHaveCount(1);
+
+    // ↑↓ move the one cursor (wrapping), then back to FREE SURF.
+    await page.keyboard.press('ArrowDown');
+    await expect(items.nth(1)).toHaveAttribute('data-selected', 'true');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowUp');
+    await expect(items.nth(4)).toHaveAttribute('data-selected', 'true');
+    await page.keyboard.press('ArrowDown');
+    await expect(items.first()).toBeFocused();
+
+    await page.keyboard.press('Enter');
+    await page.waitForURL('**/surf');
+    await expect(page.getByRole('button', { name: 'DROP IN' })).toBeVisible();
+    await page.getByRole('button', { name: '◀ MENU' }).click();
+    await page.waitForURL((u) => u.pathname === '/');
+    await expect(items.first()).toHaveAttribute('data-selected', 'true');
+    expect(errors()).toEqual([]);
+  });
+
+  test('attract → FREE SURF → ◀ MENU → attract: one canvas, frames keep counting', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await page.goto('/');
+    await page.waitForFunction(() => (window.__surf?.frames ?? 0) > 10);
+    await page.getByTestId('surf-canvas').evaluate((c) => c.setAttribute('data-e2e-tag', 'first'));
+    let last = await frames(page);
+
+    await page.getByRole('link', { name: 'FREE SURF' }).click();
+    await page.waitForURL('**/surf');
+    await expect(page.getByRole('button', { name: 'DROP IN' })).toBeVisible();
+    await expect(page.getByTestId('surf-canvas')).toHaveAttribute('data-e2e-tag', 'first');
+    await page.waitForFunction((f) => (window.__surf?.frames ?? 0) > f + 10, last);
+    last = await frames(page);
+
+    await page.getByRole('button', { name: '◀ MENU' }).click();
+    await page.waitForURL((u) => u.pathname === '/');
+    await expect(page.getByRole('link', { name: 'FREE SURF' })).toBeVisible();
+    await expect(page.getByTestId('surf-canvas')).toHaveAttribute('data-e2e-tag', 'first');
+    await expect(page.getByTestId('surf-canvas')).toHaveAttribute('aria-hidden', 'true');
+    await page.waitForFunction((f) => (window.__surf?.frames ?? 0) > f + 10, last);
+    expect(errors()).toEqual([]);
+  });
+
+  test('on /surf, Esc on the game title goes to the menu; during a run Esc pauses instead', async ({ page }) => {
+    await page.goto('/surf');
+    await page.getByRole('button', { name: 'DROP IN' }).click();
+    await page.waitForFunction(() => window.__surf?.phase === 'playing');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => window.__surf?.phase === 'paused');
+    expect(new URL(page.url()).pathname).toBe('/surf');
+    await page.getByRole('button', { name: /QUIT/i }).click();
+    await expect(page.getByRole('button', { name: 'DROP IN' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.waitForURL((u) => u.pathname === '/');
+    await expect(page.getByRole('link', { name: 'FREE SURF' })).toBeFocused();
   });
 });

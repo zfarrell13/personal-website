@@ -32,6 +32,34 @@ describe('TitleMenu', () => {
   });
 });
 
+describe('TitleMenu — back to the site menu', () => {
+  it('shows ◀ MENU only when there is a menu to go back to', () => {
+    render(<TitleMenu initialSide="right" onStart={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: '◀ MENU' })).toBeNull();
+  });
+
+  it('◀ MENU, Esc and Backspace call onMenu; a held Esc (repeat) does not', () => {
+    const onMenu = vi.fn();
+    render(<TitleMenu initialSide="right" onStart={vi.fn()} onMenu={onMenu} />);
+    fireEvent.click(screen.getByRole('button', { name: '◀ MENU' }));
+    expect(onMenu).toHaveBeenCalledTimes(1);
+    key('Escape');
+    key('Backspace');
+    expect(onMenu).toHaveBeenCalledTimes(3);
+    fireEvent.keyDown(window, { key: 'Escape', repeat: true });
+    expect(onMenu).toHaveBeenCalledTimes(3);
+  });
+
+  it('Enter on a focused ◀ MENU goes back rather than dropping in', () => {
+    const onMenu = vi.fn();
+    const onStart = vi.fn();
+    render(<TitleMenu initialSide="right" onStart={onStart} onMenu={onMenu} />);
+    screen.getByRole('button', { name: '◀ MENU' }).focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Enter', bubbles: true });
+    expect(onStart).not.toHaveBeenCalled();
+  });
+});
+
 describe('TitleMenu — GUIDE option', () => {
   it('shows ON by default; mouse clicks and the G key toggle it', () => {
     const onGuide = vi.fn();

@@ -11,7 +11,15 @@
   text-shadow: 4px 4px 0 #0a1a5c, 0 0 28px rgba(255, 255, 255, 0.55);
   text-align: center;
 }
+/* Back to the site's title menu (top left of the game's title screen). */
+.menuBack { position: fixed; top: 14px; left: 16px; padding: 8px 16px; }
 .menu { display: grid; gap: 18px; justify-items: center; }
+/* Phone held landscape: a smaller title and a top margin keep the top-row buttons (◀ MENU, music) off it. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .center:has(.menuBack) { padding-top: 60px; }
+  .center:has(.menuBack) .title { font-size: 2.6rem; margin-bottom: 0; }
+  .center:has(.menuBack) .menu { gap: 12px; }
+}
 .row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
 .legend { margin: 0; font-family: var(--font-mono), monospace; font-size: 1.15rem; line-height: 1.35; color: #dfe8ff; }
 /* The title's control help sits over the live, spraying wave: a backing plate keeps it readable. */

@@ -15,9 +15,11 @@ export interface TitleMenuProps {
   /** GUIDE option: the in-game coach's prompts (e.g. ▲ PUMP!). */
   guide?: boolean;
   onGuide?: (on: boolean) => void;
+  /** Back to the site's title menu: shows "◀ MENU", and Esc/Backspace do the same (only here, never mid-run). */
+  onMenu?: () => void;
 }
 
-export function TitleMenu({ initialSide, onStart, guide = true, onGuide }: TitleMenuProps) {
+export function TitleMenu({ initialSide, onStart, guide = true, onGuide, onMenu }: TitleMenuProps) {
   const [side, setSide] = useState<Side>(initialSide);
   const rootRef = useRef<HTMLDivElement>(null);
   const scores = useMemo(() => loadHighScores(browserStorage()), []);
@@ -27,6 +29,12 @@ export function TitleMenu({ initialSide, onStart, guide = true, onGuide }: Title
       if (e.key === 'ArrowLeft') setSide('left');
       else if (e.key === 'ArrowRight') setSide('right');
       else if ((e.key === 'g' || e.key === 'G') && !e.repeat) onGuide?.(!guide);
+      else if ((e.key === 'Escape' || e.key === 'Backspace') && onMenu) {
+        // A held Esc from the results screen (which also leaves on Esc) must not carry on to the menu.
+        if (e.repeat) return;
+        e.preventDefault();
+        onMenu();
+      }
       else if (e.key === 'Enter') {
         if (e.repeat || otherButtonFocused(rootRef.current)) return;
         e.preventDefault();
@@ -35,7 +43,7 @@ export function TitleMenu({ initialSide, onStart, guide = true, onGuide }: Title
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [side, onStart, guide, onGuide]);
+  }, [side, onStart, guide, onGuide, onMenu]);
 
   useEffect(() => {
     rootRef.current?.querySelector<HTMLElement>('[data-primary="true"]')?.focus();
@@ -43,6 +51,11 @@ export function TitleMenu({ initialSide, onStart, guide = true, onGuide }: Title
 
   return (
     <div className={styles.center} ref={rootRef} role="dialog" aria-label="ZF Pro Surfer title menu">
+      {onMenu ? (
+        <RetroButton className={styles.menuBack} onClick={onMenu}>
+          ◀ MENU
+        </RetroButton>
+      ) : null}
       <div className={styles.menu}>
         <h1 className={styles.title}>ZF PRO SURFER</h1>
         {/* Side by side (wrapping on narrow screens): stacked, DROP IN falls off a phone held landscape. */}

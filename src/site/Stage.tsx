@@ -1,7 +1,7 @@
 'use client';
 import dynamic from 'next/dynamic';
-import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
 import { checkSupport } from '@/retro/support';
 import { LoadingScreen } from '@/retro/ui/LoadingScreen';
 import styles from './site.module.css';
@@ -37,12 +37,14 @@ function useReducedMotion(): boolean {
 export function Stage() {
   const mode = stageModeFor(usePathname());
   const reducedMotion = useReducedMotion();
+  const router = useRouter();
+  const toMenu = useCallback(() => router.push('/'), [router]);
   const [webgl2, setWebgl2] = useState(false);
   useEffect(() => setWebgl2(checkSupport(window).webgl2), []);
   if (!webgl2) return null;
   return (
     <div className={styles.stage} data-mode={mode} aria-hidden={mode === 'attract' || undefined}>
-      <SurfApp mode={mode} reducedMotion={reducedMotion} />
+      <SurfApp mode={mode} reducedMotion={reducedMotion} onMenu={toMenu} />
     </div>
   );
 }

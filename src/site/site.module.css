@@ -2,3 +2,78 @@
 .stage { position: fixed; inset: 0; z-index: 0; }
 .stage[data-mode='attract'] { pointer-events: none; }
 .page { position: relative; z-index: 1; }
+
+/* ── Home title menu ─────────────────────────────────────────────────────────────────────────────
+   Over the dimmed wave: the name in the game's title style, the menu on an opaque retro panel. */
+.titleScreen {
+  position: fixed; inset: 0;
+  display: grid; align-content: center; justify-items: center; gap: clamp(16px, 4vh, 36px);
+  padding: 16px 16px 84px; /* the bottom keeps clear of the NOW PLAYING tag */
+}
+.titleBlock { display: grid; justify-items: center; gap: 10px; text-align: center; }
+/* The surf game's title style (surf.module.css .title), for the name. */
+.name {
+  margin: 0; font-size: clamp(2.2rem, 9vw, 5.5rem); white-space: nowrap;
+  font-style: italic; letter-spacing: 0.06em; transform: skewX(-12deg);
+  color: #fff; text-shadow: 4px 4px 0 #0a1a5c, 0 0 28px rgba(255, 255, 255, 0.55);
+}
+.tagline {
+  margin: 0; padding: 4px 14px; border-radius: 6px; max-width: min(92vw, 640px);
+  background: rgba(6, 18, 58, 0.78); color: #dfe8ff; text-shadow: 1px 1px 0 #000;
+  font-family: var(--font-mono), monospace; font-size: 1.35rem; letter-spacing: 0.08em; line-height: 1.2;
+}
+.menuColumn { display: grid; justify-items: center; gap: 12px; width: min(100%, 440px); }
+.menuPanel {
+  width: 100%; padding: 12px 10px;
+  background: linear-gradient(180deg, rgba(34, 46, 110, 0.94), rgba(10, 14, 42, 0.96));
+  border: 2px solid #8fb4ff; border-radius: 6px;
+  box-shadow: 0 0 0 2px #0a0f2c, 0 0 28px rgba(90, 150, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.menuList { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.menuItem {
+  position: relative; display: block; white-space: nowrap; padding: 8px 16px 8px 48px; border-radius: 4px;
+  color: #b9c8f5; text-decoration: none; font-style: italic; letter-spacing: 0.12em;
+  font-size: clamp(1.2rem, 2.6vw, 1.6rem); line-height: 1.25;
+  text-shadow: 2px 2px 0 #0a0f2c; outline: none;
+  transition: color 80ms linear, background-color 80ms linear;
+  -webkit-tap-highlight-color: transparent;
+}
+.menuItem[data-selected='true'] {
+  color: #ffe16b;
+  background: linear-gradient(90deg, rgba(255, 225, 107, 0.26), rgba(255, 225, 107, 0.04) 85%);
+  box-shadow: inset 3px 0 0 #ffe16b;
+  text-shadow: 2px 2px 0 #5a2a00, 0 0 14px rgba(255, 225, 107, 0.55);
+}
+/* The PS2 cursor: a nudging ▶ beside the selected item. */
+.menuItem[data-selected='true']::before {
+  content: '▶'; position: absolute; left: 16px; top: 50%; translate: 0 -50%;
+  font-style: normal; font-size: 0.8em; animation: cursorNudge 0.8s ease-in-out infinite;
+}
+@keyframes cursorNudge { 50% { transform: translateX(5px); } }
+/* Keyboard focus is also the selection; forced-colors mode still gets a ring. */
+.menuItem:focus-visible { outline: 2px solid transparent; }
+.hint {
+  margin: 0; padding: 4px 12px; border-radius: 6px; background: rgba(6, 18, 58, 0.78);
+  font-family: var(--font-mono), monospace; font-size: 1.25rem; letter-spacing: 0.14em; color: #fff; text-shadow: 1px 1px 0 #000;
+}
+/* Phones: no keyboard, so no key hint; the NOW PLAYING tag sits top-right there, so keep clear of the top instead. */
+@media (pointer: coarse) {
+  .titleScreen { padding: 80px 16px 16px; }
+  .hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .menuItem[data-selected='true']::before { animation: none; } }
+/* Phone held landscape: name on the left, menu on the right, so everything fits the short screen. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .titleScreen { grid-template-columns: minmax(0, 1fr) auto; align-items: center; justify-items: center; padding: 12px 24px 64px; gap: 24px; }
+  /* The name may wrap (ZACH / FARRELL) beside the menu rather than run under it. */
+  .name { font-size: clamp(2.2rem, 6.4vw, 3.6rem); white-space: normal; line-height: 1.05; }
+  .menuColumn { width: auto; min-width: 280px; }
+  .tagline { font-size: 1.15rem; }
+  .menuPanel { padding: 8px; }
+  .menuList { gap: 2px; }
+  .menuItem { padding: 6px 12px 6px 40px; font-size: 1.15rem; }
+  .menuItem[data-selected='true']::before { left: 14px; }
+}
+@media (orientation: landscape) and (max-height: 520px) and (pointer: coarse) {
+  .titleScreen { padding: 72px 24px 12px; }
+}
