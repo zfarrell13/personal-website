@@ -398,7 +398,8 @@ export class SurfGame {
     this.renderP.lerpVectors(this.surfer.prevP, s.p, alpha);
     // Sim dt: a pause freezes the rider's pose springs too.
     this.character?.update(this.surfer, alpha, this.frameSimDt);
-    this.rig.update(s, this.renderP, this.side, underwater, dt, this.waterTime);
+    // Paused, the camera holds still too (its tube-hold timer must not run out under the pause menu).
+    if (this.phase !== 'paused') this.rig.update(s, this.renderP, this.side, underwater, dt, this.waterTime);
     // The rig cuts underwater a moment before the swallow when the closing barrel leaves it no tube
     // pose: the scene (fog, sky) goes under with it.
     const viewUnderwater = underwater || this.rig.shot === 'underwater';
@@ -435,7 +436,8 @@ export class SurfGame {
         pot: this.scoring.pot,
         multiplier: this.scoring.multiplier,
         // A wipeout inside the barrel never exits it: stop the TUBE timer with the ride.
-        tubeTime: s.mode === 'riding' || s.mode === 'airborne' ? s.tubeTime : 0,
+        // …and once the view has cut underwater for the swallow (a moment early), the banner goes with it.
+        tubeTime: (s.mode === 'riding' || s.mode === 'airborne') && !this.viewUnderwater ? s.tubeTime : 0,
         speedKmh: Math.round(speed * 3.6),
         fastSection: this.peel.active && (s.mode === 'riding' || s.mode === 'airborne'),
         pumpPrompt: this.coach.state.show,
