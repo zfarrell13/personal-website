@@ -103,9 +103,20 @@ Headless (Vitest, real Surfer + WaveShape + CameraRig):
 6. Side naming test (§1).
 Browser: screenshots (riding, fast section, tube, air) inspected; e2e suite green.
 
+Pumping targets (playtest 2, Task 2b — headless, `lineBot` + scripted inputs, frame x = ground on the curl):
+7. Pumping every 0.5–0.7 s on a moderate line (`lineBot` default band, slope 0.3) gains ≥ 10 m on the
+   curl over 20 s; pumping every 0.6 s on a straight-ish line (slope 0.15) at least holds its ground
+   for 30 s. (Replaces the old "pumping alone, no carving, dies in < 7 s" test.)
+8. No input is still swallowed in ~4–5 s; the same lines without pumps still lose the wave within 10 s.
+9. Pump feel: a full-efficiency pump mid-face at riding speed (8–12 m/s) adds +1.5–2.5 m/s of world
+   speed; spamming faster than ~0.35 s has diminishing returns (speed per second at 0.2 s < 80%, at
+   0.1 s < 50% of a 0.6 s rhythm); a pump low on the face or in the flats is weaker than mid-face but
+   never nothing (`pumpFlatGain`: half strength on the flats, full from steepness 0.35); pumps do
+   nothing in the air.
+
 
 ## Playtest 2 amendments (user feedback)
 
 - **Camera:** close bird's-eye view from behind the rider — about 3–4 m behind along the direction of travel, 4–6 m above (always above the crest), looking down at the rider and a few metres ahead down the line; the rider is large in frame. Tube: behind the rider looking out.
-- **Pumping:** a player pumping on a sensible line must be able to beat the section down the line; pumping is the primary speed tool. (Supersedes "pump-only dies" tuning.) No input is still caught in ~4–5 s.
+- **Pumping:** a player pumping on a sensible line must be able to beat the section down the line; pumping is the primary speed tool. (Supersedes "pump-only dies" tuning.) No input is still caught in ~4–5 s. Pumping on the flats is weaker but no longer does nothing (supersedes design point "pumping only works on the face"); verified by Verification 7–9.
 - **Background:** the horizon must be seamless — sea runs into haze and sky with no visible seam or band; sky gradient and fog match; distant water reads as water.

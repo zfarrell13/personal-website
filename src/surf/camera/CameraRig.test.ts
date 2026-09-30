@@ -381,6 +381,7 @@ describe('a cutback: the camera swings round behind the new travel direction', (
       let minDist = Infinity;
       let lastZ = NaN;
       let maxStep = 0;
+      let reversedAt = -1;
       for (let f = 0; f < 5 * 60; f++) {
         for (let k = 0; k < 2; k++) {
           const t = s.time;
@@ -389,7 +390,10 @@ describe('a cutback: the camera swings round behind the new travel direction', (
         }
         rig.update(s, s.p, 'left', false, 1 / 60, s.time);
         if (s.mode !== 'riding' && s.mode !== 'airborne') break;
-        if (s.heading.x < -0.9) reversed++;
+        if (s.heading.x < -0.9) {
+          reversed++;
+          if (reversedAt < 0) reversedAt = s.time;
+        }
         if (rig.shot !== 'underwater') minDist = Math.min(minDist, rig.pos.distanceTo(s.p));
         if (rig.shot === 'chase') {
           chase++;
@@ -416,8 +420,9 @@ describe('a cutback: the camera swings round behind the new travel direction', (
           const z = rig.pos.z - s.p.z;
           if (!Number.isNaN(lastZ)) maxStep = Math.max(maxStep, Math.abs(z - lastZ));
           lastZ = z;
-          // … and once the swing has settled it holds its line.
-          if (s.time > 4) zs.push(z);
+          // … and once the swing has settled (≥ 1 s = 3 time constants of chaseYawRate after the board
+          // came round) it holds its line.
+          if (s.time > 4 && s.time - reversedAt >= 3 / C.chaseYawRate) zs.push(z);
         } else lastZ = NaN;
         if (rig.keyFacing === -1) facingBack++;
       }

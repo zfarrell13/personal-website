@@ -40,9 +40,9 @@ export const SURF_CONFIG = {
     railGrip: 0.85,
     gripSpeed: 5,
     /** Wave drive gain along +x, multiplied by local steepness (m/s²). */
-    drive: 2.2,
+    drive: 2,
     /** Quadratic drag against the water (moving at −Vp in the frame). */
-    drag: 0.04,
+    drag: 0.036,
     stallDragMultiplier: 4,
     /** Carve yaw rate = carveRate / (1 + speed / carveHalfSpeed) (rad/s); turn radius = speed / rate grows with speed. */
     carveRate: 6,
@@ -50,14 +50,18 @@ export const SURF_CONFIG = {
     /** The yaw rate eases toward its target with this time constant (s): a weighty rail. */
     carveLag: 0.12,
     /** Speed bled while a carve is held (m/s²). */
-    carveBleed: 0.5,
-    pumpImpulse: 3,
+    carveBleed: 0.2,
+    pumpImpulse: 2.8,
     /** Fixed speed cost per pump: spamming (low efficiency) nets less than rhythm. */
-    pumpCost: 0.25,
+    pumpCost: 0.35,
     pumpPeriod: 0.6,
-    /** A pump's net gain scales with the face steepness: none below pumpMinSteepness (the flats), full above pumpFullSteepness. */
+    /**
+     * A pump's net gain scales with the face steepness: pumpFlatGain of it below pumpMinSteepness
+     * (the flats: weak, never nothing), full above pumpFullSteepness.
+     */
     pumpMinSteepness: 0.1,
-    pumpFullSteepness: 0.5,
+    pumpFullSteepness: 0.35,
+    pumpFlatGain: 0.5,
     /** Upward normal speed at the crest needed to launch (m/s). */
     launchSpeed: 3,
     /** Reaching the top of the face too slow to launch pushes the rider back down at this speed (m/s). */

@@ -114,12 +114,31 @@ describe('Surfer — riding', () => {
     }
   });
 
-  it('pumping alone (no carving) loses the wave in under 7 s', () => {
+  /** Rides `bot` for `seconds` (stopping on a wipeout / kick-out); frame x at the start, at 20 s and at the end. */
+  function ride(h: ReturnType<typeof setup>, bot: (dt: number) => SurferInput, seconds: number) {
+    const x0 = h.s.param.x;
+    let x20 = NaN;
+    while (h.s.time < seconds && h.s.mode !== 'wipeout' && h.s.mode !== 'kickedOut') {
+      h.surfer.step(bot(DT), DT);
+      if (Number.isNaN(x20) && h.s.time >= 20) x20 = h.s.param.x;
+    }
+    const alive = h.s.mode === 'riding' || h.s.mode === 'airborne';
+    return { alive, x0, x20, x: h.s.param.x };
+  }
+
+  // Pumping is the primary speed tool (playtest 2): pumping on a sensible line beats the section.
+  it.each([0.5, 0.6, 0.7])('pumping every %d s on a moderate line (slope 0.3) gains ≥ 10 m on the curl over 20 s', (pumpEvery) => {
     const h = setup();
-    h.run(10, (i) => ({ pump: i % 72 === 0 }));
-    const lost = h.events.find((e) => e.type === 'wipeout');
-    expect(lost).toBeDefined();
-    expect(lost!.time).toBeLessThan(7);
+    const r = ride(h, lineBot(h.surfer, h.wave, { pumpEvery, slope: 0.3 }), 20.5);
+    expect(r.alive).toBe(true);
+    expect(r.x20 - r.x0).toBeGreaterThanOrEqual(10);
+  });
+
+  it('pumping every 0.6 s on a straight-ish line (slope 0.15) at least holds its ground for 30 s', () => {
+    const h = setup();
+    const r = ride(h, lineBot(h.surfer, h.wave, { pumpEvery: 0.6, slope: 0.15 }), 30);
+    expect(r.alive).toBe(true);
+    expect(r.x).toBeGreaterThanOrEqual(r.x0);
   });
 
   /** Lines + pumps for 20 s with a 1.4× fast section from 8 s (0.5 s ramps, 4 s hold). */
@@ -211,16 +230,54 @@ describe('Surfer — riding', () => {
     expect(meanSpeed(0.6)).toBeGreaterThan(meanSpeed(0.1) + 1);
   });
 
-  it('a pump on the flats does nothing; on the face it adds speed along the board (vs a no-pump control)', () => {
-    const gain = (t: number) => {
-      const pumped = trimming(6, 15, t);
-      const control = trimming(6, 15, t);
-      pumped.surfer.step({ ...NO_INPUT, pump: true }, DT);
-      control.surfer.step(NO_INPUT, DT);
-      return pumped.surfer.worldSpeed(pumped.surfer.peelSpeed) - control.surfer.worldSpeed(control.surfer.peelSpeed);
+  /** World-speed gain of one pump (vs a no-pump control) at (15, t), riding at `speed`, `since` s after the last pump. */
+  function pumpKick(speed: number, t: number, since = 10) {
+    const pumped = trimming(speed, 15, t);
+    const control = trimming(speed, 15, t);
+    pumped.s.sincePump = since;
+    pumped.surfer.step({ ...NO_INPUT, pump: true }, DT);
+    control.surfer.step(NO_INPUT, DT);
+    return pumped.surfer.worldSpeed(pumped.surfer.peelSpeed) - control.surfer.worldSpeed(control.surfer.peelSpeed);
+  }
+
+  it('a pump mid-face at riding speed is a clear kick: +1.5–2.5 m/s', () => {
+    for (const speed of [8, 10, 12]) {
+      expect(pumpKick(speed, 0.4)).toBeGreaterThanOrEqual(1.5);
+      expect(pumpKick(speed, 0.4)).toBeLessThanOrEqual(2.5);
+    }
+  });
+
+  it('pumps spammed faster than ~0.35 s have diminishing returns (less speed per second than a 0.6 s rhythm)', () => {
+    const perSecond = (since: number) => pumpKick(10, 0.4, since) / since;
+    expect(perSecond(0.2)).toBeLessThan(0.8 * perSecond(0.6));
+    expect(perSecond(0.1)).toBeLessThan(0.5 * perSecond(0.6));
+  });
+
+  it('a pump low on the face or in the flats is weaker than mid-face, but never nothing', () => {
+    const mid = pumpKick(10, 0.4);
+    for (const t of [0, 0.1, 0.2]) {
+      expect(pumpKick(10, t)).toBeGreaterThanOrEqual(0.5);
+      expect(pumpKick(10, t)).toBeLessThan(mid - 0.3);
+    }
+  });
+
+  it('a pump in the air does nothing', () => {
+    const air = () => {
+      const h = setup();
+      h.surfer.reset(10, 0.3);
+      const up = new Vector3().crossVectors(h.s.normal, new Vector3(1, 0, 0)).normalize();
+      h.s.v.set(-h.surfer.peelSpeed, 0, 0).addScaledVector(up, 12);
+      h.s.v.addScaledVector(h.s.normal, -h.s.v.dot(h.s.normal));
+      for (let i = 0; i < 3 * 120 && h.s.mode === 'riding'; i++) h.run(DT);
+      return h;
     };
-    expect(Math.abs(gain(0))).toBeLessThan(0.05);
-    expect(gain(0.4)).toBeGreaterThan(1.5);
+    const pumped = air();
+    const control = air();
+    expect(pumped.s.mode).toBe('airborne');
+    pumped.run(0.3, (i) => ({ pump: i % 12 === 0 }));
+    control.run(0.3);
+    expect(pumped.s.v.distanceTo(control.s.v)).toBeLessThan(1e-9);
+    expect(pumped.events.some((e) => e.type === 'pump')).toBe(false);
   });
 
   /** Mid-face at (15, 0.4), running down the line at world speed `speed`. */

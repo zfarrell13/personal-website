@@ -416,10 +416,11 @@ export class Surfer {
     this.trackCarve(input.carve, Math.abs(ang));
 
     // --- pump: along the board's line, efficiency min(1, since/period), minus a fixed cost. A pump
-    // works the face: the net gain scales with the local steepness (a pump on the flats does nothing). ---
+    // works the face: the net gain scales with the local steepness, from pumpFlatGain on the flats
+    // (weak, never nothing) to full on a steep face. ---
     if (input.pump) {
       const eff = Math.min(1, s.sincePump / c.pumpPeriod);
-      const face = smoothstep(c.pumpMinSteepness, c.pumpFullSteepness, steep);
+      const face = c.pumpFlatGain + (1 - c.pumpFlatGain) * smoothstep(c.pumpMinSteepness, c.pumpFullSteepness, steep);
       const speed = Math.max(0, sp + (c.pumpImpulse * eff - c.pumpCost) * face);
       if (sp > 1e-3) rel.multiplyScalar(speed / sp);
       else rel.copy(this.e1).multiplyScalar(speed);

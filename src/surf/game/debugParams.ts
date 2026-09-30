@@ -16,6 +16,8 @@ export const DEBUG_PARAMS: ReadonlyArray<readonly [string, number, number, numbe
   ['physics.pumpImpulse', 0, 5, 0.1],
   ['physics.pumpCost', 0, 1, 0.05],
   ['physics.pumpFullSteepness', 0.2, 1, 0.05],
+  ['physics.pumpFlatGain', 0, 1, 0.05],
+  ['physics.pumpPeriod', 0.2, 1.5, 0.05],
   ['physics.crestShed', 0, 3, 0.1],
   ['physics.launchSpeed', 1, 6, 0.1],
   ['physics.ollieImpulse', 2, 10, 0.1],
