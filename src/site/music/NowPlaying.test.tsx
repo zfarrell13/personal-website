@@ -39,9 +39,17 @@ afterEach(() => {
   cleanup();
   fake.reset();
   vi.clearAllMocks();
+  vi.restoreAllMocks(); // focusVisible spies
 });
 
 const TRACK = { id: 'x', title: 'One Day At A Time', artist: 'Sudley' };
+
+/** jsdom has no focus-visible heuristics: say whether focus came from the keyboard (true) or a tap (false). */
+function focusVisible(visible: boolean) {
+  return vi.spyOn(HTMLElement.prototype, 'matches').mockImplementation(function (this: HTMLElement, sel: string) {
+    return sel === ':focus-visible' ? visible : Element.prototype.matches.call(this, sel);
+  });
+}
 
 describe('NowPlaying', () => {
   it('invites a key press before the music starts, and clicking it starts the player', () => {
@@ -109,6 +117,7 @@ describe('NowPlaying', () => {
   });
 
   it('keeps keyboard focus: activating the prompt moves focus to SKIP once a track starts', () => {
+    focusVisible(true);
     render(<NowPlaying />);
     const prompt = screen.getByRole('button', { name: /for music/i });
     prompt.focus();
@@ -118,10 +127,29 @@ describe('NowPlaying', () => {
   });
 
   it('keeps keyboard focus when the window keydown listener starts the music first', () => {
+    focusVisible(true);
     render(<NowPlaying />);
     screen.getByRole('button', { name: /for music/i }).focus();
     act(() => fake.set({ track: TRACK, playing: true, trackKey: 1 })); // the prompt never sees a click
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /skip/i }));
+  });
+
+  it('a tap on the prompt (focus without a ring) leaves focus alone: no stray ring on SKIP', () => {
+    focusVisible(false);
+    render(<NowPlaying />);
+    const prompt = screen.getByRole('button', { name: /for music/i });
+    prompt.focus();
+    fireEvent.click(prompt);
+    act(() => fake.set({ track: TRACK, playing: true, trackKey: 1 }));
+    expect(document.activeElement).not.toBe(screen.getByRole('button', { name: /skip/i }));
+  });
+
+  it('keeps the NOW PLAYING label for screen readers beside the phone ♪', () => {
+    render(<NowPlaying />);
+    act(() => fake.set({ track: TRACK, playing: true, trackKey: 1 }));
+    const track = screen.getByTestId('now-playing-track');
+    expect(track.textContent).toContain('NOW PLAYING');
+    expect(track.querySelector('[aria-hidden="true"]')?.textContent).toContain('♪');
   });
 
   it('does not steal focus when music starts from a gesture elsewhere', () => {

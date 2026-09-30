@@ -8,9 +8,13 @@
 }
 .prompt { padding: 10px 16px; cursor: pointer; font: inherit; animation: blink 1.6s steps(2, jump-none) infinite; }
 /* outline stays (transparent) so forced-colors mode still draws a focus ring where the box-shadow is dropped. */
-.prompt:hover, .prompt:focus-visible { outline: 2px solid transparent; box-shadow: 0 0 0 3px #ffe16b, 0 0 18px #ffe16b; }
+.prompt:focus-visible { outline: 2px solid transparent; box-shadow: 0 0 0 3px #ffe16b, 0 0 18px #ffe16b; }
+/* Hover rings only where there is real hover: a tap leaves :hover stuck on phones (the SKIP that appears under
+   the finger when a tap starts the music would keep a ring). */
+@media (hover: hover) { .prompt:hover { outline: 2px solid transparent; box-shadow: 0 0 0 3px #ffe16b, 0 0 18px #ffe16b; } }
 @keyframes blink { 50% { opacity: 0.55; } }
 .coarse { display: none; }
+.note { display: none; }
 /* Live region stays mounted across tracks; only the keyed .track inside remounts (and pops). */
 .live { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; }
 .track { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: pop 600ms ease-out; }
@@ -26,13 +30,25 @@
   border: 2px solid #c9d8ff; border-radius: 999px; background: linear-gradient(180deg, #3c5bd8, #1a2a86);
   font-size: 0.8rem; letter-spacing: -0.1em; cursor: pointer; text-shadow: 1px 1px 0 #050a24;
 }
-.control:hover, .control:focus-visible { outline: 2px solid transparent; box-shadow: 0 0 0 3px #ffe16b, 0 0 12px #ffe16b; }
+.control:focus-visible { outline: 2px solid transparent; box-shadow: 0 0 0 3px #ffe16b, 0 0 12px #ffe16b; }
+@media (hover: hover) { .control:hover { outline: 2px solid transparent; box-shadow: 0 0 0 3px #ffe16b, 0 0 12px #ffe16b; } }
 .control:active { transform: scale(0.94); }
 .control[aria-pressed='true'] { background: #1b2350; border-color: #ffe16b; color: #ffe16b; }
 /* Phones: the surf OLLIE/grab buttons own the bottom-right corner, so the tag sits top-right (as the toast did);
    44px touch targets; the prompt says TAP. */
 @media (pointer: coarse) {
-  .tag { bottom: auto; top: 16px; max-width: calc(50vw - 16px - 24px - 12px); padding: 2px 4px 2px 10px; gap: 4px; font-size: 0.85rem; }
+  /* --np-max: a page with room beside the tag (the section screens) widens it; the /surf HUD keeps the half-width cap. */
+  .tag { bottom: auto; top: 16px; max-width: var(--np-max, calc(50vw - 16px - 24px - 12px)); padding: 2px 4px 2px 10px; gap: 4px; font-size: 0.85rem; }
+  /* The track name, not the label: ♪ then up to two lines of name. The label stays for screen readers. */
+  .note { display: inline; color: #ffe16b; }
+  .playing, .sep {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .track {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+    white-space: normal; font-size: 0.8rem; line-height: 1.2;
+  }
   .prompt { min-height: 44px; padding: 4px 14px; }
   .control { min-width: 44px; height: 44px; }
   .fine { display: none; }

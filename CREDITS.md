@@ -3,7 +3,7 @@
 Third-party assets and libraries used in this project. Added to as assets are integrated.
 
 - three.js — MIT
-- Fonts: Russo One, VT323 — SIL Open Font License (Google Fonts)
+- Fonts: Russo One, VT323 — SIL Open Font License (Google Fonts). `assets/fonts/RussoOne-Regular.ttf` (google/fonts repo, unmodified) renders the link-preview image.
 - esbuild, zustand, glTF-Transform — MIT.
 
 ## Surf game

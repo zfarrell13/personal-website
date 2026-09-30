@@ -27,7 +27,7 @@ export function Credits({ credits, resumePdf }: { credits: CreditsContent; resum
           </h2>
           {credits.links.map((l) => (
             <a key={l.href} className={styles.creditLink} href={l.href} target="_blank" rel="noopener noreferrer">
-              {l.label}
+              {l.label} <span className={styles.srOnly}>(opens in a new tab)</span>
             </a>
           ))}
         </section>

@@ -10,54 +10,51 @@ import styles from './sections.module.css';
 
 const ARROW: Record<TrophyLink['label'], string> = { PLAY: '▶', VIEW: '↗', CODE: '</>' };
 
-/** PLAY/VIEW/CODE: site routes through next/link, anything else opens in a new tab. */
-function TrophyLinks({ links }: { links: readonly TrophyLink[] }) {
+/**
+ * PLAY/VIEW/CODE: site routes through next/link, anything else opens in a new tab. Each is named for its
+ * project ("CODE — Kelly-style Surf Game") and says when it opens a new tab, for screen readers.
+ */
+function TrophyLinks({ links, name }: { links: readonly TrophyLink[]; name: string }) {
   return (
     <div className={styles.links}>
-      {links.map((l) =>
-        l.href.startsWith('/') ? (
-          <Link key={l.label} className={styles.action} href={l.href}>
-            {l.label} <span aria-hidden="true">{ARROW[l.label]}</span>
+      {links.map((l) => {
+        const text = (
+          <>
+            {l.label} <span className={styles.srOnly}>— {name}</span> <span aria-hidden="true">{ARROW[l.label]}</span>
+          </>
+        );
+        return l.href.startsWith('/') ? (
+          <Link key={l.href} className={styles.action} href={l.href}>
+            {text}
           </Link>
         ) : (
-          <a key={l.label} className={styles.action} href={l.href} target="_blank" rel="noopener noreferrer">
-            {l.label} <span aria-hidden="true">{ARROW[l.label]}</span>
+          <a key={l.href} className={styles.action} href={l.href} target="_blank" rel="noopener noreferrer">
+            {text} <span className={styles.srOnly}>(opens in a new tab)</span>
           </a>
-        ),
-      )}
+        );
+      })}
     </div>
   );
 }
 
 /**
- * The detail card, a modal dialog: focus moves in (and Tab stays in), Esc or Backspace closes it and is
- * marked handled so useBackToMenu leaves it alone; the next Esc goes back to the menu. Focus returns to
- * the card that opened it.
+ * The detail card, a native modal <dialog>: the rest of the page (and the NOW PLAYING tag) is inert while it
+ * is open and Tab stays inside. Esc or Backspace closes it and is marked handled so useBackToMenu leaves it
+ * alone; the next Esc goes back to the menu. A click on the backdrop closes it too.
  */
 function TrophyDetail({ trophy, onClose }: { trophy: Trophy; onClose: () => void }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) dialog.showModal();
     closeRef.current?.focus();
     // Capture phase: runs before the menu's window listener, whatever inside the page has focus.
     const onKey = (e: KeyboardEvent) => {
-      if (isBackToMenuKey(e)) {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === 'Tab' && dialogRef.current) {
-        const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>('a[href], button')];
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        const inside = dialogRef.current.contains(document.activeElement);
-        if (e.shiftKey && (!inside || document.activeElement === first)) {
-          e.preventDefault();
-          last?.focus();
-        } else if (!e.shiftKey && (!inside || document.activeElement === last)) {
-          e.preventDefault();
-          first?.focus();
-        }
-      }
+      if (!isBackToMenuKey(e)) return;
+      e.preventDefault();
+      onClose();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
@@ -65,12 +62,22 @@ function TrophyDetail({ trophy, onClose }: { trophy: Trophy; onClose: () => void
 
   const titleId = `trophy-${trophy.id}-title`;
   return (
-    <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+    <dialog
+      ref={dialogRef}
+      className={styles.dialog}
+      aria-labelledby={titleId}
+      // A close request the key listener didn't see (e.g. Android back): close through React, not natively.
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className={styles.dialogBody}>
         <button ref={closeRef} type="button" className={styles.close} onClick={onClose}>
-          ✕ CLOSE
+          <span aria-hidden="true">✕ </span>CLOSE
         </button>
-        <Image className={styles.detailImage} src={trophy.image} alt="" width={480} height={270} />
+        <Image className={styles.detailImage} src={trophy.image} alt="" width={480} height={270} sizes="(max-width: 700px) 100vw, 640px" />
         <h2 id={titleId} className={styles.trophyName}>
           {trophy.name}
         </h2>
@@ -81,9 +88,9 @@ function TrophyDetail({ trophy, onClose }: { trophy: Trophy; onClose: () => void
           </p>
         ))}
         <Chips items={trophy.stack} />
-        <TrophyLinks links={trophy.links} />
+        <TrophyLinks links={trophy.links} name={trophy.name} />
       </div>
-    </div>
+    </dialog>
   );
 }
 
@@ -93,7 +100,7 @@ export function Trophies({ trophies }: { trophies: readonly Trophy[] }) {
   const openers = useRef(new Map<string, HTMLButtonElement>());
   const open = trophies.find((t) => t.id === openId);
 
-  // The card to refocus once the dialog has gone (and the grid is no longer inert).
+  // The card to refocus once the dialog has gone.
   const returnTo = useRef<string | null>(null);
   const close = useCallback(() => {
     setOpenId(null);
@@ -107,7 +114,7 @@ export function Trophies({ trophies }: { trophies: readonly Trophy[] }) {
 
   return (
     <>
-      <ul className={styles.grid} inert={open ? true : undefined}>
+      <ul className={styles.grid}>
         {trophies.map((t) => (
           <li key={t.id}>
             <article className={styles.trophy} aria-labelledby={`trophy-${t.id}-name`}>
@@ -119,20 +126,31 @@ export function Trophies({ trophies }: { trophies: readonly Trophy[] }) {
                 type="button"
                 className={styles.trophyOpen}
                 aria-haspopup="dialog"
+                aria-labelledby={`trophy-${t.id}-name`}
+                aria-describedby={`trophy-${t.id}-line`}
                 onClick={() => {
                   menuSelect();
                   returnTo.current = t.id;
                   setOpenId(t.id);
                 }}
               >
-                <Image className={styles.trophyImage} src={t.image} alt="" width={480} height={270} />
+                <Image
+                  className={styles.trophyImage}
+                  src={t.image}
+                  alt=""
+                  width={480}
+                  height={270}
+                  sizes="(max-width: 600px) 100vw, (max-width: 1000px) 50vw, 300px"
+                />
                 <span id={`trophy-${t.id}-name`} className={styles.trophyName}>
                   {t.name}
                 </span>
-                <span className={styles.oneLiner}>{t.oneLiner}</span>
+                <span id={`trophy-${t.id}-line`} className={styles.oneLiner}>
+                  {t.oneLiner}
+                </span>
               </button>
               <Chips items={t.stack} />
-              <TrophyLinks links={t.links} />
+              <TrophyLinks links={t.links} name={t.name} />
             </article>
           </li>
         ))}

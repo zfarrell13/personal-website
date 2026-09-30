@@ -19,6 +19,7 @@
   font-style: italic; letter-spacing: 0.14em; text-shadow: 1px 1px 0 #050a24;
   transition: box-shadow 120ms ease, transform 80ms ease;
 }
+.backArrow { margin-right: 0.4em; }
 .heading {
   margin: 0; white-space: nowrap; text-align: center;
   font-size: clamp(1.7rem, 4.2vw, 2.8rem); font-weight: 400; font-style: italic; letter-spacing: 0.08em;
@@ -30,6 +31,8 @@
   padding: 6px 16px 20px;
   scrollbar-color: #8fb4ff #0a0f2c;
 }
+/* Focused on arrival so the keyboard scrolls it; it's a container, not a control, so no ring. */
+.body:focus { outline: none; }
 .panel {
   width: min(100%, 920px); margin: 0 auto; padding: clamp(16px, 3vw, 28px);
   /* Opaque: the wave never shows through text. */
@@ -43,6 +46,8 @@
   margin: 0; min-height: 76px; padding: 0 16px 16px; display: flex; align-items: center;
   font-family: var(--font-mono), monospace; font-size: 1.25rem; letter-spacing: 0.14em; color: #fff; text-shadow: 1px 1px 0 #000;
 }
+/* Narrow desktop windows: the tag would run over the hints, so they give way (the strip keeps its height). */
+@media (max-width: 999px) { .hints { visibility: hidden; } }
 @media (pointer: coarse) {
   .hints { display: none; }
   /* ◀ MENU on the left of the top row, the tag on the right of it; the title gets its own row. */
@@ -71,9 +76,10 @@
   margin: 0 0 8px; font-family: var(--font-mono), monospace; font-weight: 400;
   font-size: 1.35rem; letter-spacing: 0.2em; color: #ffe16b; text-shadow: 1px 1px 0 #3a1a00;
 }
+/* Long reading text (bio, looking for, wins, stories) in a plain sans: pixel type is for labels, not paragraphs. */
 .text {
-  margin: 0 0 10px; font-family: var(--font-mono), monospace;
-  font-size: 1.45rem; line-height: 1.2; letter-spacing: 0.02em; color: #eef3ff;
+  margin: 0 0 10px; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 1.1rem; line-height: 1.45; color: #eef3ff;
 }
 .text:last-child { margin-bottom: 0; }
 .block { margin-top: 22px; padding-top: 18px; border-top: 2px solid rgba(143, 180, 255, 0.3); }
@@ -82,6 +88,10 @@
   border: 2px solid #c9d8ff; border-radius: 999px; background: linear-gradient(180deg, #3c5bd8, #1a2a86);
   color: #fff; text-decoration: none; font-style: italic; letter-spacing: 0.14em; text-shadow: 1px 1px 0 #050a24;
   transition: box-shadow 120ms ease, transform 80ms ease;
+}
+.srOnly {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
 .chips { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
@@ -175,17 +185,18 @@
 .links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 12px; }
 .links .action { padding: 6px 16px; font-size: 0.95rem; }
 
-.overlay {
-  position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 24px 16px 84px;
-  background: rgba(3, 5, 20, 0.82); overflow-y: auto; overscroll-behavior: contain;
-}
+/* The detail card: a native modal <dialog> (top layer, so it covers the page and the NOW PLAYING tag alike). */
 .dialog {
-  position: relative; width: min(100%, 640px); max-height: 100%; overflow-y: auto; padding: clamp(16px, 3vw, 26px);
+  width: min(100% - 24px, 640px); max-width: none; max-height: calc(100% - 24px); margin: auto; padding: 0;
+  overflow-y: auto; overscroll-behavior: contain;
   background: linear-gradient(180deg, #1f2b70, #0b1033 60%, #080b26);
   border: 2px solid #ffe16b; border-radius: 6px;
   box-shadow: 0 0 0 2px #0a0f2c, 0 0 36px rgba(255, 225, 107, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  color: #eef3ff; display: grid; gap: 10px;
+  color: #eef3ff;
 }
+.dialog::backdrop { background: rgba(3, 5, 20, 0.82); }
+/* Fills the dialog, so a click that lands on the <dialog> itself was on the backdrop. */
+.dialogBody { position: relative; display: grid; gap: 10px; padding: clamp(16px, 3vw, 26px); }
 .dialog .detailImage { max-height: min(32vh, 260px); }
 .dialog .trophyName { font-size: clamp(1.4rem, 4vw, 1.9rem); margin: 4px 0 0; }
 .dialog .oneLiner { color: #ffe16b; margin-bottom: 4px; }
@@ -194,8 +205,6 @@
   background: linear-gradient(180deg, #3c5bd8, #1a2a86); font-style: italic; letter-spacing: 0.12em; cursor: pointer;
   text-shadow: 1px 1px 0 #050a24; transition: box-shadow 120ms ease, transform 80ms ease;
 }
-/* Phones: the NOW PLAYING tag is top-right, so the dialog starts below it. */
-@media (pointer: coarse) { .overlay { padding: 80px 12px 16px; } }
 /* Short landscape screens: the picture is decorative (the card showed it), so the story gets the room. */
 @media (orientation: landscape) and (max-height: 520px) {
   .grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }

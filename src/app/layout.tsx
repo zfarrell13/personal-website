@@ -9,12 +9,15 @@ const mono = VT323({ weight: '400', subsets: ['latin'], variable: '--font-mono' 
 
 // From the content file, so the name, title and tagline live in one place.
 const { name, title, tagline } = site.profile;
-const description = `${title} — ${tagline}`;
+const description = `${title} · ${tagline}`;
 
 export const metadata: Metadata = {
+  // Absolute URLs for the share image (app/opengraph-image.tsx); set NEXT_PUBLIC_SITE_URL in production.
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
   title: name,
   description,
   openGraph: { title: name, description, siteName: name, type: 'website' },
+  twitter: { card: 'summary_large_image', title: name, description },
 };
 
 export const viewport: Viewport = {

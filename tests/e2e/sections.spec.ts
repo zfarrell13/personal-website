@@ -52,7 +52,7 @@ test.describe('section screens', () => {
       expect(r.px).toBeGreaterThanOrEqual(16);
       expect(r.opaque).toBe(true);
 
-      await page.getByRole('link', { name: '◀ MENU' }).click();
+      await page.getByRole('link', { name: 'MENU', exact: true }).click();
       await page.waitForURL((u) => u.pathname === '/');
       await expect(page.getByRole('link', { name: 'FREE SURF' })).toBeFocused();
 
@@ -88,6 +88,25 @@ test.describe('section screens', () => {
     await expect(page.getByRole('link', { name: /DOWNLOAD RESUME/ })).toHaveAttribute('href', '/site/resume-sample.pdf');
   });
 
+  test('RIDER PROFILE has nothing to select, so ↓ scrolls it (and ↑ back)', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/profile');
+    const main = page.getByRole('main');
+    await expect(main).toBeFocused();
+    const top = () => main.evaluate((m) => m.scrollTop);
+    expect(await top()).toBe(0);
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(top).toBeGreaterThan(0);
+    const down = await top();
+    await page.keyboard.press('ArrowUp');
+    await expect.poll(top).toBeLessThan(down);
+    // With focus parked outside the content (the body), the arrows still scroll it.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(top).toBeGreaterThan(0);
+  });
+
   test('TROPHY ROOM: a card opens its detail; the first Esc closes it, the second goes to the menu', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     await page.goto('/trophies');
@@ -95,7 +114,7 @@ test.describe('section screens', () => {
     await card.click();
     const dialog = page.getByRole('dialog', { name: 'Kelly-style Surf Game' });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('button', { name: '✕ CLOSE' })).toBeFocused();
+    await expect(dialog.getByRole('button', { name: 'CLOSE' })).toBeFocused();
     await expect(dialog.getByRole('link', { name: /PLAY/ })).toHaveAttribute('href', '/surf');
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
@@ -160,12 +179,20 @@ for (const [name, device] of [
       test(`${s.path}: the NOW PLAYING tag clears ◀ MENU, the title and the content; no sideways scroll`, async ({ page }) => {
         await page.goto(s.path);
         await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-        await page.getByRole('heading', { level: 1 }).tap();
+        await page.getByRole('button', { name: /FOR MUSIC/ }).tap(); // the tag's own prompt: SKIP appears under the finger
         await expect(page.getByTestId('now-playing-track')).toBeVisible();
         const tag = page.getByTestId('now-playing');
+        // The phone tag shows ♪ and the track's name (up to two lines), not a clipped "NOW PLAYING" label.
+        const shownName = await page.getByTestId('now-playing-track').evaluate((t) => {
+          const title = [...t.querySelectorAll('span')].find((s) => s.textContent?.includes(' — '));
+          return title ? title.getBoundingClientRect().width : 0;
+        });
+        expect(shownName).toBeGreaterThan(100);
+        // A tap started it: no ring on SKIP (neither a keyboard focus handoff nor a stuck touch :hover).
+        expect(await page.getByRole('button', { name: 'Skip track' }).evaluate((b) => getComputedStyle(b).boxShadow)).toBe('none');
         await apart(tag, page.getByRole('main'));
         await apart(tag, page.getByRole('heading', { level: 1 }));
-        await apart(tag, page.getByRole('link', { name: '◀ MENU' }));
+        await apart(tag, page.getByRole('link', { name: 'MENU', exact: true }));
         const main = page.getByRole('main');
         expect(await main.evaluate((m) => m.scrollWidth <= m.clientWidth)).toBe(true);
         expect((await readable(main.locator('p, li, a').first())).px).toBeGreaterThanOrEqual(16);

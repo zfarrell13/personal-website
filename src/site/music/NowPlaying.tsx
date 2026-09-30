@@ -13,7 +13,7 @@ export function NowPlaying() {
   const { track, muted, trackKey, unavailable } = useMusic();
   const skipRef = useRef<HTMLButtonElement>(null);
   // The prompt unmounts when a track starts (its own Enter, or the window keydown listener); if it had keyboard
-  // focus, hand it to SKIP rather than dropping it on <body>.
+  // focus, hand it to SKIP rather than dropping it on <body>. A tap leaves focus alone (no stray ring on SKIP).
   const focusSkip = useRef(false);
 
   useEffect(() => {
@@ -41,8 +41,12 @@ export function NowPlaying() {
         <span key={trackKey} className={styles.track} data-testid="now-playing-track">
           {track ? (
             <>
-              <span className={styles.label}>NOW PLAYING</span>
-              {' · '}
+              {/* Phones show ♪ instead of the label (room for the name); screen readers always get the label. */}
+              <span className={styles.note} aria-hidden="true">
+                {'♪ '}
+              </span>
+              <span className={`${styles.label} ${styles.playing}`}>NOW PLAYING</span>
+              <span className={styles.sep}>{' · '}</span>
               <span className={styles.title}>{`${track.artist} — ${track.title}`}</span>
             </>
           ) : (
@@ -68,6 +72,15 @@ export function NowPlaying() {
   );
 }
 
+/** Focus that shows a ring (keyboard); a tap or click focuses without one. Unknown selector: assume keyboard. */
+function keyboardFocused(el: Element): boolean {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return true;
+  }
+}
+
 function Prompt({ onUnmountFocused }: { onUnmountFocused: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   const onUnmount = useRef(onUnmountFocused);
@@ -76,7 +89,7 @@ function Prompt({ onUnmountFocused }: { onUnmountFocused: () => void }) {
   useLayoutEffect(() => {
     const el = ref.current;
     return () => {
-      if (el && document.activeElement === el) onUnmount.current();
+      if (el && document.activeElement === el && keyboardFocused(el)) onUnmount.current();
     };
   }, []);
   return (

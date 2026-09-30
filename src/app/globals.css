@@ -17,3 +17,8 @@ button { font: inherit; color: inherit; }
   image-rendering: pixelated;
   touch-action: none;
 }
+/* Section screens (SectionScreen sets data-screen): in phone portrait the NOW PLAYING tag may use the whole top
+   row beside ◀ MENU (16px gutters, ~120px button, 12px gap) rather than half the width. */
+@media (pointer: coarse) and (orientation: portrait) {
+  html[data-screen='section'] { --np-max: calc(100vw - 16px - 16px - 120px - 12px); }
+}

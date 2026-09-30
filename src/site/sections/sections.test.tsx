@@ -22,6 +22,11 @@ vi.mock('next/image', () => ({
 const sfx = vi.hoisted(() => ({ menuMove: vi.fn(), menuSelect: vi.fn() }));
 vi.mock('@/site/sfx', () => sfx);
 
+// jsdom has no modal dialogs: open/close by attribute.
+HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
+  this.setAttribute('open', '');
+};
+
 const ProfilePage = await import('@/app/profile/page');
 const CareerPage = await import('@/app/career/page');
 const TrophiesPage = await import('@/app/trophies/page');
@@ -47,10 +52,12 @@ describe('section pages', () => {
 describe('SectionScreen chrome', () => {
   it('has ◀ MENU back to /, Esc goes to the menu, ↑↓ move focus through the items with a blip', () => {
     render(<CreditsPage.default />);
-    expect(screen.getByRole('link', { name: '◀ MENU' }).getAttribute('href')).toBe('/');
+    expect(screen.getByRole('link', { name: 'MENU' }).getAttribute('href')).toBe('/'); // the ◀ is decorative
     const main = screen.getByRole('main');
-    const items = within(main).getAllByRole('link').filter((a) => a.textContent !== '◀ MENU');
-    key('ArrowDown', document.body);
+    expect(document.activeElement).toBe(main); // the content takes focus on arrival
+    expect(document.documentElement.dataset.screen).toBe('section');
+    const items = within(main).getAllByRole('link');
+    key('ArrowDown');
     expect(document.activeElement).toBe(items[0]);
     key('ArrowDown');
     expect(document.activeElement).toBe(items[1]);
@@ -116,6 +123,17 @@ describe('TROPHY ROOM', () => {
     expect(within(cards[0]!).getByRole('link', { name: /PLAY/ }).getAttribute('href')).toBe('/surf');
   });
 
+  it('names the card button by the project and describes it by the one-liner; links say which project and new tabs', () => {
+    render(<TrophiesPage.default />);
+    const [surf, sample] = site.trophies;
+    const card = screen.getAllByRole('article')[0]!;
+    const open = within(card).getByRole('button', { name: surf!.name });
+    expect(document.getElementById(open.getAttribute('aria-describedby')!)!.textContent).toBe(surf!.oneLiner);
+    expect(within(card).getByRole('link', { name: `PLAY — ${surf!.name}` })).toBeTruthy();
+    expect(within(card).getByRole('link', { name: `CODE — ${surf!.name} (opens in a new tab)` })).toBeTruthy();
+    expect(screen.getByRole('link', { name: new RegExp(`^CODE — ${sample!.name}`) })).toBeTruthy();
+  });
+
   it('opens the detail dialog; the first Esc closes it (focus back on the card), the next goes to the menu', () => {
     render(<TrophiesPage.default />);
     const [surf] = site.trophies;
@@ -123,7 +141,8 @@ describe('TROPHY ROOM', () => {
     open.focus();
     fireEvent.click(open);
     const dialog = screen.getByRole('dialog', { name: surf!.name });
-    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.tagName).toBe('DIALOG'); // native modal: the rest of the page is inert while it's open
+    expect((dialog as HTMLDialogElement).open).toBe(true);
     for (const para of surf!.story) expect(within(dialog).getByText(para)).toBeTruthy();
     expect(dialog.contains(document.activeElement)).toBe(true);
 
@@ -153,7 +172,8 @@ describe('CREDITS', () => {
     expect(heading()).toBe('CREDITS');
     const { credits, career } = site;
     expect(screen.getByRole('link', { name: credits.email }).getAttribute('href')).toBe(`mailto:${credits.email}`);
-    for (const l of credits.links) expect(screen.getByRole('link', { name: l.label }).getAttribute('href')).toBe(l.href);
+    for (const l of credits.links)
+      expect(screen.getByRole('link', { name: `${l.label} (opens in a new tab)` }).getAttribute('href')).toBe(l.href);
     expect(screen.getByRole('link', { name: /RESUME/ }).getAttribute('href')).toBe(career.resumePdf);
     expect(screen.getByRole('heading', { name: 'SOUNDTRACK' })).toBeTruthy();
     for (const t of credits.music) {
