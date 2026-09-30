@@ -6,7 +6,7 @@ import { WaveShape } from '../wave/WaveShape';
 import { buildWaveGeometry, columnsX } from './waveGeometry';
 import { LIP_LIFT, LIP_THROW, lipOffset } from './waveMaterial';
 
-/** 5.5°: the worst pose measures clear to 5.75° with the lip at rest and animated (margin kept above the 5° floor). */
+/** 5.5°: the worst pose (x −4, 0.55 of the crest) stays clear to ≈ 5.6–5.7° at rest and through the lip animation (above the 5° floor). */
 const EYE_UP = (5.5 * Math.PI) / 180;
 /** Desktop and phone (coarse-pointer) wave meshes. */
 const MESHES = [
@@ -14,8 +14,10 @@ const MESHES = [
   ['phone', 112, 44],
 ] as const;
 /**
- * The lip animation (waveMaterial's lipOffset) at rest, at several water-clock times, and at its
- * worst-case bound (every lip vertex thrown fully up and out at once): the eye stays open throughout.
+ * The lip animation (waveMaterial's lipOffset) at rest, at several water-clock times, and with every
+ * lip vertex thrown fully up and out at once ('max', the most OPEN state: the animation only moves the
+ * lip up and away from the face). The binding cases are the lip at rest (null) and mid-throw, ≈ 5.6–5.7°
+ * clear against 6.1° at 'max'. The eye stays open in every state.
  */
 const LIP_TIMES = [null, 0.21, 0.8, 1.52, 'max'] as const;
 const CASES = MESHES.flatMap((m) => LIP_TIMES.map((time) => [...m, time] as const));

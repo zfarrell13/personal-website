@@ -5,7 +5,7 @@ import { EventBus, type SurfEvent } from '../physics/events';
 import { carveFromKeys, NO_INPUT, type SurferInput } from '../physics/input';
 import { lineBot } from '../physics/lineBot';
 import { Surfer } from '../physics/Surfer';
-import { buildWaveGeometry, columnsX } from '../render/waveGeometry';
+import { buildWaveGeometry, columnsX, type OceanLayout } from '../render/waveGeometry';
 import { frameToView } from '../wave/mirror';
 import { WaveShape } from '../wave/WaveShape';
 import { CAMERA_FAR, CAMERA_OFFSETS, cameraGoal, CameraRig, shakeAmplitude, shakeOffset } from './CameraRig';
@@ -531,4 +531,93 @@ describe('screen-relative carving matches the camera', () => {
     const lipOnRight = frameToView(lip, side, new Vector3()).project(cam).x > frameToView(s.p, side, new Vector3()).project(cam).x;
     expect(carveFromKeys(false, true, side, rig.keyFacing) === 1).toBe(lipOnRight);
   });
+});
+
+describe('the tube camera through a carve in the barrel', () => {
+  /**
+   * Where a point is, from the first ocean surface straight above it (the real mesh, lip slab
+   * included): nothing, or the lip's underside (a profile row past the crest), is air; the face, the
+   * flats or the back seen from below, or the lip's top from inside the slab, is water.
+   */
+  function wetAt(p: Vector3, mesh: Mesh, wave: WaveShape, ray: Raycaster): boolean {
+    ray.set(p, new Vector3(0, 1, 0));
+    ray.far = 60;
+    const hit = ray.intersectObject(mesh, false)[0];
+    if (!hit) return false;
+    const L = mesh.geometry.userData as OceanLayout;
+    const v = hit.face!.a;
+    const row = v % L.rows;
+    if (row < L.profileRow || row >= L.lipRow) return true;
+    const x = Math.min(wave.params.xMax, Math.max(wave.params.xMin, L.xs[Math.floor(v / L.rows)]!));
+    return L.t[v]! <= wave.crestT(x) + 1e-6;
+  }
+
+  /** Drive: a stall into the tube then alternating carves every `period` s, or (period < 0) the key-mash from the drop-in: a pump, then carves of sign c1 / −c1 for 0.5, 0.5, 0.7, 0.7 s (the rider ends up under the falling curtain). */
+  function tubeRun(period: number, stallAt: number, c1: number) {
+    const { cfg, wave, surfer, s } = world();
+    const mesh = new Mesh(buildWaveGeometry(wave, columnsX(cfg.mesh.columns, cfg.wave.xMin, cfg.wave.xMax), cfg.mesh.rows), new MeshBasicMaterial({ side: DoubleSide }));
+    mesh.updateMatrixWorld();
+    const cam = new PerspectiveCamera(cfg.camera.fov, 16 / 9, 0.1, 650);
+    const rig = new CameraRig(cam, cfg.camera, wave);
+    rig.snap(s, 'left');
+    const warm = lineBot(surfer, wave, { pumpEvery: 1 });
+    const line = lineBot(surfer, wave, { pumpEvery: 0 });
+    const ray = new Raycaster();
+    const dirs = Array.from({ length: 48 }, (_, i) => {
+      const z = 1 - (2 * (i + 0.5)) / 48;
+      const r = Math.sqrt(1 - z * z);
+      return new Vector3(r * Math.cos(i * 2.39996), z, r * Math.sin(i * 2.39996));
+    });
+    let tubeAt = -1;
+    const r = { tubeFrames: 0, wet: 0, nearest: Infinity, seen: 0 };
+    const chest = new Vector3();
+    const toChest = new Vector3();
+    for (let f = 0; f < 20 * 60; f++) {
+      for (let k = 0; k < 2; k++) {
+        let input: SurferInput;
+        if (period < 0) {
+          const t = s.time;
+          input = { ...NO_INPUT, pump: t < 0.12, carve: t < 0.12 ? 0 : t < 0.62 ? c1 : t < 1.12 ? -c1 : t < 1.82 ? c1 : t < 2.52 ? -c1 : 0 };
+        } else if (s.time < stallAt) input = warm(1 / 120);
+        else if (tubeAt < 0) input = { ...line(1 / 120), stall: true };
+        else input = { ...line(1 / 120), stall: false, pump: false, carve: Math.floor((s.time - tubeAt) / period) % 2 ? c1 : -c1 };
+        surfer.step(input, 1 / 120);
+      }
+      rig.update(s, s.p, 'left', false, 1 / 60, s.time);
+      if (s.mode !== 'riding' && s.mode !== 'airborne') break;
+      if (rig.shot !== 'tube') continue;
+      if (tubeAt < 0) tubeAt = s.time;
+      r.tubeFrames++;
+      cam.updateMatrixWorld();
+      if (wetAt(cam.position, mesh, wave, ray)) r.wet++;
+      chest.copy(s.p).addScaledVector(s.normal, 0.9);
+      toChest.subVectors(chest, cam.position);
+      const dist = toChest.length();
+      ray.set(cam.position, toChest.normalize());
+      ray.far = dist - 0.2;
+      const ndc = chest.clone().project(cam);
+      if (ray.intersectObject(mesh, false).length === 0 && ndc.z < 1 && Math.abs(ndc.x) < 0.95 && Math.abs(ndc.y) < 0.95) r.seen++;
+      for (const d of dirs) {
+        ray.set(cam.position, d);
+        ray.far = 2;
+        const h = ray.intersectObject(mesh, false)[0];
+        if (h) r.nearest = Math.min(r.nearest, h.distance);
+      }
+    }
+    return r;
+  }
+
+  it.each([
+    [0.5, 6, 1],
+    [0.35, 5, 1],
+    [0.8, 4, 1],
+    [-1, 0, 1],
+    [-1, 0, -1],
+  ])('carving (every %s s; < 0 = key-mash from the drop-in) in the barrel / pocket (stall from %s s, first carve %s): the camera is never in the water or inside the lip, never within the near plane of it, and sees the rider (not through the curtain)', (period, stallAt, c1) => {
+    const r = tubeRun(period, stallAt, c1);
+    expect(r.tubeFrames).toBeGreaterThan(20);
+    expect(r.wet).toBe(0);
+    expect(r.nearest).toBeGreaterThan(0.1);
+    expect(r.seen / r.tubeFrames).toBeGreaterThanOrEqual(0.9);
+  }, 30_000);
 });

@@ -21,6 +21,8 @@ const ATTRIBUTES = ['position', 'aAlpha', 'aSize', 'aShade'] as const;
 export const NEAR_FADE = [0.8, 2.5] as const;
 /** Largest point size, as a fraction of the internal render height. */
 export const MAX_POINT_FRACTION = 0.06;
+/** View depth (m) over which drops grow from nothing to full size (they shrink away toward the lens). */
+export const NEAR_SHRINK = [0.8, 3.5] as const;
 /** A dying drop shrinks to this fraction of its size as it fades … */
 export const DROP_MIN_SIZE = 0.3;
 /** … and is fully opaque until its fade value (ParticlePool alpha, 1 → 0 over the last 30% of life) drops below this. */
@@ -40,11 +42,15 @@ void main() {
   // Spray right at the lens (the tube camera sits under the falling lip) fades out instead of
   // filling the screen with giant discs; point sizes are capped for the same reason.
   // A dying drop fades by SHRINKING (it stays white water), only going transparent at the very end:
-  // translucent white over the teal read as dirty grey discs.
-  vAlpha = smoothstep(0.0, ${DROP_FADE_ALPHA.toFixed(2)}, aAlpha) * smoothstep(${NEAR_FADE[0].toFixed(1)}, ${NEAR_FADE[1].toFixed(1)}, -mvPosition.z);
+  // translucent white over the teal read as dirty grey discs. Drops near the lens do the same: they
+  // shrink away over NEAR_SHRINK (big discs right at the camera cluttered the title and the tube
+  // view) and only go transparent within NEAR_FADE.
+  float nearFade = smoothstep(${NEAR_FADE[0].toFixed(1)}, ${NEAR_FADE[1].toFixed(1)}, -mvPosition.z);
+  float nearShrink = smoothstep(${NEAR_SHRINK[0].toFixed(1)}, ${NEAR_SHRINK[1].toFixed(1)}, -mvPosition.z);
+  vAlpha = smoothstep(0.0, ${DROP_FADE_ALPHA.toFixed(2)}, aAlpha) * smoothstep(0.0, 0.4, nearFade);
   vShade = aShade;
   gl_Position = projectionMatrix * mvPosition;
-  gl_PointSize = vAlpha > 0.0 ? clamp(aSize * (${DROP_MIN_SIZE.toFixed(2)} + ${(1 - DROP_MIN_SIZE).toFixed(2)} * aAlpha) * uScale / -mvPosition.z, 1.0, uMaxSize) : 0.0;
+  gl_PointSize = vAlpha > 0.0 ? clamp(aSize * (${DROP_MIN_SIZE.toFixed(2)} + ${(1 - DROP_MIN_SIZE).toFixed(2)} * aAlpha) * nearShrink * uScale / -mvPosition.z, 1.0, uMaxSize) : 0.0;
   ${ShaderChunk.fog_vertex}
 }
 `;
@@ -69,7 +75,7 @@ const CAPACITY = 4096;
  * curl beside / behind it) the lip's spray is what shows the wave crashing. `fizz` is the aerated
  * surface of the whitewater (it gives the foam sheet volume up close).
  */
-export const PARTICLE_RATES = { lip: 240, bursts: 12, burstSize: 16, churn: 140, feather: 240, lipSmoke: 150, fizz: 260 } as const;
+export const PARTICLE_RATES = { lip: 240, bursts: 12, burstSize: 16, churn: 140, feather: 240, lipSmoke: 110, fizz: 380 } as const;
 /**
  * Board spray. A steady wake of `cruise` per (m/s); a rooster tail thrown off the outside rail that
  * grows with speed × turn rate (`fan` per (m/s · rad/s), fuller with the carve held, and a little
@@ -211,9 +217,11 @@ export class Particles {
     }
     // Fizz: the aerated surface of the whitewater behind the impact (the foam sheet has volume).
     for (let n = this.fizzRate.take(PARTICLE_RATES.fizz, dt); n > 0; n--) {
-      const behind = 18 * this.random() ** 1.5;
+      const behind = 22 * this.random() ** 1.2;
       const x = -D - behind;
-      w.profile(x, w.crestT(x) * this.rnd(0, 1.05), this.p);
+      // Over the whitewater mound, and over the foam spreading onto the flats in front of it.
+      if (this.random() < 0.3) this.p.set(x, 0, w.profile(x, 0, this.q).z + this.rnd(0, 6));
+      else w.profile(x, w.crestT(x) * this.rnd(0, 1.05), this.p);
       this.pool.spawn({ x: this.p.x, y: this.p.y + 0.05, z: this.p.z + this.rnd(0, 1.5), vx: this.rnd(-0.8, 0.4), vy: this.rnd(0.4, 1.6), vz: this.rnd(-0.3, 0.8), life: this.rnd(0.4, 0.9), size: this.rnd(0.1, 0.24), gravity: -4, drag: 1.2, shade: 1 });
     }
     const s = this.surfer;
@@ -311,7 +319,7 @@ export class Particles {
     });
   }
 
-  /** A snap / lip turn or a combo carve (cutback): a full fan all at once (riding only). */
+  /** A snap / lip turn or a cutback: a full fan all at once (riding only). */
   private roosterBurst(count: number): void {
     const s = this.surfer;
     if (s.mode !== 'riding') return;

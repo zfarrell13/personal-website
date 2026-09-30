@@ -6,7 +6,7 @@ import { EventBus, type SurfEvent } from '../physics/events';
 import { Surfer } from '../physics/Surfer';
 import { mulberry32 } from '../math/random';
 import { WaveShape } from '../wave/WaveShape';
-import { BOARD_SPRAY, DROP_MIN_SIZE, MAX_POINT_FRACTION, NEAR_FADE, Particles } from './Particles';
+import { BOARD_SPRAY, DROP_MIN_SIZE, MAX_POINT_FRACTION, NEAR_FADE, NEAR_SHRINK, Particles } from './Particles';
 
 function alive(p: Particles, filter: (x: number, y: number, z: number) => boolean): number {
   const { pos, life } = p.pool;
@@ -81,7 +81,9 @@ describe('Particles — near the lens', () => {
     p.setScale(cam, 448);
     expect(p.points.material.uniforms.uMaxSize!.value).toBeCloseTo(448 * MAX_POINT_FRACTION, 9);
     expect(p.points.material.vertexShader).toContain(`smoothstep(${NEAR_FADE[0].toFixed(1)}, ${NEAR_FADE[1].toFixed(1)}, -mvPosition.z)`);
-    expect(p.points.material.vertexShader).toContain(`clamp(aSize * (${DROP_MIN_SIZE.toFixed(2)} + ${(1 - DROP_MIN_SIZE).toFixed(2)} * aAlpha) * uScale / -mvPosition.z, 1.0, uMaxSize)`);
+    expect(p.points.material.vertexShader).toContain(`smoothstep(${NEAR_SHRINK[0].toFixed(1)}, ${NEAR_SHRINK[1].toFixed(1)}, -mvPosition.z)`);
+    // Dying and near-lens drops shrink (they stay white), capped to a fraction of the render height.
+    expect(p.points.material.vertexShader).toContain(`clamp(aSize * (${DROP_MIN_SIZE.toFixed(2)} + ${(1 - DROP_MIN_SIZE).toFixed(2)} * aAlpha) * nearShrink * uScale / -mvPosition.z, 1.0, uMaxSize)`);
     p.dispose();
   });
 });

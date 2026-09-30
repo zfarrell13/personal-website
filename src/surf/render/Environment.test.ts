@@ -66,7 +66,8 @@ describe('Environment water', () => {
     env.frameStuff.traverse((o) => {
       if (o instanceof Mesh) meshes.push(o);
     });
-    expect(meshes.filter((m) => (m.material as Material).transparent)).toEqual([]);
+    // The gulls are the one transparent thing (drawn after the water, so a gull behind the wave is hidden by it).
+    expect(meshes.filter((m) => (m.material as Material).transparent && m.name !== 'gulls')).toEqual([]);
     const floor = meshes.find((m) => m.name === 'seaFloor');
     expect(floor).toBeDefined();
     expect(floor!.position.y).toBeLessThan(-4);

@@ -69,7 +69,7 @@ export function TitleMenu({ initialSide, onStart, guide = true, onGuide }: Title
           </Panel>
         </div>
         <RetroButton data-primary="true" onClick={() => onStart(side)}>DROP IN</RetroButton>
-        <p className={styles.legend}>
+        <p className={`${styles.legend} ${styles.legendPlate}`}>
           ← → carve (hold at the lip to snap, let go at the lip to launch) · ↑ pump · ↓ stall · SPACE ollie · air: ← → spin, W A S D grabs · ESC pause
         </p>
         {scores.length > 0 ? (

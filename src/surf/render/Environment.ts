@@ -253,8 +253,12 @@ export class Environment {
     const gullGeo = new BufferGeometry();
     gullGeo.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0, -0.6, 0.15, -0.1, 0, 0.05, 0.25, 0, 0, 0, 0.6, 0.15, -0.1, 0, 0.05, 0.25]), 3));
     gullGeo.computeVertexNormals();
-    this.gulls = new InstancedMesh(gullGeo, new MeshBasicMaterial({ color: '#f2f2f2', side: DoubleSide }), 5);
+    this.gulls = new InstancedMesh(gullGeo, new MeshBasicMaterial({ color: '#f2f2f2', side: DoubleSide, transparent: true }), 5);
     this.gulls.frustumCulled = false;
+    // Drawn after the (translucent) water, so the water's depth hides a gull behind the wave instead of
+    // it showing through the lip as a dark speck.
+    this.gulls.renderOrder = 3;
+    this.gulls.name = 'gulls';
     this.frameStuff.add(this.gulls);
 
     for (const obj of [this.sky, floor, islandMesh, pier, this.gulls]) {

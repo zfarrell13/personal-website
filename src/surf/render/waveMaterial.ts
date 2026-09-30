@@ -92,16 +92,20 @@ const LIP_GLSL = /* glsl */ `
  */
 const FOAM_GLSL = /* glsl */ `
   float foamA = texture2D(uFoamTex, vFoamUv).r;
-  float foamB = texture2D(uFoamTex, vFoamUv * vec2(0.35, 2.2) + vec2(0.37, 0.61)).r;
-  // Fine, slowly boiling detail: lumps and streaks inside the covered foam (volume up close).
-  float foamC = texture2D(uFoamTex, vFoamUv * vec2(1.3, 4.7) + vec2(0.11 + uTime * 0.05, 0.53 - uTime * 0.08)).r;
-  float foamN = 0.5 * foamA + 0.35 * foamB + 0.15 * foamC;
+  // Streaks drawn out along the break (the water runs through the frame along x).
+  float foamB = texture2D(uFoamTex, vFoamUv * vec2(0.3, 2.6) + vec2(0.37, 0.61)).r;
+  // Fine, slowly boiling detail: lumps, holes and sparkle inside the foam (volume up close).
+  float foamC = texture2D(uFoamTex, vFoamUv * vec2(1.6, 5.5) + vec2(0.11 + uTime * 0.05, 0.53 - uTime * 0.09)).r;
+  float foamN = 0.4 * foamA + 0.4 * foamB + 0.2 * foamC;
   float foamAmt = clamp(vFoam, 0.0, 1.0);
-  float foamCover = foamAmt * smoothstep(0.9 - foamAmt, 1.2 - foamAmt, foamN);
-  // Milky aerated water only where the foam is thick: thin foam is patches on clear water, not a haze.
+  float foamCover = foamAmt * smoothstep(0.92 - foamAmt, 1.12 - foamAmt, foamN);
+  // Between the lumps of thick foam: aerated turquoise water (never a flat milky sheet).
   float foamMilky = smoothstep(0.35, 0.9, foamAmt) * (1.0 - foamCover);
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.88, 0.86), 0.75 * foamMilky);
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 1.0, 1.0) * (0.8 + 0.25 * foamC + 0.1 * foamB), foamCover);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.74, 0.74), 0.7 * foamMilky);
+  // Lumpy white foam: brighter crests on the fine noise, shadowed troughs between them.
+  float foamLump = 0.72 + 0.38 * smoothstep(0.25, 0.85, foamC) + 0.1 * foamB;
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 1.0, 1.0) * foamLump, foamCover);
+  float foamSparkle = foamCover * smoothstep(0.78, 0.9, foamC);
 `;
 
 /** Inject ripple, the animated pitching lip, foam scrolling, fake subsurface and sky reflection into a Lambert shader. Pure string surgery (unit-tested). */
@@ -137,7 +141,7 @@ ${FOAM_GLSL}`,
   float rim = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
   totalEmissiveRadiance += uSSS * rim * rim * vFace;
   // Self-lit foam is for daylight above the water; from below (the wipeout cut, uReflect = 0) it stays dim.
-  totalEmissiveRadiance += diffuseColor.rgb * (0.5 * foamCover + 0.3 * foamMilky) * uReflect;`,
+  totalEmissiveRadiance += (diffuseColor.rgb * (0.45 * foamCover + 0.25 * foamMilky) + 0.35 * foamSparkle) * uReflect;`,
       )
       .replace('#include <opaque_fragment>', `${SKY_REFLECTION_GLSL}\n#include <opaque_fragment>`);
 }
