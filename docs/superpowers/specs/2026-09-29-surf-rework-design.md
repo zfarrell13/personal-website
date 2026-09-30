@@ -104,16 +104,25 @@ Headless (Vitest, real Surfer + WaveShape + CameraRig):
 Browser: screenshots (riding, fast section, tube, air) inspected; e2e suite green.
 
 Pumping targets (playtest 2, Task 2b — headless, `lineBot` + scripted inputs, frame x = ground on the curl):
-7. Pumping every 0.5–0.7 s on a moderate line (`lineBot` default band, slope 0.3) gains ≥ 10 m on the
-   curl over 20 s; pumping every 0.6 s on a straight-ish line (slope 0.15) at least holds its ground
-   for 30 s. (Replaces the old "pumping alone, no carving, dies in < 7 s" test.)
-8. No input is still swallowed in ~4–5 s; the same lines without pumps still lose the wave within 10 s.
-9. Pump feel: a full-efficiency pump mid-face at riding speed (8–12 m/s) adds +1.5–2.5 m/s of world
-   speed; spamming faster than ~0.35 s has diminishing returns (speed per second at 0.2 s < 80%, at
-   0.1 s < 50% of a 0.6 s rhythm); a pump low on the face or in the flats is weaker than mid-face but
-   never nothing (`pumpFlatGain`: half strength on the flats, full from steepness 0.35); pumps do
-   nothing in the air.
-
+7. A human-like rhythm — pumps at irregular 0.8–1.2 s gaps (seeded, 8 seeds) while carving a moderate
+   line (slope 0.2 and 0.3) — gains ≥ 10 m on the curl in 20 s (median); started further down the line
+   (x = 25) it loses no ground over 20 s. Pumping every 0.5–0.7 s on a slope-0.3 line gains ≥ 10 m in 20 s;
+   every 0.6 s on a straight-ish line (slope 0.15) at least holds for 30 s. (Replaces the old
+   "pumping alone, no carving, dies in < 7 s" test.)
+8. No input is swallowed in 4–6 s (tuned ≈ 5.0 s); the same lines without pumps still lose the wave
+   within 10 s.
+9. Pump feel: a full-efficiency pump mid-face at riding speed (8–12 m/s) adds +1.5–3 m/s of world speed;
+   spamming faster than ~0.35 s has diminishing returns (speed per second at 0.2 s < 80%, at 0.1 s < 50%
+   of a 0.6 s rhythm); a pump low on the face or in the flats is weaker than mid-face but never nothing
+   (`pumpFlatGain`: half strength on the flats, full from steepness 0.35); pumps do nothing in the air.
+10. Slamming the trough is a bottom turn, not a dead stop: the line swings toward along the wave (the
+    way it already runs; from straight down, toward the shoulder) at `bottomTurnRate`, bleeding
+    `bottomTurnLoss` per 90°; at 6 and 10 m/s the rider keeps ≥ 70% of its speed through the turn and
+    the heading never changes > 15° in one tick. Once on the flats (t = 0) the board bogs down
+    (`flatsDragMultiplier` × drag).
+11. Camera cutback probes use genuine turns back toward the curl (a lip snap carve-back, or a carve
+    past the fall line into a bottom turn), never a one-tick heading snap; far-out reversals must
+    leave settled-line samples.
 
 ## Playtest 2 amendments (user feedback)
 

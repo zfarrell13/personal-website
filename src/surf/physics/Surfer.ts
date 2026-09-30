@@ -41,6 +41,8 @@ export interface SurferState {
 }
 
 const CREST_EPS = 0.004;
+/** A bottom turn from (nearly) straight down the face heads for the shoulder unless the board already runs back toward the curl by more than this share of its speed. */
+const BOTTOM_TURN_SENSE = 0.05;
 /** The rideable face ends where the surface normal's y drops below this (face going vertical / overhanging). */
 const FACE_MIN_NY = 0.2;
 /** A floater mount always has enough pop to rise this far (m) past the top of the lip. */
@@ -337,6 +339,31 @@ export class Surfer {
     this.eUp.crossVectors(this.state.normal, this.e1).normalize();
   }
 
+  /**
+   * Bottomed out on the flats in front of the wave while still heading further out: a bottom turn.
+   * The board's line through the water swings toward along the wave (the way it already runs;
+   * from straight down, toward the shoulder) at bottomTurnRate, bleeding bottomTurnLoss of its
+   * speed per 90° turned. Never a dead stop or a one-tick heading snap.
+   */
+  private bottomTurn(dt: number): void {
+    const s = this.state;
+    const c = this.cfg;
+    this.frameAt(s.param.x, 0);
+    const water = this.water.copy(this.e1).multiplyScalar(-this.vp);
+    const rel = this.rel.subVectors(s.v, water);
+    const down = rel.dot(this.eUp);
+    if (down >= 0) return;
+    const along = rel.dot(this.e1);
+    const sp = Math.hypot(along, down);
+    const phi = Math.atan2(down, along); // −π/2 = straight down the face
+    const dir = along < -BOTTOM_TURN_SENSE * sp ? -1 : 1;
+    const turn = Math.min(c.bottomTurnRate * dt, dir > 0 ? -phi : Math.PI + phi);
+    const next = phi + dir * turn;
+    const speed = sp * (1 - (c.bottomTurnLoss * turn) / (Math.PI / 2));
+    rel.copy(this.e1).multiplyScalar(Math.cos(next) * speed).addScaledVector(this.eUp, Math.sin(next) * speed);
+    s.v.addVectors(rel, water);
+  }
+
   private emit(e: SurfEvent): void {
     this.bus.emit(e);
   }
@@ -379,7 +406,8 @@ export class Surfer {
     }
     const steep = w.steepness(s.param.x, s.param.t);
     a.addScaledVector(this.e1, c.drive * steep);
-    const dragK = c.drag * (s.stalling ? c.stallDragMultiplier : 1);
+    // Bottomed out on the flats in front of the wave, the board bogs down.
+    const dragK = c.drag * (s.stalling ? c.stallDragMultiplier : 1) * (s.param.t <= 0 ? c.flatsDragMultiplier : 1);
     a.addScaledVector(rel, -dragK * speed0);
     if (input.carve !== 0 && speed0 > 1e-3) a.addScaledVector(rel, (-c.carveBleed * Math.abs(input.carve)) / speed0);
     s.v.addScaledVector(a, dt);
@@ -454,12 +482,7 @@ export class Surfer {
         w.profile(s.param.x, s.param.t, s.p);
         w.normal(s.param.x, s.param.t, n);
         s.v.addScaledVector(n, -s.v.dot(n));
-        if (s.param.t <= 0) {
-          // Bottomed out on the flats in front of the wave: the part heading further out is lost.
-          this.frameAt(s.param.x, 0);
-          const out = s.v.dot(this.eUp);
-          if (out < 0) s.v.addScaledVector(this.eUp, -out);
-        }
+        if (s.param.t <= 0) this.bottomTurn(dt);
       }
     }
     this.headingFromMotion(s.heading);

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Vector3 } from 'three';
 import { bumpConfig, SURF_CONFIG } from '../config';
 import { DEG } from '../math/scalar';
+import { mulberry32 } from '../audio/synth';
 import { WaveShape } from '../wave/WaveShape';
 import { EventBus, type SurfEvent } from './events';
 import { NO_INPUT, type SurferInput } from './input';
@@ -49,7 +50,7 @@ function median(xs: number[]): number {
 }
 
 describe('Surfer — riding', () => {
-  it('no input: stays on the surface and the curl swallows the rider after 3.5–5.2 s (never under 2 s)', () => {
+  it('no input: stays on the surface and the curl swallows the rider after 4–6 s (never under 2 s)', () => {
     const { wave, s, surfer } = setup();
     const onSurface = new Vector3();
     let worst = 0;
@@ -61,8 +62,8 @@ describe('Surfer — riding', () => {
     }
     expect(worst).toBeLessThan(1e-6);
     expect(s.wipeoutReason).toBe('swallowed');
-    expect(caught).toBeGreaterThanOrEqual(3.5);
-    expect(caught).toBeLessThanOrEqual(5.2);
+    expect(caught).toBeGreaterThanOrEqual(4);
+    expect(caught).toBeLessThanOrEqual(6);
   });
 
   it('rhythmic pumping (1/s) plus down-the-line S-turns stays ahead of the curl for 30 s at base peel', () => {
@@ -132,6 +133,42 @@ describe('Surfer — riding', () => {
     const r = ride(h, lineBot(h.surfer, h.wave, { pumpEvery, slope: 0.3 }), 20.5);
     expect(r.alive).toBe(true);
     expect(r.x20 - r.x0).toBeGreaterThanOrEqual(10);
+  });
+
+  /**
+   * A human: the lineBot's carving, but pumping at irregular gaps drawn from [0.8, 1.2] s (seeded).
+   * Returns the median over seeds 1–8 of the frame-x gain over 20 s (a wipeout counts as −∞).
+   */
+  function humanGain(slope: number, startX?: number) {
+    const gains = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) => {
+      const h = setup();
+      if (startX !== undefined) h.surfer.reset(startX, 0.5);
+      const rnd = mulberry32(seed);
+      const carve = lineBot(h.surfer, h.wave, { pumpEvery: 0, slope });
+      let gap = 0.8 + 0.4 * rnd();
+      let since = 0;
+      const r = ride(h, (dt) => {
+        const input = carve(dt);
+        since += dt;
+        input.pump = since >= gap;
+        if (input.pump) {
+          since = 0;
+          gap = 0.8 + 0.4 * rnd();
+        }
+        return input;
+      }, 20.5);
+      return r.alive ? r.x20 - r.x0 : -Infinity;
+    });
+    return median(gains);
+  }
+
+  // Playtest 2: a human pumping about once a second while carving a moderate line beats the section.
+  it.each([0.2, 0.3])('a human pumping every 0.8–1.2 s (irregular) on a slope %d line gains ≥ 10 m on the curl in 20 s (median of 8 seeds)', (slope) => {
+    expect(humanGain(slope)).toBeGreaterThanOrEqual(10);
+  });
+
+  it.each([0.2, 0.3])('… and started further down the line (x = 25) on a slope %d line, loses no ground over 20 s (median of 8 seeds)', (slope) => {
+    expect(humanGain(slope, 25)).toBeGreaterThanOrEqual(0);
   });
 
   it('pumping every 0.6 s on a straight-ish line (slope 0.15) at least holds its ground for 30 s', () => {
@@ -240,10 +277,10 @@ describe('Surfer — riding', () => {
     return pumped.surfer.worldSpeed(pumped.surfer.peelSpeed) - control.surfer.worldSpeed(control.surfer.peelSpeed);
   }
 
-  it('a pump mid-face at riding speed is a clear kick: +1.5–2.5 m/s', () => {
+  it('a pump mid-face at riding speed is a clear kick: +1.5–3 m/s', () => {
     for (const speed of [8, 10, 12]) {
       expect(pumpKick(speed, 0.4)).toBeGreaterThanOrEqual(1.5);
-      expect(pumpKick(speed, 0.4)).toBeLessThanOrEqual(2.5);
+      expect(pumpKick(speed, 0.4)).toBeLessThanOrEqual(3);
     }
   });
 
@@ -360,6 +397,58 @@ describe('Surfer — riding', () => {
     const r12 = radius(12);
     expect(r9).toBeGreaterThan(r6 * 1.3);
     expect(r12).toBeGreaterThan(r9 * 1.3);
+  });
+
+  /**
+   * From (15, 0.15), riding at world `speed` down the face at `angle` from the fall line (+ toward
+   * the shoulder), with no input into the trough: the speed just before the bottom, the lowest speed
+   * through the bottom turn (0.2 s), the largest one-tick heading change and the final heading.
+   */
+  function slamTrough(speed: number, angleDeg: number) {
+    const h = setup();
+    h.surfer.reset(15, 0.15);
+    const up = new Vector3().crossVectors(h.s.normal, new Vector3(1, 0, 0)).normalize();
+    const a = angleDeg * DEG;
+    const world = new Vector3(1, 0, 0).multiplyScalar(Math.sin(a)).addScaledVector(up, -Math.cos(a) * speed);
+    world.x = Math.sin(a) * speed;
+    h.s.v.copy(world).setX(world.x - h.surfer.peelSpeed);
+    h.s.v.addScaledVector(h.s.normal, -h.s.v.dot(h.s.normal));
+    h.run(DT); // the heading follows the set-up motion
+    let before = NaN;
+    let hitAt = -1;
+    let minAfter = Infinity;
+    let maxTurn = 0;
+    const prev = h.s.heading.clone();
+    for (let i = 0; i < 2 * 120 && h.s.mode === 'riding'; i++) {
+      const sp = h.surfer.worldSpeed(h.surfer.peelSpeed);
+      h.run(DT);
+      if (hitAt < 0 && h.s.param.t <= 0) {
+        hitAt = h.s.time;
+        before = sp;
+      }
+      // The turn itself (≈ 0.13 s); afterwards the flats bog the board down (flatsDragMultiplier) on purpose.
+      if (hitAt >= 0 && h.s.time <= hitAt + 0.2) minAfter = Math.min(minAfter, h.surfer.worldSpeed(h.surfer.peelSpeed));
+      maxTurn = Math.max(maxTurn, prev.angleTo(h.s.heading));
+      prev.copy(h.s.heading);
+      if (hitAt >= 0 && h.s.time > hitAt + 0.5) break;
+    }
+    return { hit: hitAt >= 0, before, minAfter, maxTurnDeg: maxTurn / DEG, heading: h.s.heading.clone() };
+  }
+
+  it.each([
+    [6, 0],
+    [10, 0],
+    [6, 20],
+    [10, 20],
+    [10, -20],
+  ])('slamming the trough at %d m/s (%d° off the fall line) is a bottom turn: keeps ≥ 70% of the speed, no heading snap (≤ 15° per tick)', (speed, angle) => {
+    const r = slamTrough(speed, angle);
+    expect(r.hit).toBe(true);
+    expect(r.minAfter).toBeGreaterThanOrEqual(0.7 * r.before);
+    expect(r.maxTurnDeg).toBeLessThanOrEqual(15);
+    // It comes out running along the wave, the way it was already going (straight down → the shoulder).
+    if (angle < 0) expect(r.heading.x).toBeLessThan(-0.7);
+    else expect(r.heading.x).toBeGreaterThan(0.7);
   });
 
   it('the board points along its motion through the water, even while losing ground to the curl', () => {

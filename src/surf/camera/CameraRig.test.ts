@@ -342,21 +342,38 @@ describe('CameraRig on the real wave (ray / visibility probes)', () => {
 });
 
 describe('a cutback: the camera swings round behind the new travel direction', () => {
-  // [start x, carve −1 from (s), reverses toward the curl (else it ends heading straight to shore)]
+  // [start x, script, turn time (s), reverses toward the curl, far out (the reversal must leave settled-line samples)]
+  // 'lip': down the line with lineBot until the first climb into the top band (≥ 0.72 × crest) after 1 s,
+  //   then hold a carve-back (−1) through the lip snap until the board heads back toward the curl
+  //   (heading.x < −0.5), then straight: a genuine turn back toward the curl (snap + bottom turn).
+  // 'carve': lineBot until the turn time, then hold carve −1 for ≤ 1.2 s (down the face; overshooting
+  //   the fall line, the bottom turn carries on toward the curl, else back down the line).
   it.each([
-    [26, 1.5, true],
-    [18, 1.5, true],
-    [10, 1.5, true],
-    [8, 1.4, true],
-    [12, 1.7, true],
-    [22, 1.4, true],
-    [8, 2.6, true],
-    [14, 0.8, false],
-    [6, 0.8, false],
-    [18, 2.0, false],
-  ] as const)('from x = %s (carving at %s s; reversal %s): the camera is clearly in front of the travel for ≤ 0.5 s at a stretch, sees the rider in ≥ 90 percent of chase frames, never sways sideways, never crowds the rider, stays above the crest and out of the water', (x0, turnAt, reverses) => {
+    [30, 'lip', 1, true, true],
+    [26, 'lip', 1, true, true],
+    [22, 'lip', 1, true, false],
+    [18, 'lip', 1, true, false],
+    [12, 'lip', 1, true, false],
+    [10, 'lip', 1, true, false],
+    [8, 'lip', 1, true, false],
+    [8, 'carve', 1.4, true, false],
+    [12, 'carve', 1.7, true, false],
+    [22, 'carve', 1.4, true, false],
+    [26, 'carve', 1.5, false, false],
+    [10, 'carve', 1.5, false, false],
+    [14, 'carve', 0.8, false, false],
+    [18, 'carve', 2.0, false, false],
+  ] as const)('from x = %s (%s turn, %s s; reversal %s): the camera is clearly in front of the travel for ≤ 0.5 s at a stretch, sees the rider in ≥ 90 percent of chase frames, never sways sideways, never crowds the rider, stays above the crest and out of the water', (x0, script, turnAt, reverses, farOut) => {
     {
-      const { cfg, wave, surfer, s } = world();
+      const cfg = structuredClone(SURF_CONFIG);
+      const wave = new WaveShape(cfg.wave);
+      const bus = new EventBus<SurfEvent>();
+      let snaps = 0;
+      bus.onAny((e) => {
+        if (e.type === 'snap') snaps++;
+      });
+      const surfer = new Surfer(wave, cfg.physics, bus);
+      const s = surfer.state;
       const front = new Mesh(buildWaveGeometry(wave, columnsX(cfg.mesh.columns, cfg.wave.xMin, cfg.wave.xMax), cfg.mesh.rows), new MeshBasicMaterial({ side: DoubleSide }));
       front.updateMatrixWorld();
       surfer.reset(x0, 0.5);
@@ -382,11 +399,28 @@ describe('a cutback: the camera swings round behind the new travel direction', (
       let lastZ = NaN;
       let maxStep = 0;
       let reversedAt = -1;
-      for (let f = 0; f < 5 * 60; f++) {
+      let phase: 'line' | 'turn' | 'straight' = 'line';
+      let turnStart = -1;
+      let backAt = -1;
+      let maxTick = 0;
+      const lastHeading = s.heading.clone();
+      const input = (): SurferInput => {
+        const t = s.time;
+        if (script === 'carve') return t < turnAt ? bot(1 / 120) : t < turnAt + 1.2 && s.heading.x > -0.9 ? { ...NO_INPUT, carve: -1 } : NO_INPUT;
+        if (phase === 'line' && t > turnAt && s.heading.y > 0.05 && s.p.y > 0.72 * wave.crestY(s.param.x)) {
+          phase = 'turn';
+          turnStart = t;
+        }
+        if (phase === 'turn' && (s.heading.x < -0.5 || t - turnStart > 2)) phase = 'straight';
+        return phase === 'line' ? bot(1 / 120) : phase === 'turn' ? { ...NO_INPUT, carve: -1 } : NO_INPUT;
+      };
+      for (let f = 0; f < 6 * 60; f++) {
         for (let k = 0; k < 2; k++) {
-          const t = s.time;
-          // Down the line, then hold a carve until the board heads back toward the curl, then straight.
-          surfer.step(t < turnAt ? bot(1 / 120) : t < turnAt + 1.2 && s.heading.x > -0.9 ? { ...NO_INPUT, carve: -1 } : NO_INPUT, 1 / 120);
+          surfer.step(input(), 1 / 120);
+          // The board turns with the rail: never a one-tick heading snap (e.g. off the trough).
+          if (s.mode === 'riding') maxTick = Math.max(maxTick, lastHeading.angleTo(s.heading));
+          lastHeading.copy(s.heading);
+          if (backAt < 0 && s.heading.x < -0.5) backAt = s.time;
         }
         rig.update(s, s.p, 'left', false, 1 / 60, s.time);
         if (s.mode !== 'riding' && s.mode !== 'airborne') break;
@@ -420,14 +454,21 @@ describe('a cutback: the camera swings round behind the new travel direction', (
           const z = rig.pos.z - s.p.z;
           if (!Number.isNaN(lastZ)) maxStep = Math.max(maxStep, Math.abs(z - lastZ));
           lastZ = z;
-          // … and once the swing has settled (≥ 1 s = 3 time constants of chaseYawRate after the board
-          // came round) it holds its line.
-          if (s.time > 4 && s.time - reversedAt >= 3 / C.chaseYawRate) zs.push(z);
+          // … and once the swing has settled (5 time constants of chaseYawRate after the board came
+          // round: a 180° swing is then within 2°) it holds its line.
+          if (s.time > 4 && s.time - reversedAt >= 5 / C.chaseYawRate) zs.push(z);
         } else lastZ = NaN;
         if (rig.keyFacing === -1) facingBack++;
       }
       if (reverses) expect(reversed).toBeGreaterThan(30);
       else expect(reversed).toBe(0);
+      expect(maxTick).toBeLessThanOrEqual(15 * (Math.PI / 180));
+      if (script === 'lip') {
+        // A genuine turn back toward the curl: a lip snap, then heading −x.
+        expect(snaps).toBeGreaterThan(0);
+        expect(backAt).toBeGreaterThan(turnStart);
+      }
+      if (farOut) expect(zs.length).toBeGreaterThan(0);
       expect(longest / 60).toBeLessThanOrEqual(0.5);
       expect(chaseSeen / chase).toBeGreaterThanOrEqual(0.9);
       expect(minDist).toBeGreaterThanOrEqual(1.5);

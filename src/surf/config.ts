@@ -40,18 +40,20 @@ export const SURF_CONFIG = {
     railGrip: 0.85,
     gripSpeed: 5,
     /** Wave drive gain along +x, multiplied by local steepness (m/s²). */
-    drive: 2,
+    drive: 1.3,
     /** Quadratic drag against the water (moving at −Vp in the frame). */
-    drag: 0.036,
+    drag: 0.025,
     stallDragMultiplier: 4,
+    /** Drag multiplier while bottomed out on the flats in front of the wave (t = 0): the board bogs down there. */
+    flatsDragMultiplier: 2,
     /** Carve yaw rate = carveRate / (1 + speed / carveHalfSpeed) (rad/s); turn radius = speed / rate grows with speed. */
     carveRate: 6,
     carveHalfSpeed: 15,
     /** The yaw rate eases toward its target with this time constant (s): a weighty rail. */
     carveLag: 0.12,
     /** Speed bled while a carve is held (m/s²). */
-    carveBleed: 0.2,
-    pumpImpulse: 2.8,
+    carveBleed: 0.7,
+    pumpImpulse: 3.35,
     /** Fixed speed cost per pump: spamming (low efficiency) nets less than rhythm. */
     pumpCost: 0.35,
     pumpPeriod: 0.6,
@@ -62,6 +64,10 @@ export const SURF_CONFIG = {
     pumpMinSteepness: 0.1,
     pumpFullSteepness: 0.35,
     pumpFlatGain: 0.5,
+    /** Slamming the trough is a bottom turn: the line swings toward along the wave at this rate (rad/s) … */
+    bottomTurnRate: 12,
+    /** … bleeding this share of the speed per 90° turned. */
+    bottomTurnLoss: 0.25,
     /** Upward normal speed at the crest needed to launch (m/s). */
     launchSpeed: 3,
     /** Reaching the top of the face too slow to launch pushes the rider back down at this speed (m/s). */
