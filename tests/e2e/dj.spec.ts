@@ -262,7 +262,15 @@ test('StrictMode (next dev): exactly one club canvas, rendering in the close-up 
 
 /** Drags a slider's cap to the top (vertical fader) or right end (crossfader) of its track. */
 async function dragSlider(page: Page, name: string, to: 'top' | 'right') {
-  const b = (await page.getByRole('slider', { name, exact: true }).boundingBox())!;
+  const slider = page.getByRole('slider', { name, exact: true });
+  // wait out a smooth scroll (the guide's phone reveal) so the drag starts on the cap's final position
+  let b = (await slider.boundingBox())!;
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(100);
+    const next = (await slider.boundingBox())!;
+    if (next.x === b.x && next.y === b.y) break;
+    b = next;
+  }
   const cx = b.x + b.width / 2;
   const cy = b.y + b.height / 2;
   const [from, dest] = to === 'top' ? [[cx, b.y + b.height - 2], [cx, b.y + 1]] : [[b.x + 2, cy], [b.x + b.width - 1, cy]];
@@ -283,12 +291,22 @@ test('guide: opens on the first visit and advances as each step is done, through
   await step(1);
   await lit('browse-0');
   await load(page, 0, 'test-tidal'); // 124 BPM
-  // 2. PLAY on deck 1 (+ CH 1 fader while it is down)
+  // 2. PLAY on deck 1, and CH 1's fader up: step 2 is done only once deck 1 is heard on the master
   await step(2);
   await lit('play-0');
   await lit('fader-ch-0');
-  await dragSlider(page, 'CH 1', 'top');
+  // the pulsing ring shows on the blinking PLAY button (drawn by ::after, so the LED blink keeps running)
+  const ring = await page.getByTestId('play-0').evaluate((el) => {
+    const a = getComputedStyle(el, '::after');
+    return { anim: a.animationName, border: a.borderTopColor, blink: getComputedStyle(el).animationName, pe: a.pointerEvents };
+  });
+  expect(ring).toMatchObject({ anim: 'dj-guide-pulse', border: 'rgb(255, 194, 26)', pe: 'none' });
+  expect(ring.blink).not.toBe('dj-guide-pulse');
   await page.getByTestId('play-0').click();
+  await step(2); // playing but silent: PLAY alone is not enough
+  await expect(page.getByTestId('guide-hint')).toContainText('not on the air yet');
+  await lit('fader-ch-0');
+  await dragSlider(page, 'CH 1', 'top');
   // 3. load deck 2
   await step(3);
   await lit('browse-1');
@@ -307,9 +325,11 @@ test('guide: opens on the first visit and advances as each step is done, through
   await page.getByTestId('play-1').click();
   await expect(page.getByTestId('guide-offset')).toBeVisible();
   await expect(guide).toHaveAttribute('data-step', '6', { timeout: 15_000 });
-  // 6. fade in: CH 2 up, assign CH 1 → A and CH 2 → B, sweep the crossfader to B
+  // 6. a real fade: deck 1 is on the air, CH 2 comes up while it plays (overlap), then the crossfader takes deck 1 out
+  await expect(page.getByTestId('guide-hint')).toContainText('while deck 1 keeps playing');
   await lit('fader-ch-1');
   await dragSlider(page, 'CH 2', 'top');
+  await step(6); // both up together is not a mix yet
   await lit('xf-assign-0');
   await page.getByTestId('xf-assign-0').click(); // THRU → B
   await page.getByTestId('xf-assign-0').click(); // B → A
@@ -366,6 +386,10 @@ test('guide on a phone: brings the panel and the control for the next step into 
   await expect(guide).toHaveAttribute('data-step', '2');
   await expect(page.getByTestId('play-0')).toBeInViewport({ ratio: 1 });
   await page.getByTestId('play-0').click();
+  // deck 1 plays but is silent: the guide moves to the mixer and brings CH 1's fader into view
+  await expect.poll(panel).toBe(1);
+  await expect(page.getByTestId('fader-ch-0').getByRole('slider')).toBeInViewport({ ratio: 1 });
+  await dragSlider(page, 'CH 1', 'top');
   await expect(guide).toHaveAttribute('data-step', '3');
   await expect.poll(panel).toBe(2);
   await expect(page.getByTestId('browse-1')).toBeInViewport();

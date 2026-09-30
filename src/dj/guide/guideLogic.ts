@@ -3,7 +3,7 @@
  * controls to light up. Everything is derived from the DJ store (+ the engine telemetry for play
  * state and beat phase); nothing here touches the DOM or the engine.
  */
-import type { CurveKind, DeckId, XfAssign } from '../constants';
+import { TEMPO_RESOLUTION, type CurveKind, type DeckId, type XfAssign } from '../constants';
 import { crossfaderGains } from '../engine/mixer/MixerCore';
 import { audibleBeat, type EngineTelemetry } from '../engine/telemetry';
 import type { DjData } from '../store/djStore';
@@ -20,6 +20,8 @@ export const HOLD_SEC = 2;
 export const FADER_UP = 0.7;
 /** A channel counts as out below this fader position or crossfader gain. */
 const OUT_LEVEL = 0.05;
+/** Both channels at least this loud (fader × crossfader gain) at once = the decks overlapped (a fade, not a gap). */
+export const OVERLAP_LEVEL = 0.3;
 
 export interface GuideDeckInput {
   loaded: boolean;
@@ -29,6 +31,8 @@ export interface GuideDeckInput {
   /** Effective BPM (track BPM × tempo). */
   bpm: number;
   sync: boolean;
+  /** BPM change of one tempo-fader step (the range's resolution): the finest adjustment the fader can make. */
+  tempoStepBpm: number;
 }
 
 export interface GuideChannelInput {
@@ -48,6 +52,11 @@ export interface GuideInput {
   alignedSec: number;
   /** Step 5 achieved (latched by GuideTracker). */
   beatmatched: boolean;
+  /** Deck 1 has been heard on the master since it was loaded (latched by GuideTracker; step 2). */
+  deck1Heard: boolean;
+  /** Step 6 latches: CH 1 was on the air during the step, and both channels were up together at some moment. */
+  fadeCh1OnAir: boolean;
+  fadeOverlap: boolean;
 }
 
 export interface GuideView {
@@ -60,7 +69,7 @@ export interface GuideView {
   /** Phone layout panel that holds the control to use now (0 = deck 1, 1 = mixer, 2 = deck 2). */
   panel: 0 | 1 | 2;
   /** Step 4: both BPMs (one decimal) and which way to move deck 2's tempo fader. */
-  bpm?: { deck1: string; deck2: string; dir: 'up' | 'down' | null };
+  bpm?: { deck1: string; deck2: string; dir: 'up' | 'down' | null; coarse?: boolean };
   /** Step 5: live beat offset and which way to nudge deck 2. */
   offset?: { ms: number; dir: 'forward' | 'back' | null };
   /** Step 5: progress of the 2 s hold, 0..1. */
@@ -87,19 +96,35 @@ function xfGain(i: GuideInput, ch: DeckId): number {
   return assign === 'A' ? a : b;
 }
 
-const ch2Audible = (i: GuideInput) => i.decks[1].playing && i.ch[1].fader >= FADER_UP && xfGain(i, 1) >= 0.5;
+/** A channel is on the air: its deck plays, its fader is up and the crossfader lets it through. */
+export const chAudible = (i: GuideInput, ch: DeckId) => i.decks[ch].playing && i.ch[ch].fader >= FADER_UP && xfGain(i, ch) >= 0.5;
 const ch1Out = (i: GuideInput) => i.ch[0].fader <= OUT_LEVEL || xfGain(i, 0) <= OUT_LEVEL;
+const level = (i: GuideInput, ch: DeckId) => (i.decks[ch].playing ? i.ch[ch].fader * xfGain(i, ch) : 0);
+/** Both channels clearly up at the same moment (the overlap of a fade). */
+export const bothUp = (i: GuideInput) => level(i, 0) >= OVERLAP_LEVEL && level(i, 1) >= OVERLAP_LEVEL;
+const anySync = (i: GuideInput) => i.decks[0].sync || i.decks[1].sync;
 
-/** Both decks playing at the same tempo with the kicks on top of each other (or held together by SYNC). */
+/** Both decks playing at the same tempo with the kicks on top of each other (or held together by SYNC on either deck). */
 export function isAligned(i: GuideInput): boolean {
   if (!i.decks[0].playing || !i.decks[1].playing || !tempoMatched(i)) return false;
-  return i.decks[1].sync || (i.offsetMs !== null && Math.abs(i.offsetMs) <= OFFSET_TOLERANCE_MS);
+  return anySync(i) || (i.offsetMs !== null && Math.abs(i.offsetMs) <= OFFSET_TOLERANCE_MS);
 }
 
-/** Completion of steps 1–6 (index 0 = step 1). */
+/**
+ * Completion of steps 1–6 (index 0 = step 1). Step 2 needs deck 1 actually heard on the master (PLAY alone
+ * is silent with the fader down). Step 6 is a real fade: CH 1 on the air, both channels up together at
+ * some point, then CH 2 on the air and CH 1 out.
+ */
 export function stepsComplete(i: GuideInput): boolean[] {
   const [d1, d2] = i.decks;
-  return [d1.loaded, d1.loaded && d1.playing, d2.loaded, tempoMatched(i), i.beatmatched, ch2Audible(i) && ch1Out(i)];
+  return [
+    d1.loaded,
+    d1.loaded && d1.playing && (i.deck1Heard || chAudible(i, 0)),
+    d2.loaded,
+    tempoMatched(i),
+    i.beatmatched,
+    i.fadeCh1OnAir && i.fadeOverlap && chAudible(i, 1) && ch1Out(i),
+  ];
 }
 
 /** The first step not yet done (7 when all are). */
@@ -127,59 +152,91 @@ function stepDetail(i: GuideInput, step: GuideStepNo): Detail {
       return { hint: loadHint(d1, 1, 'top left of the left player'), targets: d1.browseOpen || d1.loading ? [] : ['browse-0'], panel: 0 };
     case 2: {
       if (!d1.loaded) return { hint: 'Load a song on deck 1 first (step 1).', targets: ['browse-0'], panel: 0 };
-      const faderDown = i.ch[0].fader < 0.5;
-      return {
-        hint: `Press PLAY (▶︎/❚❚) on deck 1.${faderDown ? ' Raise CH 1’s fader on the mixer to hear it.' : ''}`,
-        targets: faderDown ? ['play-0', 'fader-ch-0'] : ['play-0'],
-        panel: 0,
-      };
+      const faderDown = i.ch[0].fader < FADER_UP;
+      if (!d1.playing) {
+        return {
+          hint: `Press PLAY (▶︎/❚❚) on deck 1.${faderDown ? ' Then raise CH 1’s fader on the mixer: PLAY alone is silent.' : ''}`,
+          targets: faderDown ? ['play-0', 'fader-ch-0'] : ['play-0'],
+          panel: 0,
+        };
+      }
+      if (faderDown) return { hint: 'Deck 1 is playing but not on the air yet: raise CH 1’s channel fader (mixer) all the way up.', targets: ['fader-ch-0'], panel: 1 };
+      if (xfGain(i, 0) < 0.5) {
+        const side = i.ch[0].xf;
+        return { hint: `CH 1 is assigned to ${side} on the crossfader: slide the crossfader towards ${side} (or set CH 1’s assign to THRU).`, targets: ['crossfader', 'xf-assign-0'], panel: 1 };
+      }
+      return { hint: 'Deck 1 is on the air!', targets: [], panel: 1 };
     }
     case 3:
       return { hint: `${loadHint(d2, 2, 'top left of the right player')} Try a different BPM.`, targets: d2.browseOpen || d2.loading ? [] : ['browse-1'], panel: 2 };
     case 4: {
       if (!d1.loaded || !d2.loaded) return { hint: 'Load a song on both decks first.', targets: [], panel: d1.loaded ? 2 : 0 };
       const diff = d2.bpm - d1.bpm;
-      const dir = Math.abs(diff) <= BPM_TOLERANCE + 1e-9 ? null : diff < 0 ? 'down' : 'up';
+      const bpm = { deck1: d1.bpm.toFixed(1), deck2: d2.bpm.toFixed(1) };
+      const matched = Math.abs(diff) <= BPM_TOLERANCE + 1e-9;
+      // Closer than one fader step (e.g. WIDE ±100 % moves ~0.9 BPM per step at 174): the fader can only jump over the match.
+      if (!matched && !anySync(i) && Math.abs(diff) < d2.tempoStepBpm) {
+        return {
+          hint: 'So close that deck 2’s tempo fader steps right over it: press TEMPO RANGE for a finer range (±6 / ±10 / ±16), or press SYNC.',
+          targets: ['range-1', 'sync-1'],
+          panel: 2,
+          bpm: { ...bpm, dir: null, coarse: true },
+        };
+      }
+      const dir = matched ? null : diff < 0 ? 'down' : 'up';
       const hint =
         dir === null
           ? 'BPMs match!'
           : `Slide deck 2’s TEMPO fader ${dir === 'down' ? 'DOWN (towards +)' : 'UP (towards −)'} until both read the same. Arrow keys + Shift = fine steps.`;
-      return { hint, targets: ['tempo-fader-1'], panel: 2, bpm: { deck1: d1.bpm.toFixed(1), deck2: d2.bpm.toFixed(1), dir } };
+      return { hint, targets: ['tempo-fader-1'], panel: 2, bpm: { ...bpm, dir } };
     }
     case 5: {
       if (!d1.playing) return { hint: 'Deck 1 has to be playing: press PLAY on deck 1.', targets: ['play-0'], panel: 0 };
+      // The headphone lesson stays until CH 2 is cued, even when deck 2 is already playing.
+      const cued = i.ch[1].cue;
+      const cueHint = cued ? '' : 'Press CUE on CH 2 to hear deck 2 in your headphones. ';
+      const cueTargets = cued ? [] : ['chcue-1'];
+      const panel = cued ? 2 : 1;
       if (!d2.playing) {
-        const cue = i.ch[1].cue;
-        return {
-          hint: `${cue ? '' : 'Press CUE on CH 2 to hear deck 2 in your headphones. '}Press PLAY on deck 2 right on a kick of deck 1.`,
-          targets: cue ? ['play-1'] : ['chcue-1', 'play-1'],
-          panel: cue ? 2 : 1,
-        };
+        return { hint: `${cueHint}Press PLAY on deck 2 on a downbeat (the first kick of a bar) of deck 1.`, targets: [...cueTargets, 'play-1'], panel };
       }
-      if (!tempoMatched(i) && !d2.sync) return { hint: 'The tempos drifted apart: match the BPM again with deck 2’s TEMPO fader.', targets: ['tempo-fader-1'], panel: 2 };
+      if (!tempoMatched(i) && !anySync(i)) return { hint: 'The tempos drifted apart: match the BPM again with deck 2’s TEMPO fader.', targets: ['tempo-fader-1'], panel: 2 };
       const ms = i.offsetMs ?? 0;
       const hold = Math.min(1, i.alignedSec / HOLD_SEC);
       if (isAligned(i)) {
-        const how = d2.sync ? 'SYNC is holding the beats together' : 'Kicks lined up';
-        return { hint: `${how}: hold it… ${i.alignedSec.toFixed(1)} / ${HOLD_SEC.toFixed(1)} s`, targets: ['jog-1'], panel: 2, offset: { ms, dir: null }, hold };
+        const how = anySync(i) ? 'SYNC is holding the beats together' : 'Kicks lined up';
+        return { hint: `${cueHint}${how}: hold it… ${i.alignedSec.toFixed(1)} / ${HOLD_SEC.toFixed(1)} s`, targets: [...cueTargets, 'jog-1'], panel, offset: { ms, dir: null }, hold };
       }
       const dir = ms > 0 ? 'back' : 'forward';
-      const hint =
+      const nudge =
         dir === 'back'
-          ? 'Deck 2 is ahead: nudge BACK (turn jog 2’s outer ring anticlockwise). Shortcut: SYNC.'
-          : 'Deck 2 is behind: nudge FORWARD (turn jog 2’s outer ring clockwise). Shortcut: SYNC.';
-      return { hint, targets: ['jog-1'], panel: 2, offset: { ms, dir }, hold };
+          ? 'Deck 2 is ahead: nudge BACK (jog 2’s outer ring, anticlockwise). Shortcut: SYNC.'
+          : 'Deck 2 is behind: nudge FORWARD (jog 2’s outer ring, clockwise). Shortcut: SYNC.';
+      return { hint: `${cueHint}${nudge}`, targets: [...cueTargets, 'jog-1'], panel, offset: { ms, dir }, hold };
     }
     case 6: {
       if (!d2.playing) return { hint: 'Press PLAY on deck 2.', targets: ['play-1'], panel: 2 };
-      if (i.ch[1].fader < FADER_UP) return { hint: 'Raise CH 2’s channel fader, smoothly, all the way up.', targets: ['fader-ch-1'], panel: 1 };
-      if (i.ch[1].xf === 'A' && xfGain(i, 1) < 0.5) {
+      if (!d1.playing) return { hint: 'Deck 1 has to be playing to fade from it: press PLAY on deck 1.', targets: ['play-0'], panel: 0 };
+      if (!i.fadeCh1OnAir) {
+        const cut = i.ch[0].fader >= FADER_UP && xfGain(i, 0) < 0.5;
+        return {
+          hint: `Bring deck 1 back up on CH 1 first: the fade starts with deck 1 on the air.${cut ? ` (CH 1 is assigned to ${i.ch[0].xf}: slide the crossfader towards it.)` : ''}`,
+          targets: cut ? ['crossfader'] : ['fader-ch-0'],
+          panel: 1,
+        };
+      }
+      if (i.ch[1].xf === 'A' && xfGain(i, 1) < 0.5 && i.ch[1].fader >= FADER_UP) {
         return { hint: 'CH 2 is assigned to A on the crossfader: set its assign to B (or slide the crossfader towards A).', targets: ['xf-assign-1', 'crossfader'], panel: 1 };
       }
+      if (!i.fadeOverlap) {
+        if (level(i, 0) < OVERLAP_LEVEL) return { hint: 'Deck 1 went out before deck 2 came in. Bring CH 1 back up: both decks should play together for a moment.', targets: ['fader-ch-0'], panel: 1 };
+        return { hint: 'Raise CH 2’s channel fader smoothly while deck 1 keeps playing.', targets: ['fader-ch-1'], panel: 1 };
+      }
+      if (i.ch[1].fader < FADER_UP) return { hint: 'Keep raising CH 2’s channel fader, all the way up.', targets: ['fader-ch-1'], panel: 1 };
       if (!ch1Out(i) || xfGain(i, 1) < 0.5) {
         if (i.ch[0].xf === 'A') return { hint: 'Now sweep the CROSSFADER from A (left) to B (right) to fade deck 1 out.', targets: ['crossfader'], panel: 1 };
         const targets = ['xf-assign-0', ...(i.ch[1].xf !== 'B' ? ['xf-assign-1'] : []), 'fader-ch-0'];
-        return { hint: 'Set the assign buttons under the faders to CH 1 → A and CH 2 → B, then sweep the CROSSFADER to B. (Or just pull CH 1’s fader down.)', targets, panel: 1 };
+        return { hint: 'Set the assign buttons under the faders to CH 1 → A and CH 2 → B, then sweep the CROSSFADER to B. (Or pull CH 1’s fader down.)', targets, panel: 1 };
       }
       return { hint: 'Deck 2 is on the air!', targets: [], panel: 1 };
     }
@@ -204,6 +261,7 @@ export function readGuideInput(s: DjData, tel: EngineTelemetry, nowFrame: number
       playing: tel.decks[d].loaded && tel.decks[d].state === 'PLAYING',
       bpm: trackBpm(st.trackId) * (1 + effectiveTempoPct(st) / 100),
       sync: st.sync,
+      tempoStepBpm: (trackBpm(st.trackId) * TEMPO_RESOLUTION[st.range]) / 100,
     };
   };
   const decks: [GuideDeckInput, GuideDeckInput] = [deck(0), deck(1)];
@@ -217,6 +275,9 @@ export function readGuideInput(s: DjData, tel: EngineTelemetry, nowFrame: number
     offsetMs: both ? phaseOffsetMs(audibleBeat(tel, 0, nowFrame), audibleBeat(tel, 1, nowFrame), decks[0].bpm) : null,
     alignedSec: 0,
     beatmatched: false,
+    deck1Heard: false,
+    fadeCh1OnAir: false,
+    fadeOverlap: false,
   };
 }
 
@@ -228,17 +289,27 @@ export function readGuideInput(s: DjData, tel: EngineTelemetry, nowFrame: number
 export class GuideTracker {
   private alignedSince: number | null = null;
   private beatmatched = false;
+  private deck1Heard = false;
+  private fadeCh1OnAir = false;
+  private fadeOverlap = false;
   private override: GuideStepNo | null = null;
   private prev: boolean[] = new Array<boolean>(STEP_COUNT).fill(false);
   private shown: GuideStepNo = 1;
 
   update(raw: GuideInput, nowSec: number): GuideView {
-    if (!raw.decks[0].loaded || !raw.decks[1].loaded) this.beatmatched = false;
+    if (!raw.decks[0].loaded) this.deck1Heard = false;
+    else if (chAudible(raw, 0)) this.deck1Heard = true;
+    if (!raw.decks[0].loaded || !raw.decks[1].loaded) this.beatmatched = this.fadeCh1OnAir = this.fadeOverlap = false;
+    // The fade latches only count while step 6 is showing: CH 1 on the air first, then both up together.
+    if (this.shown === 6) {
+      if (chAudible(raw, 0)) this.fadeCh1OnAir = true;
+      if (this.fadeCh1OnAir && bothUp(raw)) this.fadeOverlap = true;
+    }
     if (isAligned(raw)) this.alignedSince ??= nowSec;
     else this.alignedSince = null;
     const alignedSec = this.alignedSince === null ? 0 : nowSec - this.alignedSince;
     if (alignedSec >= HOLD_SEC) this.beatmatched = true;
-    const i: GuideInput = { ...raw, alignedSec, beatmatched: this.beatmatched };
+    const i: GuideInput = { ...raw, alignedSec, beatmatched: this.beatmatched, deck1Heard: this.deck1Heard, fadeCh1OnAir: this.fadeCh1OnAir, fadeOverlap: this.fadeOverlap };
     const complete = stepsComplete(i);
     const auto = firstIncomplete(complete);
     const o = this.override;

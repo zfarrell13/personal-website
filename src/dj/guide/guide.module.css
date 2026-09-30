@@ -2,13 +2,13 @@
    it never covers a booth control. Above the BROWSE backdrop (z 40) so the hint stays readable while picking a song. */
 .guide {
   position: fixed;
-  top: 5px;
+  top: 4px;
   left: 292px;
   right: 72px;
   max-width: 820px;
   z-index: 45;
   box-sizing: border-box;
-  height: 56px;
+  height: 58px;
   padding: 4px 6px 4px 10px;
   display: grid;
   grid-template-rows: auto 1fr;
@@ -48,7 +48,7 @@
 .navBtn, .go {
   font: 12px var(--font-mono), monospace;
   padding: 2px 8px;
-  min-height: 22px;
+  min-height: 20px;
   border-radius: 4px;
   border: 1px solid #2b3240;
   background: #161b25;
@@ -62,8 +62,8 @@
 .hint {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 13px;
-  line-height: 1.2;
+  font-size: 12px;
+  line-height: 1.15;
   color: #c9d3e6;
   display: -webkit-box;
   -webkit-line-clamp: 2;

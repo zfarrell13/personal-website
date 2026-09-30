@@ -65,8 +65,8 @@ export function GuidePanel({ view, onBack, onSkip, onClose, goPanel = null, onGo
       </div>
       <div className={styles.body}>
         {bpm ? (
-          <span className={styles.bpm} data-testid="guide-bpm" data-ok={bpm.dir === null}>
-            D1 <b>{bpm.deck1}</b> · D2 <b>{bpm.deck2}</b> {bpm.dir === null ? '✓' : bpm.dir === 'down' ? '▼ DOWN' : '▲ UP'}
+          <span className={styles.bpm} data-testid="guide-bpm" data-ok={bpm.dir === null && !bpm.coarse}>
+            D1 <b>{bpm.deck1}</b> · D2 <b>{bpm.deck2}</b> {bpm.coarse ? '≈ RANGE' : bpm.dir === null ? '✓' : bpm.dir === 'down' ? '▼ DOWN' : '▲ UP'}
           </span>
         ) : null}
         {offset ? <OffsetMeter ms={offset.ms} dir={offset.dir} /> : null}

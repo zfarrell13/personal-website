@@ -19,6 +19,7 @@ const deck = (p: Partial<GuideDeckInput> = {}): GuideDeckInput => ({
   playing: false,
   bpm: 0,
   sync: false,
+  tempoStepBpm: 0.06,
   ...p,
 });
 
@@ -33,12 +34,21 @@ const input = (p: Partial<GuideInput> = {}): GuideInput => ({
   offsetMs: null,
   alignedSec: 0,
   beatmatched: false,
+  deck1Heard: false,
+  fadeCh1OnAir: false,
+  fadeOverlap: false,
   ...p,
 });
 
-/** Deck 1 playing at 124, deck 2 loaded at `bpm2` (playing when `play2`). */
+type Ch = GuideInput['ch'];
+const chs = (f1: number, f2: number, xf1: Ch[0]['xf'] = 'THRU', xf2: Ch[1]['xf'] = 'THRU', cue2 = false): Ch => [
+  { fader: f1, xf: xf1, cue: false },
+  { fader: f2, xf: xf2, cue: cue2 },
+];
+
+/** Deck 1 playing at 124 on the air (CH 1 up), deck 2 loaded at `bpm2` (playing when `play2`). */
 const twoDecks = (bpm2: number, play2 = false, p: Partial<GuideInput> = {}) =>
-  input({ decks: [deck({ loaded: true, playing: true, bpm: 124 }), deck({ loaded: true, playing: play2, bpm: bpm2 })], ...p });
+  input({ decks: [deck({ loaded: true, playing: true, bpm: 124 }), deck({ loaded: true, playing: play2, bpm: bpm2 })], ch: chs(1, 0), ...p });
 
 describe('stepsComplete / firstIncomplete', () => {
   it('starts at step 1 with nothing done', () => {
@@ -51,10 +61,17 @@ describe('stepsComplete / firstIncomplete', () => {
     expect(stepsComplete(input({ decks: [deck({ loaded: false, loading: true }), deck()] }))[0]).toBe(false);
   });
 
-  it('2: deck 1 playing', () => {
-    const c = stepsComplete(input({ decks: [deck({ loaded: true, playing: true, bpm: 124 }), deck()] }));
+  it('2: deck 1 heard on the master (PLAY alone is silent with the fader down)', () => {
+    const playing = input({ decks: [deck({ loaded: true, playing: true, bpm: 124 }), deck()] });
+    expect(stepsComplete(playing)[1]).toBe(false);
+    const heard = { ...playing, ch: chs(0.8, 0) };
+    const c = stepsComplete(heard);
     expect(c.slice(0, 3)).toEqual([true, true, false]);
     expect(firstIncomplete(c)).toBe(3);
+    // CH 1 on A with the crossfader at B is not on the air either
+    expect(stepsComplete({ ...heard, ch: chs(1, 0, 'A'), crossfader: 1 })[1]).toBe(false);
+    // once heard (latched), pulling CH 1 down for the fade does not undo step 2
+    expect(stepsComplete({ ...playing, deck1Heard: true })[1]).toBe(true);
   });
 
   it('3: deck 2 loaded', () => {
@@ -86,7 +103,8 @@ describe('stepsComplete / firstIncomplete', () => {
 });
 
 describe('step 6: fade in (XF assign honoured)', () => {
-  const ready = (ch: GuideInput['ch'], crossfader = 0.5) => twoDecks(124, true, { beatmatched: true, ch, crossfader });
+  const ready = (ch: GuideInput['ch'], crossfader = 0.5) =>
+    twoDecks(124, true, { beatmatched: true, deck1Heard: true, fadeCh1OnAir: true, fadeOverlap: true, ch, crossfader });
   const done = (i: GuideInput) => stepsComplete(i)[5];
 
   it('CH 2 up and CH 1 down (THRU) completes it', () => {
@@ -124,8 +142,27 @@ describe('step 6: fade in (XF assign honoured)', () => {
     expect(guideStep(ready(ch, 1), 6).hint).toMatch(/assigned to A/);
   });
 
+  it('needs both fade latches (CH 1 on air during the step, and an overlap)', () => {
+    const i = ready(chs(0, 1));
+    expect(done(i)).toBe(true);
+    expect(done({ ...i, fadeCh1OnAir: false })).toBe(false);
+    expect(done({ ...i, fadeOverlap: false })).toBe(false);
+  });
+
+  it('CH 1 not on the air when step 6 opens → bring deck 1 back up first', () => {
+    const v = guideStep({ ...ready(chs(0, 0)), fadeCh1OnAir: false, fadeOverlap: false }, 6);
+    expect(v.hint).toMatch(/Bring deck 1 back up on CH 1 first/);
+    expect(v.targets).toEqual(['fader-ch-0']);
+  });
+
+  it('CH 1 cut before CH 2 came in → bring CH 1 back up', () => {
+    const v = guideStep({ ...ready(chs(0, 1)), fadeOverlap: false }, 6);
+    expect(v.hint).toMatch(/went out before deck 2 came in/);
+    expect(v.targets).toEqual(['fader-ch-0']);
+  });
+
   it('deck 2 must be playing', () => {
-    const i = twoDecks(124, false, { beatmatched: true, ch: [{ fader: 0, xf: 'THRU', cue: false }, { fader: 1, xf: 'THRU', cue: false }] });
+    const i = twoDecks(124, false, { beatmatched: true, fadeCh1OnAir: true, fadeOverlap: true, ch: [{ fader: 0, xf: 'THRU', cue: false }, { fader: 1, xf: 'THRU', cue: false }] });
     expect(stepsComplete(i)[5]).toBe(false);
   });
 
@@ -142,9 +179,9 @@ describe('step 6: fade in (XF assign honoured)', () => {
     expect(v.targets).toEqual(['crossfader']);
   });
 
-  it('fader 2 down → raise it', () => {
-    const v = guideStep(ready([{ fader: 1, xf: 'THRU', cue: false }, { fader: 0, xf: 'THRU', cue: false }]), 6);
-    expect(v.targets).toEqual(['fader-ch-1']);
+  it('fader 2 down → raise it (before and after the overlap)', () => {
+    expect(guideStep({ ...ready(chs(1, 0)), fadeOverlap: false }, 6).targets).toEqual(['fader-ch-1']);
+    expect(guideStep(ready(chs(1, 0.5)), 6).targets).toEqual(['fader-ch-1']);
   });
 });
 
@@ -155,15 +192,18 @@ describe('hints and targets', () => {
     expect(guideStep(input({ decks: [deck({ browseOpen: true }), deck()] })).hint).toMatch(/Tap a song/);
   });
 
-  it('2: PLAY on deck 1, plus CH 1 fader while it is down', () => {
+  it('2: PLAY on deck 1, plus CH 1 fader while it is down; then the fader until deck 1 is heard', () => {
     const i = input({ decks: [deck({ loaded: true, bpm: 124 }), deck()] });
     expect(guideStep(i).targets).toEqual(['play-0', 'fader-ch-0']);
-    const up = input({ decks: [deck({ loaded: true, bpm: 124 }), deck()], ch: [{ fader: 1, xf: 'THRU', cue: false }, { fader: 0, xf: 'THRU', cue: false }] });
+    const up = input({ decks: [deck({ loaded: true, bpm: 124 }), deck()], ch: chs(1, 0) });
     expect(guideStep(up).targets).toEqual(['play-0']);
+    const playingSilent = input({ decks: [deck({ loaded: true, playing: true, bpm: 124 }), deck()] });
+    expect(guideStep(playingSilent)).toMatchObject({ step: 2, targets: ['fader-ch-0'], panel: 1 });
+    expect(guideStep(playingSilent).hint).toMatch(/not on the air yet/);
   });
 
   it('3: BROWSE on deck 2 (deck 2 panel)', () => {
-    const v = guideStep(input({ decks: [deck({ loaded: true, playing: true, bpm: 124 }), deck()] }));
+    const v = guideStep(input({ decks: [deck({ loaded: true, playing: true, bpm: 124 }), deck()], ch: chs(1, 0) }));
     expect(v).toMatchObject({ step: 3, targets: ['browse-1'], panel: 2 });
   });
 
@@ -179,26 +219,50 @@ describe('hints and targets', () => {
     expect(guideStep(twoDecks(124.04), 4).bpm?.dir).toBe(null);
   });
 
-  it('5: CUE on CH 2 and PLAY on deck 2 until deck 2 plays', () => {
+  it('4: closer than one fader step (WIDE range) → suggest a finer range or SYNC, no UP/DOWN flip-flop', () => {
+    const wide = (bpm2: number) => ({ ...twoDecks(bpm2), decks: [deck({ loaded: true, playing: true, bpm: 174 }), deck({ loaded: true, bpm: bpm2, tempoStepBpm: 0.875 })] as GuideInput['decks'] });
+    for (const bpm2 of [174.125, 173.25 + 0.625]) {
+      const v = guideStep(wide(bpm2), 4);
+      expect(v.bpm).toMatchObject({ dir: null, coarse: true });
+      expect(v.hint).toMatch(/TEMPO RANGE/);
+      expect(v.hint).toMatch(/SYNC/);
+      expect(v.targets).toEqual(['range-1', 'sync-1']);
+    }
+    expect(guideStep(wide(176), 4).bpm?.dir).toBe('up'); // more than a step away: move the fader
+  });
+
+  it('5: CUE on CH 2 and PLAY on deck 2 on a downbeat', () => {
     const v = guideStep(twoDecks(124));
     expect(v.step).toBe(5);
     expect(v.targets).toEqual(['chcue-1', 'play-1']);
     expect(v.panel).toBe(1);
-    const cued = guideStep(twoDecks(124, false, { ch: [{ fader: 0, xf: 'THRU', cue: false }, { fader: 0, xf: 'THRU', cue: true }] }));
+    expect(v.hint).toMatch(/on a downbeat \(the first kick of a bar\)/);
+    const cued = guideStep(twoDecks(124, false, { ch: chs(1, 0, 'THRU', 'THRU', true) }));
     expect(cued.targets).toEqual(['play-1']);
     expect(cued.panel).toBe(2);
   });
 
+  it('5: the CUE lesson stays while CH 2 is not cued, even with deck 2 already playing', () => {
+    const v = guideStep(twoDecks(124, true, { offsetMs: 35 }));
+    expect(v.hint).toMatch(/Press CUE on CH 2/);
+    expect(v.targets).toEqual(['chcue-1', 'jog-1']);
+    expect(v.offset?.dir).toBe('back');
+    const locked = guideStep(twoDecks(124, true, { offsetMs: 5 }));
+    expect(locked.targets).toEqual(['chcue-1', 'jog-1']);
+  });
+
   it('5: offset meter sign — deck 2 ahead → nudge back, behind → nudge forward', () => {
-    const ahead = guideStep(twoDecks(124, true, { offsetMs: 35 }));
+    const cue = { ch: chs(1, 0, 'THRU', 'THRU', true) };
+    const ahead = guideStep(twoDecks(124, true, { offsetMs: 35, ...cue }));
     expect(ahead.offset).toEqual({ ms: 35, dir: 'back' });
     expect(ahead.hint).toMatch(/nudge BACK/);
     expect(ahead.targets).toEqual(['jog-1']);
-    const behind = guideStep(twoDecks(124, true, { offsetMs: -35 }));
+    const behind = guideStep(twoDecks(124, true, { offsetMs: -35, ...cue }));
     expect(behind.offset).toEqual({ ms: -35, dir: 'forward' });
     expect(behind.hint).toMatch(/nudge FORWARD/);
-    const locked = guideStep(twoDecks(124, true, { offsetMs: 8, alignedSec: 1.2 }));
+    const locked = guideStep(twoDecks(124, true, { offsetMs: 8, alignedSec: 1.2, ...cue }));
     expect(locked.offset?.dir).toBe(null);
+    expect(locked.panel).toBe(2);
     expect(locked.hold).toBeCloseTo(0.6);
   });
 
@@ -221,10 +285,11 @@ describe('phaseOffsetMs', () => {
 });
 
 describe('GuideTracker', () => {
-  const aligned = (offsetMs: number, sync = false) =>
+  const aligned = (offsetMs: number, sync = false, ch: Ch = chs(1, 0), sync1 = false) =>
     input({
-      decks: [deck({ loaded: true, playing: true, bpm: 124 }), deck({ loaded: true, playing: true, bpm: 124, sync })],
+      decks: [deck({ loaded: true, playing: true, bpm: 124, sync: sync1 }), deck({ loaded: true, playing: true, bpm: 124, sync })],
       offsetMs,
+      ch,
     });
 
   it('beatmatch needs the offset ≤ 20 ms held for 2 s, then latches', () => {
@@ -249,6 +314,12 @@ describe('GuideTracker', () => {
     expect(t.update(aligned(90, true), 2.1).step).toBe(6);
   });
 
+  it('SYNC on deck 1 is accepted too', () => {
+    const t = new GuideTracker();
+    t.update(aligned(90, false, chs(1, 0), true), 0);
+    expect(t.update(aligned(90, false, chs(1, 0), true), 2.1).step).toBe(6);
+  });
+
   it('tempo not matched never counts as aligned', () => {
     const t = new GuideTracker();
     const i = aligned(0);
@@ -259,7 +330,7 @@ describe('GuideTracker', () => {
 
   it('Skip / Back override the step; Back to a done step stays until NEXT', () => {
     const t = new GuideTracker();
-    const i = input({ decks: [deck({ loaded: true, bpm: 124 }), deck()] });
+    const i = input({ decks: [deck({ loaded: true, bpm: 124 }), deck()], ch: chs(1, 0) });
     expect(t.update(i, 0).step).toBe(2);
     t.back();
     expect(t.update(i, 0.1).step).toBe(1); // step 1 is done but was chosen: no auto-advance
@@ -279,18 +350,79 @@ describe('GuideTracker', () => {
     expect(t.update(loaded2, 0.2).step).toBe(4); // next incomplete after 3
   });
 
-  it('finishing step 6 shows the finish card, which sticks', () => {
+  /** Beatmatched, then step 6 with the faders at `ch`, frame by frame from t = 3 s. */
+  const atStep6 = () => {
     const t = new GuideTracker();
-    const fade = aligned(5);
-    t.update(fade, 0);
-    t.update(fade, 2.5);
-    const faded = { ...fade, ch: [{ fader: 0, xf: 'THRU', cue: false }, { fader: 1, xf: 'THRU', cue: false }] as GuideInput['ch'] };
-    const v = t.update(faded, 3);
-    expect(v).toMatchObject({ step: 7, done: true });
-    const paused = { ...faded, decks: [{ ...faded.decks[0], playing: false }, faded.decks[1]] as GuideInput['decks'] };
-    expect(t.update(paused, 4).step).toBe(7);
+    t.update(aligned(5), 0);
+    expect(t.update(aligned(5), 2.5).step).toBe(6);
+    let now = 3;
+    const frame = (ch: Ch, xfPos = 0.5) => t.update({ ...aligned(5, false, ch), crossfader: xfPos }, (now += 0.02));
+    return { t, frame };
+  };
+
+  it('a real fade (CH 1 on air, CH 2 in, CH 1 out) completes step 6', () => {
+    const { frame } = atStep6();
+    frame(chs(1, 0));
+    frame(chs(1, 0.5)); // overlap
+    frame(chs(1, 1));
+    frame(chs(0.4, 1));
+    expect(frame(chs(0, 1))).toMatchObject({ step: 7, done: true });
+  });
+
+  it('a real crossfader fade (assigns A/B) completes step 6', () => {
+    const { frame } = atStep6();
+    frame(chs(1, 1, 'A', 'B'), 0);
+    frame(chs(1, 1, 'A', 'B'), 0.5);
+    expect(frame(chs(1, 1, 'A', 'B'), 1).step).toBe(7);
+  });
+
+  it('CH 1 never raised → step 2 is not done and step 6 cannot be reached by raising CH 2', () => {
+    const t = new GuideTracker();
+    const silent = input({ decks: [deck({ loaded: true, playing: true, bpm: 124 }), deck({ loaded: true, playing: true, bpm: 124, sync: true })], offsetMs: 0 });
+    t.update(silent, 0);
+    expect(t.update(silent, 3).step).toBe(2);
+    const ch2Up = { ...silent, ch: chs(0, 1) };
+    expect(t.update(ch2Up, 3.1).step).toBe(2);
+    // even skipped to step 6, raising CH 2 alone is not a mix
+    t.skip();
+    t.skip();
+    t.skip();
+    t.skip();
+    expect(t.update(ch2Up, 3.2).step).toBe(6);
+    const v = t.update(ch2Up, 3.3);
+    expect(v.step).toBe(6);
+    expect(v.hint).toMatch(/Bring deck 1 back up on CH 1 first/);
+  });
+
+  it('CH 1 cut before CH 2 comes in (a gap, not a fade) → not done until CH 1 comes back and they overlap', () => {
+    const { frame } = atStep6();
+    frame(chs(1, 0));
+    frame(chs(0, 0)); // deck 1 out: silence
+    const v = frame(chs(0, 1));
+    expect(v.step).toBe(6);
+    expect(v.hint).toMatch(/went out before deck 2 came in/);
+    frame(chs(1, 1)); // back up together
+    expect(frame(chs(0, 1)).step).toBe(7);
+  });
+
+  it('CH 1 pulled down during step 5 → step 6 asks to bring deck 1 back up first', () => {
+    const t = new GuideTracker();
+    t.update(aligned(5), 0);
+    t.update(aligned(5, false, chs(0, 0)), 2.5); // beatmatched, but CH 1 went down meanwhile
+    const v = t.update(aligned(5, false, chs(0, 0)), 2.6);
+    expect(v.step).toBe(6);
+    expect(v.targets).toEqual(['fader-ch-0']);
+  });
+
+  it('the finish card sticks; Back returns to step 6', () => {
+    const { t, frame } = atStep6();
+    frame(chs(1, 0.5));
+    const faded = frame(chs(0, 1));
+    expect(faded.step).toBe(7);
+    const paused = { ...aligned(5, false, chs(0, 1)), decks: [deck({ loaded: true, bpm: 124 }), deck({ loaded: true, playing: true, bpm: 124 })] as GuideInput['decks'] };
+    expect(t.update(paused, 10).step).toBe(7);
     t.back();
-    expect(t.update(paused, 5).step).toBe(6);
+    expect(t.update(paused, 11).step).toBe(6);
   });
 
   it('restart() returns to automatic navigation', () => {

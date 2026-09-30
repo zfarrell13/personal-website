@@ -56,6 +56,12 @@ describe('<GuidePanel>', () => {
     expect(screen.getByTestId('guide-bpm').textContent).toMatch(/124\.0.*120\.0.*DOWN/);
   });
 
+  it('close BPMs in a coarse range show ≈ RANGE instead of a direction', () => {
+    renderPanel(view({ step: 4, bpm: { deck1: '174.0', deck2: '174.1', dir: null, coarse: true } }));
+    expect(screen.getByTestId('guide-bpm').textContent).toMatch(/≈ RANGE/);
+    expect(screen.getByTestId('guide-bpm').dataset.ok).toBe('false');
+  });
+
   it('shows the offset meter with ms and direction (step 5)', () => {
     renderPanel(view({ step: 5, offset: { ms: 34.6, dir: 'back' } }));
     const meter = screen.getByTestId('guide-offset');
