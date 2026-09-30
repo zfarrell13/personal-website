@@ -129,3 +129,10 @@ Pumping targets (playtest 2, Task 2b — headless, `lineBot` + scripted inputs, 
 - **Camera:** close bird's-eye view from behind the rider — about 3–4 m behind along the direction of travel, 4–6 m above (always above the crest), looking down at the rider and a few metres ahead down the line; the rider is large in frame. Tube: behind the rider looking out.
 - **Pumping:** a player pumping on a sensible line must be able to beat the section down the line; pumping is the primary speed tool. (Supersedes "pump-only dies" tuning.) No input is still caught in ~4–5 s. Pumping on the flats is weaker but no longer does nothing (supersedes design point "pumping only works on the face"); verified by Verification 7–9.
 - **Background:** the horizon must be seamless — sea runs into haze and sky with no visible seam or band; sky gradient and fog match; distant water reads as water.
+
+
+## Playtest 3 amendments (user feedback)
+
+- **One continuous ocean:** the breaking wave must read as part of the same water body — no visible seam, height step, colour/shading jump, or gap between the wave mesh and the surrounding sea (in front, behind, and along the shoulder). Same water shading, foam and fog on both.
+- **Realistic barrel:** from inside the tube the barrel is an open, roughly oval tunnel: the lip throws out and down into the trough behind the rider, while ahead the exit ("the eye") is clearly open — sky/shoulder visible through it. No sheet or curtain of water covering the exit. The tube camera shot must show the eye.
+- **Horizon:** a clean, believable horizon — the sea meets a hazy sky with a soft gradient; no hard band, seam, stepped fog, or visible plane edge at any camera angle used in play.
