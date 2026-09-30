@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { parseTrackSources } from '../src/shared/tracks';
 import { buildTracks } from './lib/pipeline';
 import { resolveTrackSource } from './lib/resolveTrackSource';
 import { makeTestTracks } from './make-test-tracks';
@@ -30,5 +31,8 @@ if (!existsSync(`${TEST}/tracks.json`)) {
   await makeTestTracks(TEST);
 }
 await buildTracks({ sourceDir: TEST, outDir: TEST_OUT, urlPrefix: '/tracks-test' });
-if (source === 'real') await buildTracks({ sourceDir: REAL, outDir: OUT });
+// Real audio is git-ignored: a fresh clone or CI build has the manifest but not the files.
+const missing = source === 'real' ? parseTrackSources(JSON.parse(readFileSync(`${REAL}/tracks.json`, 'utf8'))).filter((t) => !existsSync(`${REAL}/${t.file}`)) : [];
+if (missing.length > 0) console.warn(`⚠ ${missing.length} track file(s) missing from ${REAL} (${missing.map((t) => t.file).join(', ')}) — using the placeholder test tracks.`);
+if (source === 'real' && missing.length === 0) await buildTracks({ sourceDir: REAL, outDir: OUT });
 else await buildTracks({ sourceDir: TEST, outDir: OUT });
