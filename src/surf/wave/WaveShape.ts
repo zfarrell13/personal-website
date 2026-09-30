@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import type { WaveParams } from '../config';
 import { clamp, smoothstep } from '../math/scalar';
-import { BARREL_CLOSED, BARREL_OPEN, FEATHER_AT, FEATHER_LIP, MOUND, SECTION_POINTS, SWELL, type Section } from './sections';
+import { BARREL_CLOSED, BARREL_OPEN, CREST_INDEX, FEATHER_AT, FEATHER_LIP, MOUND, PITCH_AT, SECTION_POINTS, SWELL, type Section } from './sections';
 
 /** Surface parameters: x along the wave (m), t ∈ [0, 1] across the profile. */
 export interface WaveParam {
@@ -29,16 +29,25 @@ function blendInto(out: Float64Array, a: Section, b: Section, w: number): void {
  * so the tip rises and recedes toward the crest as hollowness fades instead of folding onto the face.
  */
 function pitchLip(out: Float64Array, h: number): void {
+  const C = CREST_INDEX * 2;
+  const cz = out[C]!;
+  const cy = out[C + 1]!;
+  const open = BARREL_OPEN[CREST_INDEX]!;
   for (let k = 0; k < FEATHER_LIP.length; k++) {
     const i = SECTION_POINTS - FEATHER_LIP.length + k;
-    const f = FEATHER_LIP[k]!;
-    const feathering = h < FEATHER_AT;
-    const a = feathering ? SWELL[i]! : f;
-    const b = feathering ? f : BARREL_OPEN[i]!;
-    // Pitching (feather → open) is steep in hollowness (5th power): the lip only throws far out close to the curl, so the eye stays open.
-    const w = feathering ? h / FEATHER_AT : ((h - FEATHER_AT) / (1 - FEATHER_AT)) ** 5;
-    out[i * 2] = a[0] + (b[0] - a[0]) * w;
-    out[i * 2 + 1] = a[1] + (b[1] - a[1]) * w;
+    // The feathering lip and the open lip, both hung off this section's crest.
+    const fz = cz + FEATHER_LIP[k]![0];
+    const fy = cy + FEATHER_LIP[k]![1];
+    let az: number, ay: number, bz: number, by: number, w: number;
+    if (h < FEATHER_AT) {
+      [az, ay, bz, by, w] = [SWELL[i]![0], SWELL[i]![1], fz, fy, h / FEATHER_AT];
+    } else {
+      // The lip only throws far out right at the curl (hollowness above PITCH_AT, ≈ the first 1.3 m), so the
+      // barrel's mouth is a clean edge and the eye beyond it stays open.
+      [az, ay, bz, by, w] = [fz, fy, cz + BARREL_OPEN[i]![0] - open[0], cy + BARREL_OPEN[i]![1] - open[1], smoothstep(PITCH_AT, 1, h)];
+    }
+    out[i * 2] = az + (bz - az) * w;
+    out[i * 2 + 1] = ay + (by - ay) * w;
   }
 }
 

@@ -83,6 +83,7 @@ describe('WaveShape.profile', () => {
     const w = shape();
     const tip = new Vector3();
     const face = new Vector3();
+    const tipAtCurl = w.profile(0, 1).y;
     let lastY = -Infinity;
     for (let x = 0; x <= 8; x += 0.25) {
       w.profile(x, 1, tip);
@@ -94,8 +95,11 @@ describe('WaveShape.profile', () => {
         else hi = mid;
       }
       w.profile(x, lo, face);
-      expect(tip.z - face.z, `x ${x}`).toBeGreaterThan(0.4);
-      expect(tip.y, `x ${x}`).toBeGreaterThanOrEqual(lastY - 1e-9);
+      // Either thrown well clear of the face, or only a short feathering rim up at the crest — never a sheet hanging down the face.
+      expect(tip.z - face.z > 0.4 || tip.y > 0.85 * w.crestY(x), `x ${x}`).toBe(true);
+      // Never below the tip at the curl; rising through the throw (the first ~1.5 m), then it rides with the crest.
+      expect(tip.y, `x ${x}`).toBeGreaterThanOrEqual(tipAtCurl);
+      if (x <= 1.5) expect(tip.y, `x ${x}`).toBeGreaterThanOrEqual(lastY - 1e-9);
       lastY = tip.y;
     }
   });
@@ -152,7 +156,8 @@ describe('WaveShape queries', () => {
 
 /**
  * Reference surface (hot-path refactors must not move it). Captured from the closure-based implementation (task 17);
- * re-captured in surf-rework task 5a for the intentional lip change (open barrel eye: higher BARREL_OPEN tip, feathering lip ahead of the curl).
+ * re-captured in surf-rework task 5a (and its fix round 1) for the intentional lip changes: open barrel eye (higher BARREL_OPEN tip,
+ * a lip that throws out only right at the curl, a crest-hung feathering lip ahead of it) and the closed barrel's lip landing further out.
  */
 const GOLDEN_PROFILE: ReadonlyArray<readonly [number, number, number, number]> = [
   [-12, 0, 0, 7.2],
@@ -163,28 +168,28 @@ const GOLDEN_PROFILE: ReadonlyArray<readonly [number, number, number, number]> =
   [-5, 0, 0, 7.2],
   [-5, 0.13, 0.09131304, 4.08873912],
   [-5, 0.5, 2.0775, 0.6525],
-  [-5, 0.77, 2.61323286, 2.4306369],
-  [-5, 1, 0.12, 5.04],
+  [-5, 0.77, 2.61323286, 2.6211012],
+  [-5, 1, 0.12, 6.24],
   [-2.5, 0, 0, 7.2],
   [-2.5, 0.13, 0.09131304, 4.08873912],
   [-2.5, 0.5, 2.0775, 0.63],
-  [-2.5, 0.77, 2.67040374, 2.11651746],
-  [-2.5, 1, 1.116, 4.38],
+  [-2.5, 0.77, 2.685171714, 2.21174961],
+  [-2.5, 1, 1.116, 4.98],
   [0, 0, 0, 7.2],
   [0, 0.13, 0.09131304, 4.08873912],
   [0, 0.5, 2.0775, 0.6075],
-  [0, 0.77, 2.72757462, 1.80239802],
+  [0, 0.77, 2.757110568, 1.80239802],
   [0, 1, 2.112, 3.72],
   [3, 0, 0, 7.2],
   [3, 0.13, 0.09167106037, 4.106004319467],
   [3, 0.5, 2.072722222222, 0.618775555556],
-  [3, 0.77, 2.720249533528, 1.730138806606],
-  [3, 1, 2.119881703265, 3.511134863486],
+  [3, 0.77, 2.756359724167, 1.68541525659],
+  [3, 1, 2.228238339278, 3.190752356043],
   [20, 0, 0, 7.2],
   [20, 0.13, 0.103031191638, 4.653836087901],
   [20, 0.5, 1.921121399177, 0.976553497942],
-  [20, 0.77, 2.579316778413, 0.59542134336],
-  [20, 1, 2.206343759244, 1.219890380038],
+  [20, 0.77, 2.62298756321, 0.605610651259],
+  [20, 1, 2.46587654321, 0.857382716049],
   [60, 0, 0, 7.2],
   [60, 0.13, 0.1008380464, 5.44385652],
   [60, 0.5, 1.437666666667, 1.4925],
@@ -194,10 +199,10 @@ const GOLDEN_PROFILE: ReadonlyArray<readonly [number, number, number, number]> =
 const GOLDEN_CREST: ReadonlyArray<readonly [number, number, number]> = [
   [-12, 0.699021374653, 1.096941015239],
   [-5, 0.699021374653, 2.769396933091],
-  [-2.5, 0.708192555229, 2.761142527449],
-  [0, 0.72581121525, 2.76285715531],
-  [3, 0.724988451375, 2.757970977246],
-  [20, 0.727082810903, 2.613731114235],
+  [-2.5, 0.710016472099, 2.760535039895],
+  [0, 0.739589137786, 2.769364665194],
+  [3, 0.741814005793, 2.766577519184],
+  [20, 0.749357748174, 2.627694109561],
   [60, 0.707622640668, 2.027837960246],
 ];
 

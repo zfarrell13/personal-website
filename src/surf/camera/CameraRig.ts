@@ -13,8 +13,12 @@ import { frameToView } from '../wave/mirror';
 export const CAMERA_OFFSETS = {
   /** Chase camera floor above the crest height under the camera and under the rider (m). */
   crestClearance: 1.2,
-  /** Tube: inside the barrel behind the rider (along the rider's normal = into the tube), looking out the mouth. */
-  tube: { back: 2.2, lift: 0.8, look: new Vector3(4, 0.5, 0), minDistance: 1.6 },
+  /**
+   * Tube: inside the barrel behind the rider, `lift` m off the face along the rider's normal and `out` m
+   * further toward shore (toward the middle of the tube, clear of the crest leaning over the face), looking
+   * out the mouth: the eye stays open in the view.
+   */
+  tube: { back: 2.2, lift: 0.5, out: 0.3, look: new Vector3(4, 0.5, 0), minDistance: 1.6 },
   underwater: { pos: new Vector3(2, -1.4, 3), look: new Vector3(0, -0.6, 0) },
   /** Trick air: the chase's behind/height offsets × this, plus `airLift` up (a modest pull back and up). */
   airScale: 1.25,
@@ -74,6 +78,7 @@ export function cameraGoal(s: Subject, side: Side, shot: CameraShot, wave: Crest
     const lift = Math.max(O.tube.lift, Math.sqrt(Math.max(0, O.tube.minDistance ** 2 - dx * dx)));
     out.pos.copy(s.p).addScaledVector(s.normal, lift);
     out.pos.x = x;
+    out.pos.z += O.tube.out;
     out.look.copy(s.p).add(O.tube.look);
     out.look.x = s.p.x + dir * O.tube.look.x;
   } else {

@@ -44,6 +44,12 @@ export const SURF_CONFIG = {
     /** Quadratic drag against the water (moving at −Vp in the frame). */
     drag: 0.025,
     stallDragMultiplier: 4,
+    /**
+     * Stalling sets the rail: it holds the line on the face (full rail grip at any speed) and damps
+     * the board's motion up / down the face at this rate (1/s), so the rider waits on the face for the
+     * curl instead of sliding to the trough — and ends up under the lip.
+     */
+    stallHold: 3,
     /** Drag multiplier while bottomed out on the flats in front of the wave (t = 0): the board bogs down there. */
     flatsDragMultiplier: 2,
     /** Carve yaw rate = carveRate / (1 + speed / carveHalfSpeed) (rad/s); turn radius = speed / rate grows with speed. */
@@ -93,9 +99,13 @@ export const SURF_CONFIG = {
     landTolerance: 40,
     grabGrace: 0.1,
     landingSpeedKeep: 0.9,
-    /** In the tube when −D ≤ x ≤ tubeXMax and y < tubeHeightFrac × crest height. */
+    /**
+     * In the tube when −D ≤ x ≤ tubeXMax, y < tubeHeightFrac × crest height, and under the lip: at least
+     * tubeUnderLip m seaward (in z) of the lip tip.
+     */
     tubeXMax: 1,
     tubeHeightFrac: 0.6,
+    tubeUnderLip: 0.3,
     kickOutX: 70,
     kickOutMinSpeed: 1.5,
     kickOutTime: 2,

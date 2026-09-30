@@ -25,6 +25,7 @@ const BACK_FLATS = [8, 25];
 const LIP_SAMPLES = 9;
 /** Lip thickness (m) at its thickest; it thins to nothing at the tip. */
 const LIP_THICKNESS = 0.35;
+const LIP_MIN_THICKNESS = 0.12;
 /** Columns past the ridden x range where the wave eases down to flat sea (m beyond xMin / xMax). */
 const EASE_BEHIND = [45, 25, 12, 5];
 const EASE_AHEAD = [6, 16, 32, 55];
@@ -76,14 +77,15 @@ export function foamAt(shape: WaveShape, x: number, t: number, tc: number): numb
 
 /**
  * Vertex colour + alpha for the water: sea colour and opacity at sea level, green on the face, light
- * near the top, a thin bright crest band, white foam. `lipS` ∈ [0, 1] runs along the lip underside
+ * near the top, a thin bright crest band (unless `crestBand: false`), white foam. `lipS` ∈ [0, 1] runs along the lip underside
  * from the crest to the tip: the thin edge is lighter and slightly translucent.
  */
-export function waveVertexColor(y: number, crestY: number, t: number, tc: number, foam: number, out: Color, lipS = 0): number {
+export function waveVertexColor(y: number, crestY: number, t: number, tc: number, foam: number, out: Color, opts: { lipS?: number; crestBand?: boolean } = {}): number {
+  const { lipS = 0, crestBand = true } = opts;
   const h = clamp(y / Math.max(crestY, 0.01), 0, 1);
   out.copy(SEA.color).lerp(WAVE_COLORS.face, smoothstep(0, 0.5, h));
   out.lerp(WAVE_COLORS.light, smoothstep(0.5, 0.95, h));
-  out.lerp(WAVE_COLORS.crest, 0.7 * smoothstep(tc - 0.03, tc, t) * (1 - smoothstep(tc, tc + 0.05, t)));
+  if (crestBand) out.lerp(WAVE_COLORS.crest, 0.7 * smoothstep(tc - 0.03, tc, t) * (1 - smoothstep(tc, tc + 0.05, t)));
   if (lipS > 0) out.lerp(WAVE_COLORS.light, 0.5 * lipS);
   out.lerp(WAVE_COLORS.foam, foam);
   const alpha = (SEA.alpha + (1 - SEA.alpha) * smoothstep(0, 0.12, h)) * (1 - 0.2 * smoothstep(0.7, 1, lipS));
@@ -100,6 +102,8 @@ export interface OceanLayout {
   t: Float32Array;
   /** Index of the first column of the ridden range (`xs` passed in). */
   firstSimColumn: number;
+  /** Number of ridden columns (the `xs` passed in). */
+  simColumns: number;
   /** First row of the profile (t = 0 … the drawn tip), the lip top (tip → over the crest) and the back (→ its foot at sea level). */
   profileRow: number;
   profileSamples: number;
@@ -177,10 +181,13 @@ export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: numb
     const hollow = shape.hollowness(xc);
     shape.profile(xc, tc, crest);
     shape.profile(xc, 1, tip);
-    // The lip is drawn (and has a top) only while its tip is thrown out in front of the crest.
-    const lipOut = smoothstep(0.05 * H, 0.5 * H, tip.z - crest.z);
+    // The lip is drawn (and has a top) only while it is thrown out in front of the crest: ahead of the
+    // curl that follows the hollowness (a smooth fade as the feathering lip turns into the swell's
+    // back); behind it, where the lip tip is (it collapses into the whitewater mound).
+    const lipOut = xc >= 0 ? smoothstep(0.12, 0.3, hollow) : smoothstep(0.05 * H, 0.5 * H, tip.z - crest.z);
     // The lip thickens as it pitches: a feathering crest is thin, the barrel's lip a real slab.
-    const slab = LIP_THICKNESS * lipOut * smoothstep(0.25, 0.8, hollow);
+    // Never thinner than LIP_MIN_THICKNESS where drawn, so the lip top never coincides with the underside (z-fighting).
+    const slab = lipOut * (LIP_MIN_THICKNESS + (LIP_THICKNESS - LIP_MIN_THICKNESS) * smoothstep(0.25, 0.8, hollow));
     const tEnd = tc + (1 - tc) * lipOut;
     const base = i * R;
     const z0 = shape.profile(xc, 0, p).z;
@@ -200,7 +207,7 @@ export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: numb
       n.lerp(up, 1 - e * smoothstep(0, 0.08, t)).normalize();
       const lipS = t > tc ? (t - tc) / (1 - tc) : 0;
       const foam = foamAt(shape, xc, t, tc) * e;
-      const alpha = waveVertexColor(p.y, cy, t, tc, foam, c, lipS);
+      const alpha = waveVertexColor(p.y, cy, t, tc, foam, c, { lipS });
       const face = smoothstep(0.15, 0.6, clamp(p.y / Math.max(cy, 0.01), 0, 1)) * (1 - foam) * (t <= tc ? 1 : 0.4 + 0.5 * lipS);
       put(v, x, p.y, p.z, foam, face, t, alpha);
       nor.set([n.x, n.y, n.z], v * 3);
@@ -219,7 +226,7 @@ export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: numb
       p.y *= e;
       // Coloured like the face at the same height (no crest band), a little whitewater on top.
       const foam = 0.15 * hollow * lipOut * e;
-      const alpha = waveVertexColor(p.y, cy, -1, tc, foam, c) * (1 - 0.2 * smoothstep(0.7, 1, s) * lipOut);
+      const alpha = waveVertexColor(p.y, cy, t, tc, foam, c, { crestBand: false }) * (1 - 0.2 * smoothstep(0.7, 1, s) * lipOut);
       put(v, x, p.y, p.z, foam, 0, t, alpha);
     }
 
@@ -266,6 +273,7 @@ export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: numb
     xs: Float32Array.from(colX),
     t: tA,
     firstSimColumn: firstSim,
+    simColumns: xs.length,
     profileRow: F,
     profileSamples: P,
     lipRow: F + P,

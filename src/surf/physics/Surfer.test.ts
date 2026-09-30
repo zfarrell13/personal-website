@@ -256,6 +256,56 @@ describe('Surfer — riding', () => {
     expect(events.some((e) => e.type === 'tubeEnter')).toBe(true);
   });
 
+  // [start: 'drop-in' or reset(x, t) mid-face]. Stalling sets the rail: the rider waits on the face,
+  // the curl overtakes them and they end up genuinely under the lip (seaward of its tip) for ≥ 1 s.
+  it.each([['drop-in'], [2], [4], [6], [10]] as const)('holding the stall from %s: waits on the face and gets barrelled under the lip (≥ 1 s)', (start) => {
+    const h = setup();
+    if (start === 'drop-in') h.surfer.reset();
+    else h.surfer.reset(start, 0.45);
+    const tip = new Vector3();
+    let run = 0;
+    let longest = 0;
+    let minT = Infinity;
+    let exposed = 0;
+    for (let i = 0; i < 12 * 120; i++) {
+      h.surfer.step({ ...NO_INPUT, stall: true }, DT);
+      if (h.s.mode !== 'riding') break;
+      minT = Math.min(minT, h.s.param.t);
+      run = h.s.inTube ? run + DT : 0;
+      longest = Math.max(longest, run);
+      if (h.s.inTube && h.s.p.z >= h.wave.profile(h.s.param.x, 1, tip).z) exposed++;
+    }
+    expect(minT).toBeGreaterThan(0.2); // held on the face, never slid down to the trough
+    expect(longest).toBeGreaterThanOrEqual(1);
+    expect(exposed).toBe(0); // every tube tick is seaward of the lip tip
+    expect(h.s.wipeoutReason).toBe('swallowed');
+  });
+
+  it('the tube only counts under the lip: stalling on the flats in front of the lip is not a barrel', () => {
+    const h = setup();
+    h.surfer.reset(4, 0.1);
+    const tip = new Vector3();
+    for (let i = 0; i < 12 * 120 && h.s.mode === 'riding'; i++) {
+      h.surfer.step({ ...NO_INPUT, stall: true }, DT);
+      if (h.s.inTube) expect(h.s.p.z).toBeLessThan(h.wave.profile(h.s.param.x, 1, tip).z - h.cfg.physics.tubeUnderLip + 1e-9);
+    }
+  });
+
+  it('stall into the barrel from mid-face, then release early and pump down the line: out of the tube and still riding', () => {
+    const h = setup();
+    h.surfer.reset(6, 0.45);
+    const pumpOut = lineBot(h.surfer, h.wave, { pumpEvery: 0.6 });
+    let tube = 0;
+    for (let i = 0; i < 15 * 120; i++) {
+      h.surfer.step(tube < 0.3 ? { ...NO_INPUT, stall: true } : pumpOut(DT), DT);
+      if (h.s.inTube) tube += DT;
+      if (h.s.mode === 'wipeout' || h.s.mode === 'kickedOut') break;
+    }
+    const exit = h.events.find((e) => e.type === 'tubeExit');
+    expect(exit && exit.type === 'tubeExit' && exit.duration).toBeGreaterThanOrEqual(1);
+    expect(h.s.mode === 'riding' || h.s.mode === 'airborne').toBe(true);
+  });
+
   it('holding the stall longer gets you swallowed', () => {
     const { s, run, events } = setup();
     run(1);

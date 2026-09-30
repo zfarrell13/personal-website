@@ -5,6 +5,7 @@ import { CameraRig } from '../camera/CameraRig';
 import { Character } from '../character/Character';
 import { Environment } from '../render/Environment';
 import { WaveMesh } from '../render/WaveMesh';
+import type { OceanLayout } from '../render/waveGeometry';
 import { createSurfStore, type SurfStore } from '../state/store';
 
 // --- Mocks: no WebGL, no Web Audio, no GLTF fetch in node. -------------------
@@ -387,16 +388,19 @@ describe('SurfGame', () => {
         const built = vi.spyOn(WaveMesh.prototype, 'rebuild');
         const game = new SurfGame(canvas, createSurfStore());
         const mesh = built.mock.contexts[0] as WaveMesh;
-        const count = mesh.ocean.geometry.getAttribute('position').count;
+        const geo = mesh.ocean.geometry;
+        const L = geo.userData as OceanLayout;
+        const count = geo.getAttribute('position').count;
         built.mockRestore();
         game.dispose();
-        return count;
+        // The ridden columns × profile rows the game asked for, inside the ocean grid's layout.
+        expect(count).toBe(L.columns * L.rows);
+        return { columns: L.simColumns, rows: L.profileSamples };
       };
-      // The ocean grid adds 10 columns (eased ends + far sea) and 23 rows (flats, lip top, back) to columns × rows.
-      expect(vertices(true)).toBe((112 + 10) * (44 + 23));
+      expect(vertices(true)).toEqual({ columns: 112, rows: 44 });
       expect(SURF_CONFIG.mesh).toEqual({ columns: 112, rows: 44 });
-      expect(vertices(false)).toBe((160 + 10) * (64 + 23));
-      expect(vertices(null)).toBe((160 + 10) * (64 + 23));
+      expect(vertices(false)).toEqual({ columns: 160, rows: 64 });
+      expect(vertices(null)).toEqual({ columns: 160, rows: 64 });
     } finally {
       Object.assign(SURF_CONFIG.mesh, saved);
       delete (win as unknown as { matchMedia?: unknown }).matchMedia;

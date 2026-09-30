@@ -399,7 +399,8 @@ export class Surfer {
     if (!s.floating && speed0 > 1e-3) {
       // Rail grip: the rail holds the part of gravity across the board's line (fully from gripSpeed
       // up); the part along the line turns height into speed and back, the slip lets it sag.
-      const grip = c.railGrip * clamp((speed0 - c.minSpeed) / (c.gripSpeed - c.minSpeed), 0, 1);
+      // A stall sets the rail: full grip at any speed.
+      const grip = c.railGrip * (s.stalling ? 1 : clamp((speed0 - c.minSpeed) / (c.gripSpeed - c.minSpeed), 0, 1));
       const line = this.tmp2.copy(rel).multiplyScalar(1 / speed0);
       const along = a.dot(line);
       a.multiplyScalar(1 - grip).addScaledVector(line, along * grip);
@@ -412,6 +413,8 @@ export class Surfer {
     if (input.carve !== 0 && speed0 > 1e-3) a.addScaledVector(rel, (-c.carveBleed * Math.abs(input.carve)) / speed0);
     s.v.addScaledVector(a, dt);
     rel.subVectors(s.v, water);
+    // Stalling holds the board's height on the face: its motion up / down the face dies away.
+    if (s.stalling) rel.addScaledVector(this.eUp, -rel.dot(this.eUp) * (1 - Math.exp(-c.stallHold * dt)));
 
     // --- carve: rotate the board's line about the normal; toward the lip = +carve. The yaw rate
     // eases toward ±carve × carveRate / (1 + speed / carveHalfSpeed) with lag carveLag (a weighty
@@ -617,7 +620,7 @@ export class Surfer {
       this.wipe('swallowed');
       return;
     }
-    const inTube = x >= -D && x <= c.tubeXMax && s.p.y < c.tubeHeightFrac * crestY;
+    const inTube = x >= -D && x <= c.tubeXMax && s.p.y < c.tubeHeightFrac * crestY && s.p.z < this.wave.profile(x, 1, this.tmp).z - c.tubeUnderLip;
     if (inTube && !s.inTube) {
       this.tubeStart = s.time;
       this.emit({ type: 'tubeEnter', time: s.time });
