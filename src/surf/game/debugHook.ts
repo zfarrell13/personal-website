@@ -11,6 +11,8 @@ export interface SurfDebugHook {
   calls: number;
   triangles: number;
   fps: number;
+  /** Camera shot: 'chase' | 'tube' | 'underwater'. */
+  shot: string;
 }
 
 declare global {

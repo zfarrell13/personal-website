@@ -274,7 +274,7 @@ describe('SurfGame', () => {
     frame();
     expect(store.getState()).toMatchObject({ phase: 'title', run: null, underwater: false });
     expect(game.surfer.state.mode).toBe('riding');
-    expect(rigUpdate).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), 'right', false, expect.any(Number));
+    expect(rigUpdate).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), 'right', false, expect.any(Number), expect.any(Number));
     game.dispose();
   });
 

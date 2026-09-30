@@ -44,6 +44,11 @@ function disposeObject(root: Object3D): void {
 }
 
 const UP = new Vector3(0, 1, 0);
+/**
+ * The rendered board turns toward the physics heading at no more than this rate (deg/s): hides the
+ * near-curl 15–21°/tick heading jumps and the rare bottom-out flip (a real board can't turn that fast).
+ */
+export const MAX_BOARD_TURN_RATE = 720;
 /** Ankle-bone height above the sole (m). */
 const FOOT_SOLE = 0.06;
 const DECK_Y = BOARD.thickness + boardRocker(0.5);
@@ -61,6 +66,10 @@ export class Character {
   readonly pose: PoseLayer;
   private readonly pos = new Vector3();
   private readonly fwd = new Vector3();
+  /** The rendered board heading (unit), rate-limited toward the physics heading; null = snap next update. */
+  private heading: Vector3 | null = null;
+  private readonly headingStore = new Vector3();
+  private readonly axis = new Vector3();
   private readonly up = new Vector3();
   private readonly left = new Vector3();
   private readonly m = new Matrix4();
@@ -93,6 +102,7 @@ export class Character {
     this.tumble = 0;
     this.sinceLand = 10;
     this.root.quaternion.identity();
+    this.heading = null;
     this.pose.snap({ stance: 1 });
   }
 
@@ -106,8 +116,10 @@ export class Character {
     // floater mount / dismount airs keep the surface-normal riding frame.
     const trickAir = s.mode === 'airborne' && s.launchKind !== null;
 
-    // Board forward: heading (spun by airYaw in a trick air), flipped when riding fakie.
+    // Board forward: heading (rate-limited, spun by airYaw in a trick air), flipped when riding fakie.
     this.fwd.lerpVectors(surfer.prevHeading, s.heading, alpha).normalize();
+    this.turnHeadingToward(this.fwd, dt);
+    this.fwd.copy(this.heading!);
     if (trickAir) this.fwd.applyAxisAngle(UP, s.airYaw);
     if (s.stanceFlipped) this.fwd.negate();
     this.up.copy(trickAir ? UP : s.normal);
@@ -133,6 +145,25 @@ export class Character {
     const speed = s.v.length();
     this.pose.update(poseWeights(s, this.sinceLand, this.weights), dt, clamp(0.6 + speed / 20, 0.6, 1.3));
     this.plantFeet();
+  }
+
+  /** Turn the rendered heading toward `target` (unit) by at most MAX_BOARD_TURN_RATE · dt. */
+  private turnHeadingToward(target: Vector3, dt: number): void {
+    if (!this.heading) {
+      this.heading = this.headingStore.copy(target);
+      return;
+    }
+    const h = this.heading;
+    const angle = h.angleTo(target);
+    const max = MAX_BOARD_TURN_RATE * DEG * dt;
+    if (angle <= max) {
+      h.copy(target);
+      return;
+    }
+    this.axis.crossVectors(h, target);
+    // Exactly opposite: turn about the vertical (a flat turn).
+    if (this.axis.lengthSq() < 1e-12) this.axis.copy(UP);
+    h.applyAxisAngle(this.axis.normalize(), max).normalize();
   }
 
   /** Move the rider so the lower foot's sole sits on the deck (knee bend lowers the body). */

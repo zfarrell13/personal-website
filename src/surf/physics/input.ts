@@ -60,13 +60,13 @@ const GRAB_ORDER: ReadonlyArray<readonly [SurfAction, GrabKind]> = [
 ];
 
 /**
- * Screen-relative carve: the chase camera sits on the shoulder side of the canonical
- * frame (a LEFT), so on a LEFT the lip is screen-right; the RIGHT is mirrored, so →
- * turns down the face. (Task 3's behind-the-rider camera flips this back.)
+ * Screen-relative carve: the chase camera sits behind the rider looking down the
+ * line, so on a RIGHT the face (and the lip) rises on screen-right and → turns
+ * toward the lip; on a LEFT the face is on screen-left, so → turns down the face.
  */
 export function carveFromKeys(left: boolean, right: boolean, side: Side): number {
   const raw = (right ? 1 : 0) - (left ? 1 : 0);
-  return side === 'left' ? raw : -raw;
+  return side === 'right' ? raw : -raw;
 }
 
 type Readable = Pick<ActionState<SurfAction>, 'isDown' | 'pressedThisFrame'>;

@@ -67,7 +67,7 @@ export class SurfGame {
   private readonly input: SurferInput = { ...NO_INPUT };
   private readonly renderP = new Vector3();
   /** The one debug-hook object, mutated each frame (no per-frame allocation). */
-  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60 };
+  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, shot: 'chase' };
   private readonly look: SurferLook;
   private character: Character | null = null;
   private audio: SurfAudio | null = null;
@@ -118,7 +118,7 @@ export class SurfGame {
     // Environment sets the fog/background and adds the camera to the scene.
     this.env = new Environment(this.scene, this.camera);
     this.frame.add(this.env.frameStuff);
-    this.rig = new CameraRig(this.camera, SURF_CONFIG.camera);
+    this.rig = new CameraRig(this.camera, SURF_CONFIG.camera, this.wave);
     this.scoring = new Scoring(SURF_CONFIG.scoring, {
       onAward: (a) => this.pushTicker(a.repeated ? `${a.name} (repeat)` : a.name, a.points),
       onBank: (b) => {
@@ -356,7 +356,7 @@ export class SurfGame {
     this.renderP.lerpVectors(this.surfer.prevP, s.p, alpha);
     // Sim dt: a pause freezes the rider's pose springs too.
     this.character?.update(this.surfer, alpha, this.frameSimDt);
-    this.rig.update(s, this.renderP, this.side, underwater, dt);
+    this.rig.update(s, this.renderP, this.side, underwater, dt, this.waterTime);
     this.env.update(Number.isFinite(now) ? now / 1000 : 0, this.travel, sideSign(this.side));
     this.particles.update(Math.min(MAX_PARTICLE_DT, this.frameSimDt), this.phase === 'playing');
     this.waveMesh.update(this.waterTime);
@@ -394,6 +394,7 @@ export class SurfGame {
     hook.calls = info.calls;
     hook.triangles = info.triangles;
     hook.fps = Math.round(this.fps);
+    hook.shot = this.rig.shot;
     window.__surf = hook;
   }
 

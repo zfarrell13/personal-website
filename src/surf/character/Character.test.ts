@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Vector3 } from 'three';
 import { SURF_CONFIG, SURFER_LOOK } from '../config';
+import { DEG } from '../math/scalar';
 import { EventBus, type SurfEvent } from '../physics/events';
 import { NO_INPUT } from '../physics/input';
 import { Surfer } from '../physics/Surfer';
 import { WaveShape } from '../wave/WaveShape';
-import { Character, loadSurferRig } from './Character';
+import { Character, loadSurferRig, MAX_BOARD_TURN_RATE } from './Character';
 import { buildProceduralRig } from './rig';
 
 function setup() {
@@ -30,6 +31,25 @@ describe('Character', () => {
     const local = ch.root.worldToLocal(foot);
     expect(local.y).toBeGreaterThan(0.05);
     expect(local.y).toBeLessThan(0.25);
+  });
+
+  it('turns the rendered board toward the heading at a capped rate (hides near-curl heading jumps)', () => {
+    const { surfer, ch } = setup();
+    const dt = 1 / 120;
+    for (let i = 0; i < 120; i++) {
+      surfer.step(NO_INPUT, dt);
+      ch.update(surfer, 1, dt);
+    }
+    const s = surfer.state;
+    const fwd = () => new Vector3(0, 0, 1).applyQuaternion(ch.root.quaternion);
+    const before = fwd();
+    // An 85° heading jump in one tick (the rare bottom-out flip).
+    s.heading.applyAxisAngle(s.normal, 85 * DEG);
+    surfer.prevHeading.copy(s.heading);
+    ch.update(surfer, 1, dt);
+    expect(fwd().angleTo(before) / DEG).toBeLessThanOrEqual(MAX_BOARD_TURN_RATE * dt + 0.5);
+    for (let i = 0; i < 60; i++) ch.update(surfer, 1, dt);
+    expect(fwd().angleTo(s.heading) / DEG).toBeLessThan(2);
   });
 
   it('keeps the surface-normal frame and no spin during a silent floater air', () => {

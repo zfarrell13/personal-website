@@ -101,17 +101,33 @@ export const SURF_CONFIG = {
     repeatFactor: 0.5,
   },
   camera: {
-    stiffness: 4.5,
-    lookStiffness: 7,
+    /** Chase position spring rate (1/s, ≈ 2 / settle time): weighty but responsive. */
+    stiffness: 4,
+    lookStiffness: 6,
     fov: 62,
-    /** Tube blend target on entry (rises with depth to 1); higher = the camera commits to the barrel sooner. */
-    tubeBlendFloor: 0.9,
-    /** Tube blend spring rate (1/s, ≈ 2 / settle time). */
-    tubeBlendRate: 12,
-    /** Position/look spring rate at full tube blend (lerps from `stiffness`). */
+    /** Chase (a close bird's-eye view from behind): this far behind the rider along their travel direction (m) … */
+    chaseBack: 3.5,
+    /** … this high above them (m; floored above the local crest) … */
+    chaseHeight: 4,
+    /** … looking down at the point this far ahead of them along their travel direction (m). */
+    chaseAhead: 3,
+    /** The chase's travel direction stays within this yaw of down the line (deg), so it never swings round to the shoulder side … */
+    chaseMaxYaw: 50,
+    /** … and eases toward the board's heading at this rate (1/s), so carves don't whip the camera. */
+    chaseYawRate: 3,
+    /** The tube view cuts in after the rider has been in the barrel this long (s) … */
+    tubeCutIn: 0.2,
+    /** … and back out after this long out of it (s). */
+    tubeCutOut: 0.15,
+    /** Position/look spring rate in the tube view (tight: the barrel is small). */
     tubeStiffness: 20,
-    /** Frame x the tube camera never goes behind: the barrel is too thin to see from past x ≈ −4.5. */
-    tubeMinX: -4,
+    /** Riding at x ≤ pocketX below pocketHeightFrac × crest height (under the lip) also uses the tube view. */
+    pocketX: 3,
+    pocketHeightFrac: 0.6,
+    /** Frame x the tube camera never goes behind: the closed barrel collapses into foam past x ≈ −D − 1. */
+    tubeMinX: -6,
+    /** Peak camera shake (m) in the impact zone where the lip lands. */
+    shake: 0.06,
   },
   mesh: {
     columns: 160,
