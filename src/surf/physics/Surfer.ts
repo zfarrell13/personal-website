@@ -56,6 +56,10 @@ const DROP_SLACK = 0.02;
 const WORLD_UP = new Vector3(0, 1, 0);
 /** The turn sense flips only once the board's line is this far off straight up / down the face (sine of the angle). */
 const TURN_SENSE_HYSTERESIS = 0.2;
+/** A held carve's yaw rate eases off over the last this-many radians before the line points straight up / down the face. */
+const CARVE_EASE = 30 * DEG;
+/** Aiming further than this behind the board, the turn swings through down the line (+x). */
+const NEAR_OPPOSITE = 150 * DEG;
 const DROP_IN = { x: 3.5, t: 0.5, along: 2, down: 4 };
 
 /**
@@ -382,15 +386,29 @@ export class Surfer {
     rel.subVectors(s.v, water);
 
     // --- carve: rotate the board's line about the normal; toward the lip = +carve. The yaw rate
-    // eases toward carve × carveRate / (1 + speed / carveHalfSpeed) with lag carveLag (a weighty
+    // eases toward ±carve × carveRate / (1 + speed / carveHalfSpeed) with lag carveLag (a weighty
     // rail); the turn radius speed / rate grows with speed. ---
     const sp = rel.length();
-    // Which way along the wave the board runs sets the turn sense (+carve = toward the lip either way).
-    // It only flips once the board clearly points the other way: pointing straight up or down the
-    // face, a flip every tick would cancel the eased yaw rate and pin the board there.
     const along = rel.dot(this.e1);
-    if (Math.abs(along) > TURN_SENSE_HYSTERESIS * sp) this.turnSense = along > 0 ? 1 : -1;
-    const target = input.carve * (c.carveRate / (1 + sp / c.carveHalfSpeed)) * this.turnSense;
+    const rate = c.carveRate / (1 + sp / c.carveHalfSpeed);
+    let target: number;
+    if (this.snapArmed && input.carve !== 0) {
+      // Snapping: the carve keeps turning the way the board ran, through straight up / down the face
+      // (a carve-through goes over the top and back down); held at the lip, the rail bites harder.
+      target = input.carve * rate * (this.atCrest ? c.snapCarveBoost : 1) * this.turnSense;
+    } else {
+      // Which way along the wave the board runs (the sense a snap keeps turning in); it only flips
+      // once the board clearly points the other way.
+      if (Math.abs(along) > TURN_SENSE_HYSTERESIS * sp) this.turnSense = along > 0 ? 1 : -1;
+      // Steer the line toward straight up the face (+carve) or straight down it (−carve), easing off
+      // over the last CARVE_EASE so a held carve settles there instead of fishtailing across it.
+      // Aiming (nearly) straight behind the board, the turn swings through down the line (+x): a
+      // bottom turn from the fall line, or a top turn from straight up, heads for the shoulder.
+      const aim = input.carve > 0 ? Math.PI / 2 : -Math.PI / 2;
+      const err = wrapAngle(aim - Math.atan2(rel.dot(this.eUp), along));
+      const sense = Math.abs(err) > NEAR_OPPOSITE ? Math.sign(input.carve) : Math.sign(err);
+      target = Math.abs(input.carve) * rate * Math.min(1, Math.abs(err) / CARVE_EASE) * sense;
+    }
     this.yawRate += (target - this.yawRate) * (1 - Math.exp(-dt / c.carveLag));
     const ang = this.yawRate * dt;
     if (ang !== 0) rel.applyAxisAngle(n, ang);
@@ -429,7 +447,7 @@ export class Surfer {
           this.beginAir('drop', tb, 0);
           return;
         }
-        if (this.faceEdge(tb, tc, input.carve)) return;
+        if (this.faceEdge(tb, tc, input.carve, dt)) return;
       } else {
         this.atCrest = false;
         w.profile(s.param.x, s.param.t, s.p);
@@ -469,6 +487,8 @@ export class Surfer {
       if (s.time - this.crestTime > c.snapWindow) this.snapArmed = false;
       else if (input.carve !== 0 && s.heading.angleTo(this.crestHeading) >= c.snapAngle * DEG) {
         this.snapArmed = false;
+        // The snap is done: the rail lets go of the boost (no swinging on past the fall line).
+        this.yawRate /= c.snapCarveBoost;
         this.emit({ type: 'snap', time: s.time });
       }
     }
@@ -492,10 +512,10 @@ export class Surfer {
    * At the end of the rideable face (param already past it): start a floater (x < floaterMaxX with
    * speed), launch (up-face speed > launchSpeed), or clamp there and slide back. True = left the face.
    * Carving (either way) into the top with a snap armed or pending is a turn off the lip, not a
-   * launch: the climb comes back down the face at snapRebound × its up-face speed. Airs come from
-   * arriving without a carve held, or from an ollie.
+   * launch: the rider is held at the lip while the (boosted) carve turns the board back down.
+   * Airs come from arriving without a carve held (or letting go at the lip), or from an ollie.
    */
-  private faceEdge(tb: number, tc: number, carve: number): boolean {
+  private faceEdge(tb: number, tc: number, carve: number, dt: number): boolean {
     const s = this.state;
     const c = this.cfg;
     const w = this.wave;
@@ -522,15 +542,18 @@ export class Surfer {
       this.crestTime = s.time;
       this.crestHeading.copy(s.heading);
       this.snapArmed = true;
+      // Armed here: the top-band arming must not re-arm this same climb (one snap per lip turn).
+      this.topPending = false;
     }
     this.frameAt(s.param.x, tb);
     s.v.addScaledVector(n, -s.v.dot(n));
-    // Too slow to launch: the lip sheds the rider back down the face (no balancing on the ridge).
-    // A lip turn sends the climb back down across the wave (eUp), keeping the speed along it.
-    const dir = lipTurn ? this.eUp : out;
-    const up = s.v.dot(dir);
-    const back = lipTurn ? Math.max(c.crestShed, c.snapRebound * up) : c.crestShed;
-    if (up > -back) s.v.addScaledVector(dir, -up - back);
+    // A lip turn holds the rider at the lip (the position is clamped there) while the boosted carve
+    // turns the board's motion back down the face; the heading turns with the rail, never in one tick.
+    if (lipTurn) return false;
+    // Too slow to launch: the lip sheds the rider back down the face (no balancing on the ridge),
+    // over a few ticks (crestShedRate) so the board's heading turns rather than flips.
+    const up = s.v.dot(out);
+    if (up > -c.crestShed) s.v.addScaledVector(out, -Math.min(up + c.crestShed, c.crestShedRate * dt));
     return false;
   }
 

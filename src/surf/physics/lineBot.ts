@@ -46,8 +46,9 @@ export function lineBot(surfer: Surfer, wave: WaveShape, o: LineBotOptions): (dt
     const room = clamp((s.param.x - 3) / 8, 0, 1);
     const lim = slope * room;
     let carve = climbing ? (hy < lim ? 1 : 0) : hy > -lim ? -1 : 0;
-    // Never turn back toward the curl.
-    if (s.heading.x < 0 && carve !== 0) carve = climbing ? -1 : 1;
+    // Heading toward the curl: carve down to the fall line, then bottom-turn out of it (a carve
+    // toward the lip from near straight down swings through down the line, toward the shoulder).
+    if (s.heading.x < 0) carve = -s.heading.y > -1.7 * s.heading.x ? 1 : -1;
     since += dt;
     input.pump = pumpEvery > 0 && since >= pumpEvery;
     if (input.pump) since = 0;

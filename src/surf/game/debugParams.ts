@@ -22,7 +22,7 @@ export const DEBUG_PARAMS: ReadonlyArray<readonly [string, number, number, numbe
   ['physics.spinRate', 180, 900, 10],
   ['physics.landTolerance', 10, 60, 1],
   ['physics.snapTopFrac', 0.5, 1, 0.01],
-  ['physics.snapRebound', 0, 1, 0.05],
+  ['physics.snapCarveBoost', 1, 4, 0.1],
   ['scoring.comboWindow', 0.5, 4, 0.1],
   ['camera.stiffness', 1, 12, 0.5],
   ['camera.lookStiffness', 1, 16, 0.5],

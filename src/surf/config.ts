@@ -62,14 +62,16 @@ export const SURF_CONFIG = {
     launchSpeed: 3,
     /** Reaching the top of the face too slow to launch pushes the rider back down at this speed (m/s). */
     crestShed: 1,
+    /** … reaching that speed at this rate (m/s²): the lip turns the board back down over a few ticks. */
+    crestShedRate: 40,
     snapWindow: 0.6,
     /** A climb whose apex is above this fraction of the crest height arms a snap (open face; spec: "at the crest"). */
     snapTopFrac: 0.7,
     /**
      * Carving at the top of the face with a snap armed or pending turns off the lip instead of
-     * launching: the climb comes back down the face at this fraction of its up-face speed (≥ crestShed).
+     * launching; while a snap is armed and a carve held, the carve's yaw rate is this many times faster.
      */
-    snapRebound: 0.5,
+    snapCarveBoost: 2,
     /** Snap requires the heading to turn at least this much at the crest (deg). */
     snapAngle: 110,
     ollieImpulse: 4,

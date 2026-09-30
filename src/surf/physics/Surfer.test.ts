@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Vector3 } from 'three';
 import { bumpConfig, SURF_CONFIG } from '../config';
+import { DEG } from '../math/scalar';
 import { WaveShape } from '../wave/WaveShape';
 import { EventBus, type SurfEvent } from './events';
 import { NO_INPUT, type SurferInput } from './input';
@@ -253,18 +254,36 @@ describe('Surfer — riding', () => {
     expect(top).toBeLessThanOrEqual(1.5);
   });
 
-  // Straight up the face the board's run along the wave is ~0 and its sign flips tick to tick; the
-  // turn sense must not flip with it, or the eased yaw rate cancels out and the carve does nothing.
-  it.each([10, 15])('pointing straight up the face, a held carve keeps turning the board (x = %d)', (x) => {
-    for (const off of [-0.1, 0, 0.1]) {
-      const h = setup();
-      h.surfer.reset(x, 0.3);
-      const up = new Vector3().crossVectors(h.s.normal, new Vector3(1, 0, 0)).normalize();
-      h.s.v.set(off - h.surfer.peelSpeed, 0, 0).addScaledVector(up, 8); // world motion: straight up the face
-      h.s.v.addScaledVector(h.s.normal, -h.s.v.dot(h.s.normal));
-      h.run(0.3, () => ({ carve: 1 }));
-      expect(Math.abs(h.s.turnRate)).toBeGreaterThan(2);
+  // Straight up the face the board's run along the wave is ~0 and flips sign tick to tick: a held
+  // carve toward the lip must settle there, not pin (a cancelled yaw rate) or fishtail across it.
+  it.each([
+    [15, 0.15, 8],
+    [15, 0.15, 12],
+    [25, 0.1, 10],
+  ])('pointing straight up the face, a held carve toward the lip changes the heading monotonically (x = %d, t = %d, %d m/s)', (x, t, speed) => {
+    const h = setup();
+    h.surfer.reset(x, t);
+    const up = new Vector3().crossVectors(h.s.normal, new Vector3(1, 0, 0)).normalize();
+    h.s.v.set(-h.surfer.peelSpeed, 0, 0).addScaledVector(up, speed); // world motion: straight up the face
+    h.s.v.addScaledVector(h.s.normal, -h.s.v.dot(h.s.normal));
+    const hx: number[] = [];
+    for (let i = 0; i < 150 && h.s.mode === 'riding' && h.s.p.y < 0.9 * h.wave.crestY(h.s.param.x); i++) {
+      h.run(DT, () => ({ carve: 1 }));
+      hx.push(h.s.heading.x);
     }
+    expect(hx.length).toBeGreaterThan(30);
+    // Largest move back against the running extreme, in either direction.
+    let lo = hx[0]!;
+    let hi = hx[0]!;
+    let backUp = 0;
+    let backDown = 0;
+    for (const v of hx) {
+      lo = Math.min(lo, v);
+      hi = Math.max(hi, v);
+      backUp = Math.max(backUp, v - lo);
+      backDown = Math.max(backDown, hi - v);
+    }
+    expect(Math.min(backUp, backDown)).toBeLessThan(0.02);
   });
 
   it('the turn radius grows with speed', () => {
@@ -599,6 +618,8 @@ describe('Surfer — floater and kick-out', () => {
     const e0 = h.events.length;
     let phase: 'turn' | 'coast' | 'carve' = 'turn';
     let t0 = 0;
+    let lipJump = 0;
+    const before = new Vector3();
     for (let i = 0; i < 4 * 120 && h.s.mode === 'riding'; i++) {
       if (phase === 'turn' && (h.s.heading.y >= steep || frac() >= at)) phase = 'coast';
       if (phase === 'coast' && frac() >= at) {
@@ -606,10 +627,22 @@ describe('Surfer — floater and kick-out', () => {
         t0 = h.s.time;
       }
       if (phase === 'carve' && h.s.time - t0 > 1.5) break;
+      before.copy(h.s.heading);
       h.surfer.step({ ...NO_INPUT, carve: phase === 'turn' ? 1 : phase === 'coast' ? 0 : carve }, DT);
+      // Turning at the lip (carving at the top of the open face, at riding speed): the largest one-tick
+      // heading change. (Near the curl, x < 8, the pitching lip itself turns under a board riding along it.)
+      const atLip =
+        h.s.mode === 'riding' && frac() >= 0.95 && h.s.param.x >= 8 && h.surfer.worldSpeed(h.surfer.peelSpeed) >= 3;
+      if (phase === 'carve' && carve !== 0 && atLip) lipJump = Math.max(lipJump, before.angleTo(h.s.heading) / DEG);
     }
     const events = h.events.slice(e0);
-    return { snap: events.some((e) => e.type === 'snap'), launch: events.some((e) => e.type === 'launched') };
+    const snapTimes = events.flatMap((e) => (e.type === 'snap' ? [e.time] : []));
+    return {
+      snaps: snapTimes.length,
+      minSnapGap: Math.min(...snapTimes.slice(1).map((t, k) => t - snapTimes[k]!)),
+      launch: events.some((e) => e.type === 'launched'),
+      lipJump,
+    };
   }
 
   /** takeOver over a grid of riding states (6–10 s of lineBot) and climbs; the share of attempts that snap / launch. */
@@ -617,6 +650,8 @@ describe('Surfer — floater and kick-out', () => {
     let n = 0;
     let snaps = 0;
     let launches = 0;
+    let minSnapGap = Infinity;
+    let lipJump = 0;
     for (const warmUp of [6, 8, 10])
       for (const pumpEvery of [0.6, 1])
         for (const steep of [0.4, 0.6, 0.8])
@@ -624,10 +659,12 @@ describe('Surfer — floater and kick-out', () => {
             const r = takeOver(warmUp, pumpEvery, steep, at, carve);
             if (!r) continue;
             n++;
-            if (r.snap) snaps++;
+            if (r.snaps > 0) snaps++;
             if (r.launch) launches++;
+            minSnapGap = Math.min(minSnapGap, r.minSnapGap);
+            lipJump = Math.max(lipJump, r.lipJump);
           }
-    return { n, snap: snaps / n, launch: launches / n };
+    return { n, snap: snaps / n, launch: launches / n, minSnapGap, lipJump };
   }
 
   it.each([
@@ -637,6 +674,11 @@ describe('Surfer — floater and kick-out', () => {
     const r = takeOverGrid(carve);
     expect(r.n).toBeGreaterThanOrEqual(40);
     expect(r.snap).toBeGreaterThanOrEqual(0.3);
+    // One lip turn is one snap: never re-armed and fired again ticks later (a second climb into
+    // the lip within the 1.5 s may snap again) …
+    expect(r.minSnapGap).toBeGreaterThan(0.3);
+    // … and the board turns with the rail: no one-tick flip of the heading.
+    expect(r.lipJump).toBeLessThanOrEqual(15);
   });
 
   it('from riding states, arriving fast at the lip without carving still launches (airs stay easy)', () => {

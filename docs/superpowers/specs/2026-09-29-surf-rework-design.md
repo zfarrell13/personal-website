@@ -59,7 +59,21 @@ carving **weighty / realistic**.
 - Dropping converts height to speed; climbing converts speed to height.
 - Bottom turn → top turn lines generate speed along the wave together with pumps.
 - Crest launches, snaps (incl. apex-armed), floaters, tube, grabs/spins and
-  landing rules keep their existing semantics.
+  landing rules keep their existing semantics, with these lip rules:
+  - A climb into the top band (y ≥ `snapTopFrac` 0.7 × crest height) sets up a
+    snap; the window to turn it is `snapWindow` 0.6 s, and a snap needs a
+    ≥ 110° heading change while carving. One lip turn is one snap.
+  - **Carving at the lip** (← or →, with a snap set up) is a lip turn, not a
+    launch: the rider is held at the lip while the carve, `snapCarveBoost` 2×
+    faster there, turns the board back down (carve-back toward the trough, or
+    carve-through over the top). The board turns with the rail and never flips
+    in one frame.
+  - **Letting go of ← → at the lip launches** (arriving with up-face speed
+    > `launchSpeed`), as does an ollie. Too slow, the lip sheds the rider back
+    down (over a few ticks).
+- A held carve toward the lip / trough steers the board toward straight up /
+  down the face and settles there (no fishtail); from near straight up or down
+  it turns through down the line (toward the shoulder).
 
 ## 5. Camera: behind, from the curl side
 

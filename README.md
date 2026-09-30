@@ -60,7 +60,7 @@ See `CREDITS.md` (third-party models, samples and libraries).
 
 | Input | On the face | In the air |
 |---|---|---|
-| ← / → | Carve (screen-relative) | Spin |
+| ← / → | Carve (screen-relative); held at the lip = snap, **let go at the lip to launch** | Spin |
 | ↑ | Pump (rhythm beats mashing) | — |
 | ↓ | Stall (the curl catches you) | — |
 | Space | Ollie | — |
