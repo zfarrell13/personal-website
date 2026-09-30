@@ -3,11 +3,13 @@ import { useEffect } from 'react';
 import { useDjStore } from './store/djStore';
 import styles from './ui/booth.module.css';
 
-/** VIEW / SETTINGS buttons, Tab = switch view, Shift = SHIFT, and the notice toast. No other shortcuts (spec). */
+/** VIEW / SETTINGS / GUIDE buttons, Tab = switch view, Shift = SHIFT, and the notice toast. No other shortcuts (spec). */
 export function Hud() {
   const view = useDjStore((s) => s.ui.view);
   const notice = useDjStore((s) => s.ui.notice);
   const settingsOpen = useDjStore((s) => s.ui.settingsOpen);
+  // In the room view the guide is hidden: GUIDE then brings it back with the booth.
+  const guideShown = useDjStore((s) => s.ui.guideOpen && s.ui.view === 'closeup');
   const setUi = useDjStore((s) => s.setUi);
 
   useEffect(() => {
@@ -48,6 +50,15 @@ export function Hud() {
         </button>
         <button type="button" className={styles.hudBtn} onClick={() => setUi({ settingsOpen: !settingsOpen })} data-testid="settings-toggle">
           SETTINGS
+        </button>
+        <button
+          type="button"
+          className={styles.hudBtn}
+          aria-pressed={guideShown}
+          onClick={() => setUi(guideShown ? { guideOpen: false } : { guideOpen: true, view: 'closeup' })}
+          data-testid="guide-toggle"
+        >
+          GUIDE
         </button>
       </div>
       {notice ? (

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Hud } from './Hud';
 import { useDjStore } from './store/djStore';
 
@@ -43,5 +43,26 @@ describe('Hud keyboard', () => {
     expect(useDjStore.getState().ui.view).toBe(before);
     expect(ev.defaultPrevented).toBe(false);
     el.remove();
+  });
+});
+
+describe('Hud GUIDE button', () => {
+  it('reopens the guide (back in the booth view) and closes it again', () => {
+    useDjStore.getState().setUi({ view: 'room' });
+    render(<Hud />);
+    const btn = screen.getByTestId('guide-toggle');
+    fireEvent.click(btn);
+    expect(useDjStore.getState().ui).toMatchObject({ guideOpen: true, view: 'closeup' });
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(btn);
+    expect(useDjStore.getState().ui.guideOpen).toBe(false);
+  });
+
+  it('in the room view an open (hidden) guide is brought back, not closed', () => {
+    useDjStore.getState().setUi({ view: 'room', guideOpen: true });
+    render(<Hud />);
+    expect(screen.getByTestId('guide-toggle').getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(screen.getByTestId('guide-toggle'));
+    expect(useDjStore.getState().ui).toMatchObject({ guideOpen: true, view: 'closeup' });
   });
 });

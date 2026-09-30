@@ -56,6 +56,7 @@ export function Booth() {
           <div
             ref={scroller}
             className={styles.panels}
+            data-testid="booth-panels"
             onScroll={(e) => {
               const p = panelAt(e.currentTarget.scrollLeft, e.currentTarget.clientWidth);
               initialPanel.current = p;

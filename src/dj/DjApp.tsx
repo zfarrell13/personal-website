@@ -11,6 +11,7 @@ import { installDebugHook } from './debug';
 import { DjProvider, type DjRuntime } from './DjContext';
 import { AudioEngine } from './engine/AudioEngine';
 import { FrameLoop } from './frameLoop';
+import { Guide } from './guide/Guide';
 import { Hud } from './Hud';
 import { useDjStore } from './store/djStore';
 import { Booth } from './ui/Booth';
@@ -120,6 +121,7 @@ export default function DjApp() {
           <ClubView />
           <Booth />
           <Hud />
+          <Guide />
           {settingsOpen ? <Settings /> : null}
         </DjProvider>
       ) : (

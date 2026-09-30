@@ -1,8 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { trackConsoleErrors } from './helpers';
 
-async function boot(page: Page) {
-  await page.goto('/dj?tracks=test');
+/** Boots the booth. The step-by-step guide stays closed unless a test asks for it (it auto-opens on a first visit). */
+async function boot(page: Page, url = '/dj?tracks=test&guide=off') {
+  await page.goto(url);
   await page.getByTestId('dj-start').click();
   await page.waitForFunction(() => window.__dj?.ready === true, null, { timeout: 60_000 });
 }
@@ -256,5 +257,125 @@ test('StrictMode (next dev): exactly one club canvas, rendering in the close-up 
   const ratio = (f1[1] - f0[1]) / (f1[0] - f0[0]);
   expect(ratio).toBeGreaterThan(0.35);
   expect(ratio).toBeLessThan(0.65);
+  expect(errors()).toEqual([]);
+});
+
+/** Drags a slider's cap to the top (vertical fader) or right end (crossfader) of its track. */
+async function dragSlider(page: Page, name: string, to: 'top' | 'right') {
+  const b = (await page.getByRole('slider', { name, exact: true }).boundingBox())!;
+  const cx = b.x + b.width / 2;
+  const cy = b.y + b.height / 2;
+  const [from, dest] = to === 'top' ? [[cx, b.y + b.height - 2], [cx, b.y + 1]] : [[b.x + 2, cy], [b.x + b.width - 1, cy]];
+  await page.mouse.move(from[0]!, from[1]!);
+  await page.mouse.down();
+  await page.mouse.move(dest[0]!, dest[1]!, { steps: 6 });
+  await page.mouse.up();
+}
+
+test('guide: opens on the first visit and advances as each step is done, through to "Mix complete!"', async ({ page }) => {
+  const errors = trackConsoleErrors(page);
+  await boot(page, '/dj?tracks=test');
+  const guide = page.getByTestId('guide');
+  const step = (n: number) => expect(guide).toHaveAttribute('data-step', String(n));
+  const lit = (id: string) => expect(page.getByTestId(id)).toHaveAttribute('data-guide-hl', '');
+
+  // 1. BROWSE on deck 1 glows; loading a song moves on
+  await step(1);
+  await lit('browse-0');
+  await load(page, 0, 'test-tidal'); // 124 BPM
+  // 2. PLAY on deck 1 (+ CH 1 fader while it is down)
+  await step(2);
+  await lit('play-0');
+  await lit('fader-ch-0');
+  await dragSlider(page, 'CH 1', 'top');
+  await page.getByTestId('play-0').click();
+  // 3. load deck 2
+  await step(3);
+  await lit('browse-1');
+  await load(page, 1, 'test-sunrise'); // 120 BPM
+  // 4. match the BPM with deck 2's tempo fader (fine keyboard steps: 0.1 % each)
+  await step(4);
+  await lit('tempo-fader-1');
+  await expect(page.getByTestId('guide-bpm')).toHaveText(/124\.0.*120\.0.*DOWN/);
+  const tempo = page.getByTestId('tempo-fader-1').getByRole('slider');
+  await tempo.focus();
+  for (let i = 0; i < 33; i++) await tempo.press('Shift+ArrowDown');
+  // 5. beatmatch: SYNC is the accepted shortcut; the hold takes 2 s
+  await step(5);
+  await lit('play-1');
+  await page.getByTestId('sync-1').click();
+  await page.getByTestId('play-1').click();
+  await expect(page.getByTestId('guide-offset')).toBeVisible();
+  await expect(guide).toHaveAttribute('data-step', '6', { timeout: 15_000 });
+  // 6. fade in: CH 2 up, assign CH 1 → A and CH 2 → B, sweep the crossfader to B
+  await lit('fader-ch-1');
+  await dragSlider(page, 'CH 2', 'top');
+  await lit('xf-assign-0');
+  await page.getByTestId('xf-assign-0').click(); // THRU → B
+  await page.getByTestId('xf-assign-0').click(); // B → A
+  await page.getByTestId('xf-assign-1').click(); // THRU → B
+  await lit('crossfader');
+  await dragSlider(page, 'CROSSFADER', 'right');
+  await step(7);
+  await expect(guide).toContainText('MIX COMPLETE!');
+  expect(await page.evaluate(() => localStorage.getItem('dj.guide'))).toBe('done');
+  await expect(page.locator('[data-guide-hl]')).toHaveCount(0);
+
+  // hidden in the room view, back in the booth view; ✕ closes, GUIDE reopens
+  await page.getByTestId('view-toggle').click();
+  await expect(guide).toHaveCount(0);
+  await page.getByTestId('view-toggle').click();
+  await expect(guide).toBeVisible();
+  await page.getByTestId('guide-close').click();
+  await expect(guide).toHaveCount(0);
+  await page.getByTestId('guide-toggle').click();
+  await expect(guide).toBeVisible();
+  expect(errors()).toEqual([]);
+});
+
+test('guide: Back / Skip navigate by hand, and a dismissed guide stays closed on the next visit', async ({ page }) => {
+  const errors = trackConsoleErrors(page);
+  await boot(page, '/dj?tracks=test');
+  const guide = page.getByTestId('guide');
+  await expect(guide).toHaveAttribute('data-step', '1');
+  await page.getByTestId('guide-skip').click();
+  await expect(guide).toHaveAttribute('data-step', '2');
+  await page.getByTestId('guide-back').click();
+  await expect(guide).toHaveAttribute('data-step', '1');
+  await page.getByTestId('guide-close').click();
+  await expect(guide).toHaveCount(0);
+  await page.reload();
+  await page.getByTestId('dj-start').click();
+  await page.waitForFunction(() => window.__dj?.ready === true, null, { timeout: 60_000 });
+  await page.waitForTimeout(500);
+  await expect(guide).toHaveCount(0);
+  expect(errors()).toEqual([]);
+});
+
+test('guide on a phone: brings the panel and the control for the next step into view', async ({ page }) => {
+  const errors = trackConsoleErrors(page);
+  await page.setViewportSize({ width: 844, height: 390 });
+  await boot(page, '/dj?tracks=test');
+  const guide = page.getByTestId('guide');
+  const panel = () => page.evaluate(() => window.__dj!.state().ui.mobilePanel);
+  await expect(guide).toHaveAttribute('data-step', '1');
+  await expect.poll(panel).toBe(0);
+  await expect(page.getByTestId('browse-0')).toBeInViewport();
+  await load(page, 0, 'test-tidal');
+  // PLAY sits below the fold of the deck 1 panel: the guide scrolls it up (toBeInViewport never scrolls)
+  await expect(guide).toHaveAttribute('data-step', '2');
+  await expect(page.getByTestId('play-0')).toBeInViewport({ ratio: 1 });
+  await page.getByTestId('play-0').click();
+  await expect(guide).toHaveAttribute('data-step', '3');
+  await expect.poll(panel).toBe(2);
+  await expect(page.getByTestId('browse-1')).toBeInViewport();
+  // the docked guide never covers the control it points at
+  const g = (await guide.boundingBox())!;
+  const b = (await page.getByTestId('browse-1').boundingBox())!;
+  expect(g.y + g.height).toBeLessThanOrEqual(b.y);
+  await load(page, 1, 'test-sunrise');
+  await expect(guide).toHaveAttribute('data-step', '4');
+  await expect(page.getByTestId('tempo-fader-1').getByRole('slider')).toBeInViewport();
+  await page.screenshot({ path: test.info().outputPath('guide-phone-step4.png') });
   expect(errors()).toEqual([]);
 });

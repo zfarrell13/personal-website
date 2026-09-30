@@ -79,6 +79,8 @@ export interface UiState {
   view: 'closeup' | 'room';
   mobilePanel: 0 | 1 | 2;
   settingsOpen: boolean;
+  /** The step-by-step guide panel is showing (hidden in the room view). */
+  guideOpen: boolean;
   sinkId: string | null;
   notice: string | null;
   mtAvailable: boolean;
@@ -147,7 +149,7 @@ export const initialDjData = (): DjData => ({
     hpLevel: 0.6,
     hpMode: 'STEREO',
   },
-  ui: { view: 'closeup', mobilePanel: 1, settingsOpen: false, sinkId: null, notice: null, mtAvailable: true, audioReady: false, shift: false },
+  ui: { view: 'closeup', mobilePanel: 1, settingsOpen: false, guideOpen: false, sinkId: null, notice: null, mtAvailable: true, audioReady: false, shift: false },
 });
 
 const replace = <T>(arr: readonly [T, T], i: DeckId, v: T): [T, T] => (i === 0 ? [v, arr[1]] : [arr[0], v]);
