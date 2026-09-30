@@ -13,7 +13,7 @@ Third-party assets and libraries used in this project.
 ## Fonts
 
 - Russo One and VT323, SIL Open Font License (Google Fonts), served through `next/font`.
-- `assets/fonts/RussoOne-Regular.ttf` (from the google/fonts repo, unmodified) renders the link-preview image.
+- `assets/fonts/RussoOne-Regular.ttf` (from the google/fonts repo, unmodified) renders the link-preview image. Its licence is alongside it in `assets/fonts/OFL.txt`.
 
 ## Music
 
