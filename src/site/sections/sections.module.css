@@ -1,0 +1,241 @@
+/* Section screens (RIDER PROFILE, CAREER MODE, TROPHY ROOM, CREDITS): the title menu's PS2 look (site.module.css)
+   on opaque navy panels over the dimmed wave. Gold = selected/focused, Russo One for names, VT323 for text. */
+
+/* ── Chrome (SectionScreen) ──────────────────────────────────────────────────────────────────────
+   The page body doesn't scroll (globals.css), so the screen is a fixed column: bar, scrolling body, hint strip.
+   The NOW PLAYING tag (fixed, z 900) sits in the hint strip on desktop and beside ◀ MENU on phones. */
+.screen {
+  position: fixed; inset: 0;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.bar {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;
+  padding: 14px 16px 10px;
+}
+.back {
+  justify-self: start; white-space: nowrap;
+  padding: 8px 18px; border: 2px solid #c9d8ff; border-radius: 999px;
+  background: linear-gradient(180deg, #3c5bd8, #1a2a86); color: #fff; text-decoration: none;
+  font-style: italic; letter-spacing: 0.14em; text-shadow: 1px 1px 0 #050a24;
+  transition: box-shadow 120ms ease, transform 80ms ease;
+}
+.heading {
+  margin: 0; white-space: nowrap; text-align: center;
+  font-size: clamp(1.7rem, 4.2vw, 2.8rem); font-weight: 400; font-style: italic; letter-spacing: 0.08em;
+  transform: skewX(-12deg); color: #fff;
+  text-shadow: 3px 3px 0 #0a1a5c, 0 0 22px rgba(255, 255, 255, 0.45);
+}
+.body {
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  padding: 6px 16px 20px;
+  scrollbar-color: #8fb4ff #0a0f2c;
+}
+.panel {
+  width: min(100%, 920px); margin: 0 auto; padding: clamp(16px, 3vw, 28px);
+  /* Opaque: the wave never shows through text. */
+  background: linear-gradient(180deg, #1f2b70, #0b1033 60%, #080b26);
+  border: 2px solid #8fb4ff; border-radius: 6px;
+  box-shadow: 0 0 0 2px #0a0f2c, 0 0 28px rgba(90, 150, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  color: #eef3ff;
+}
+/* Desktop: a strip for the key hints on the left and the NOW PLAYING tag on the right. */
+.hints {
+  margin: 0; min-height: 76px; padding: 0 16px 16px; display: flex; align-items: center;
+  font-family: var(--font-mono), monospace; font-size: 1.25rem; letter-spacing: 0.14em; color: #fff; text-shadow: 1px 1px 0 #000;
+}
+@media (pointer: coarse) {
+  .hints { display: none; }
+  /* ◀ MENU on the left of the top row, the tag on the right of it; the title gets its own row. */
+  .bar { grid-template-columns: auto 1fr; min-height: 76px; padding: 16px 16px 8px; row-gap: 10px; }
+  .back { min-height: 44px; display: inline-flex; align-items: center; }
+  .heading { grid-column: 1 / -1; }
+  .body { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+}
+/* Phone held landscape: one row (◀ MENU · title · room for the tag) so the content keeps the height. */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
+  .bar { grid-template-columns: auto minmax(0, 1fr) calc(50vw - 40px); padding: 16px 16px 8px; min-height: 76px; }
+  .heading { grid-column: auto; text-align: left; font-size: 1.6rem; padding-left: 8px; }
+}
+
+/* Anything you can select: gold like the title menu's cursor. outline stays (transparent) for forced colours. */
+.back:hover, .back:focus-visible,
+.action:hover, .action:focus-visible,
+.close:hover, .close:focus-visible,
+.creditLink:hover, .creditLink:focus-visible {
+  outline: 2px solid transparent; box-shadow: 0 0 0 3px #ffe16b, 0 0 18px #ffe16b;
+}
+.back:active, .action:active, .close:active { transform: scale(0.96); }
+
+/* ── Shared type ───────────────────────────────────────────────────────────────────────────────── */
+.label {
+  margin: 0 0 8px; font-family: var(--font-mono), monospace; font-weight: 400;
+  font-size: 1.35rem; letter-spacing: 0.2em; color: #ffe16b; text-shadow: 1px 1px 0 #3a1a00;
+}
+.text {
+  margin: 0 0 10px; font-family: var(--font-mono), monospace;
+  font-size: 1.45rem; line-height: 1.2; letter-spacing: 0.02em; color: #eef3ff;
+}
+.text:last-child { margin-bottom: 0; }
+.block { margin-top: 22px; padding-top: 18px; border-top: 2px solid rgba(143, 180, 255, 0.3); }
+.action {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 20px;
+  border: 2px solid #c9d8ff; border-radius: 999px; background: linear-gradient(180deg, #3c5bd8, #1a2a86);
+  color: #fff; text-decoration: none; font-style: italic; letter-spacing: 0.14em; text-shadow: 1px 1px 0 #050a24;
+  transition: box-shadow 120ms ease, transform 80ms ease;
+}
+.chips { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  padding: 1px 10px; border: 1px solid #8fb4ff; border-radius: 4px; background: #0a0f2c;
+  font-family: var(--font-mono), monospace; font-size: 1.2rem; letter-spacing: 0.06em; color: #b9c8f5;
+}
+
+/* ── RIDER PROFILE ─────────────────────────────────────────────────────────────────────────────── */
+.card { display: grid; grid-template-columns: clamp(110px, 24vw, 200px) minmax(0, 1fr); gap: clamp(14px, 3vw, 28px); align-items: center; }
+.photo {
+  width: 100%; height: auto; aspect-ratio: 4 / 5; object-fit: cover; display: block;
+  border: 2px solid #8fb4ff; border-radius: 4px; box-shadow: 0 0 0 2px #0a0f2c, 0 0 18px rgba(90, 150, 255, 0.35);
+}
+.cardId { min-width: 0; }
+.riderName {
+  margin: 0; font-weight: 400; font-style: italic; font-size: clamp(1.6rem, 4.4vw, 2.6rem); line-height: 1.1;
+  letter-spacing: 0.04em; color: #fff; text-shadow: 3px 3px 0 #0a1a5c;
+}
+.riderTitle { margin: 6px 0 0; font-family: var(--font-mono), monospace; font-size: 1.5rem; letter-spacing: 0.08em; color: #ffe16b; }
+.riderMeta { margin: 2px 0 0; font-family: var(--font-mono), monospace; font-size: 1.35rem; color: #b9c8f5; }
+.quote {
+  margin: 12px 0 0; padding: 6px 12px; border-left: 3px solid #ffe16b; background: rgba(10, 15, 44, 0.8);
+  font-family: var(--font-mono), monospace; font-size: 1.4rem; line-height: 1.15; color: #eef3ff;
+}
+.stats { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-width: 600px; }
+.stat { display: grid; grid-template-columns: minmax(0, 1fr) auto 2ch; align-items: center; gap: 12px; }
+.statLabel { font-family: var(--font-mono), monospace; font-size: 1.4rem; letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.statMeter { display: flex; }
+.statMeter span[data-on] { width: clamp(10px, 2.2vw, 16px); height: 18px; }
+.statValue { font-family: var(--font-mono), monospace; font-size: 1.5rem; color: #9dff6b; text-align: right; }
+@media (max-width: 520px) {
+  .card { align-items: start; }
+  .stat { grid-template-columns: minmax(0, 1fr) 2ch; row-gap: 2px; }
+  .statMeter { grid-row: 2; grid-column: 1 / -1; }
+  .statMeter span[data-on] { width: calc((100vw - 120px) / 10 - 3px); max-width: 22px; }
+}
+
+/* ── CAREER MODE ───────────────────────────────────────────────────────────────────────────────── */
+.career { display: grid; gap: 18px; justify-items: start; }
+.seasons { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; width: 100%; }
+.season { border: 2px solid rgba(143, 180, 255, 0.45); border-radius: 6px; background: #0a0f2c; }
+.seasonHead { margin: 0; font-size: inherit; font-weight: 400; }
+.seasonRow {
+  width: 100%; display: grid; grid-template-columns: 1.4em minmax(0, 1fr) auto; align-items: baseline; column-gap: 10px;
+  padding: 12px 14px; border: 0; border-radius: 4px; background: transparent; text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; transition: background-color 80ms linear;
+}
+.chevron { grid-row: 1 / span 2; color: #8fb4ff; font-size: 0.9em; }
+.seasonRole { font-style: italic; font-size: clamp(1.1rem, 2.4vw, 1.35rem); letter-spacing: 0.04em; color: #fff; text-shadow: 2px 2px 0 #0a0f2c; }
+.seasonCompany { grid-column: 2; font-family: var(--font-mono), monospace; font-size: 1.4rem; letter-spacing: 0.06em; color: #ffe16b; }
+.seasonDates { grid-column: 3; grid-row: 1; font-family: var(--font-mono), monospace; font-size: 1.3rem; color: #b9c8f5; white-space: nowrap; }
+.seasonRow[aria-expanded='true'] { background: linear-gradient(90deg, rgba(255, 225, 107, 0.14), transparent 85%); }
+.seasonRow[aria-expanded='true'] .chevron { color: #ffe16b; }
+.seasonRow:hover, .seasonRow:focus-visible {
+  outline: 2px solid transparent;
+  background: linear-gradient(90deg, rgba(255, 225, 107, 0.26), rgba(255, 225, 107, 0.04) 85%);
+  box-shadow: inset 3px 0 0 #ffe16b, 0 0 0 2px #ffe16b;
+}
+.seasonRow:hover .seasonRole, .seasonRow:focus-visible .seasonRole { color: #ffe16b; }
+.seasonBody { padding: 0 14px 14px calc(14px + 1.4em + 10px); }
+.seasonWhere { margin: 0 0 8px; font-family: var(--font-mono), monospace; font-size: 1.3rem; color: #b9c8f5; }
+.wins { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.wins > li { position: relative; padding-left: 1.2em; margin: 0; }
+.wins > li::before { content: '★'; position: absolute; left: 0; color: #ffe16b; font-size: 0.8em; top: 0.15em; }
+@media (max-width: 560px) {
+  .seasonRow { grid-template-columns: 1.2em minmax(0, 1fr); }
+  .seasonDates { grid-column: 2; grid-row: auto; }
+  .seasonBody { padding-left: 14px; }
+}
+
+/* ── TROPHY ROOM ───────────────────────────────────────────────────────────────────────────────── */
+.grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 16px; }
+.trophy {
+  height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 10px;
+  border: 2px solid rgba(143, 180, 255, 0.45); border-radius: 6px; background: #0a0f2c;
+}
+.trophyOpen {
+  display: grid; gap: 6px; padding: 0 0 4px; border: 0; border-radius: 4px; background: transparent;
+  text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.trophyImage, .detailImage {
+  width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; display: block;
+  border: 2px solid #8fb4ff; border-radius: 4px; transition: box-shadow 120ms ease;
+}
+.trophyName { display: block; margin: 4px 0 0; font-weight: 400; font-style: italic; font-size: 1.3rem; letter-spacing: 0.04em; color: #fff; text-shadow: 2px 2px 0 #0a1a5c; }
+.oneLiner { display: block; margin: 0; font-family: var(--font-mono), monospace; font-size: 1.35rem; line-height: 1.15; color: #dfe8ff; }
+.trophyOpen:hover, .trophyOpen:focus-visible { outline: 2px solid transparent; }
+.trophyOpen:hover .trophyImage, .trophyOpen:focus-visible .trophyImage { box-shadow: 0 0 0 3px #ffe16b, 0 0 18px #ffe16b; }
+.trophyOpen:hover .trophyName, .trophyOpen:focus-visible .trophyName { color: #ffe16b; }
+.trophyOpen:focus-visible .trophyName::before { content: '▶ '; font-style: normal; font-size: 0.8em; }
+.links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 12px; }
+.links .action { padding: 6px 16px; font-size: 0.95rem; }
+
+.overlay {
+  position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 24px 16px 84px;
+  background: rgba(3, 5, 20, 0.82); overflow-y: auto; overscroll-behavior: contain;
+}
+.dialog {
+  position: relative; width: min(100%, 640px); max-height: 100%; overflow-y: auto; padding: clamp(16px, 3vw, 26px);
+  background: linear-gradient(180deg, #1f2b70, #0b1033 60%, #080b26);
+  border: 2px solid #ffe16b; border-radius: 6px;
+  box-shadow: 0 0 0 2px #0a0f2c, 0 0 36px rgba(255, 225, 107, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  color: #eef3ff; display: grid; gap: 10px;
+}
+.dialog .detailImage { max-height: min(32vh, 260px); }
+.dialog .trophyName { font-size: clamp(1.4rem, 4vw, 1.9rem); margin: 4px 0 0; }
+.dialog .oneLiner { color: #ffe16b; margin-bottom: 4px; }
+.close {
+  justify-self: end; min-height: 44px; padding: 6px 16px; border: 2px solid #c9d8ff; border-radius: 999px;
+  background: linear-gradient(180deg, #3c5bd8, #1a2a86); font-style: italic; letter-spacing: 0.12em; cursor: pointer;
+  text-shadow: 1px 1px 0 #050a24; transition: box-shadow 120ms ease, transform 80ms ease;
+}
+/* Phones: the NOW PLAYING tag is top-right, so the dialog starts below it. */
+@media (pointer: coarse) { .overlay { padding: 80px 12px 16px; } }
+/* Short landscape screens: the picture is decorative (the card showed it), so the story gets the room. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+  .dialog .detailImage { display: none; }
+  .close { position: absolute; top: 12px; right: 12px; }
+  .dialog .trophyName { padding-right: 140px; }
+}
+
+/* ── CREDITS ───────────────────────────────────────────────────────────────────────────────────── */
+.credits { overflow: clip; text-align: center; }
+.roll { display: grid; gap: 30px; padding: 8px 0; animation: roll 2.2s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@keyframes roll { from { transform: translateY(70vh); opacity: 0; } 25% { opacity: 1; } to { transform: none; } }
+.creditBlock { display: grid; justify-items: center; gap: 6px; }
+.creditRole {
+  margin: 0; font-family: var(--font-mono), monospace; font-weight: 400;
+  font-size: 1.35rem; letter-spacing: 0.3em; color: #ffe16b; text-shadow: 1px 1px 0 #3a1a00;
+}
+.creditName { margin: 0; font-style: italic; font-size: clamp(1.05rem, 2.6vw, 1.35rem); letter-spacing: 0.04em; color: #fff; text-shadow: 2px 2px 0 #0a1a5c; }
+.creditLink {
+  display: inline-block; max-width: 100%; padding: 4px 12px; border-radius: 4px; overflow-wrap: anywhere;
+  font-style: italic; font-size: clamp(1.05rem, 2.6vw, 1.35rem); letter-spacing: 0.04em;
+  color: #fff; text-decoration: underline; text-decoration-color: rgba(143, 180, 255, 0.6); text-underline-offset: 4px;
+  text-shadow: 2px 2px 0 #0a1a5c;
+}
+.creditLink:hover, .creditLink:focus-visible { color: #ffe16b; text-decoration-color: #ffe16b; }
+.tracks { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.track { display: grid; gap: 2px; }
+.trackTitle { font-style: italic; font-size: clamp(1.05rem, 2.6vw, 1.3rem); color: #fff; text-shadow: 2px 2px 0 #0a1a5c; }
+.trackArtist { font-family: var(--font-mono), monospace; font-size: 1.35rem; color: #b9c8f5; }
+.theEnd {
+  margin: 12px 0 0; font-style: italic; font-size: clamp(1.3rem, 3.4vw, 1.8rem); letter-spacing: 0.1em;
+  transform: skewX(-12deg); color: #ffe16b; text-shadow: 2px 2px 0 #5a2a00, 0 0 14px rgba(255, 225, 107, 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roll { animation: none; }
+  .back, .action, .close, .seasonRow, .trophyImage { transition: none; }
+}
+
+/* Narrow phones: keep the resume button on one line. */
+@media (max-width: 420px) {
+  .career > .action { padding: 8px 14px; font-size: 1rem; letter-spacing: 0.04em; }
+}

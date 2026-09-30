@@ -1,4 +1,4 @@
-/** The site's editable content (src/content/site.ts). */
+/** The site's editable content (src/content/site.ts). Every field is required: each one is shown somewhere. */
 export interface Profile {
   name: string;
   title: string;
@@ -6,13 +6,31 @@ export interface Profile {
   tagline: string;
   bio: string[];
   lookingFor: string;
+  /** Path under public/, e.g. "/site/photo.jpg". */
   photo: string;
   stats: { label: string; value: number /* 0..10 */ }[];
 }
 
+export interface Season {
+  role: string;
+  company: string;
+  /** "YYYY-MM" (sorts as text). */
+  start: string;
+  end: string | 'Present';
+  location?: string;
+  wins: string[];
+  stack?: string[];
+}
+
 export interface Career {
+  /** Path under public/, e.g. "/site/resume.pdf". */
   resumePdf: string;
-  seasons: { role: string; company: string; start: string; end: string | 'Present'; location?: string; wins: string[]; stack?: string[] }[];
+  seasons: Season[];
+}
+
+export interface TrophyLink {
+  label: 'PLAY' | 'VIEW' | 'CODE';
+  href: string;
 }
 
 export interface Trophy {
@@ -21,7 +39,7 @@ export interface Trophy {
   oneLiner: string;
   image: string;
   stack: string[];
-  links: { label: 'PLAY' | 'VIEW' | 'CODE'; href: string }[];
+  links: TrophyLink[];
   story: string[];
 }
 
@@ -31,13 +49,9 @@ export interface Credits {
   music: { title: string; artist: string }[];
 }
 
-/**
- * Only the title screen's fields (profile name and tagline) are required so far; the section screens
- * (Task 6) fill in the rest and make it all required.
- */
 export interface SiteContent {
-  profile: Pick<Profile, 'name' | 'tagline'> & Partial<Omit<Profile, 'name' | 'tagline'>>;
-  career?: Career;
-  trophies?: Trophy[];
-  credits?: Credits;
+  profile: Profile;
+  career: Career;
+  trophies: Trophy[];
+  credits: Credits;
 }

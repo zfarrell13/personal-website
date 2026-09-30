@@ -1,14 +1,20 @@
 import type { Metadata, Viewport } from 'next';
 import { Russo_One, VT323 } from 'next/font/google';
+import { site } from '@/content/site';
 import { SiteShell } from '@/site/SiteShell';
 import './globals.css';
 
 const display = Russo_One({ weight: '400', subsets: ['latin'], variable: '--font-display' });
 const mono = VT323({ weight: '400', subsets: ['latin'], variable: '--font-mono' });
 
+// From the content file, so the name, title and tagline live in one place.
+const { name, title, tagline } = site.profile;
+const description = `${title} — ${tagline}`;
+
 export const metadata: Metadata = {
-  title: 'Zach Farrell',
-  description: 'Surf, career and projects — a PS2-style portfolio.',
+  title: name,
+  description,
+  openGraph: { title: name, description, siteName: name, type: 'website' },
 };
 
 export const viewport: Viewport = {
