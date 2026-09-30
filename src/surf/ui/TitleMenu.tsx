@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Panel } from '@/retro/ui/Panel';
 import { RetroButton } from '@/retro/ui/RetroButton';
-import { browserStorage } from '@/shared/mode';
+import { browserStorage } from '@/shared/storage';
 import type { Side } from '../config';
 import { loadHighScores } from '../scoring/highScores';
 import { HighScoreTable } from './HighScoreTable';

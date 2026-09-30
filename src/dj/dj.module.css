@@ -1,4 +1,0 @@
-.root { position: fixed; inset: 0; overflow: hidden; overscroll-behavior: none; background: #03040a; color: #e8ecf5; }
-.start { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 110%, #3a1760 0%, #0b0a2e 55%, #03030c 100%); }
-.start p { max-width: 420px; line-height: 1.5; }
-.error { color: #ff9a9a; }

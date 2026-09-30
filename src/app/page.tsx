@@ -1,5 +1,5 @@
-import Portal from '@/portal/Portal';
+import { redirect } from 'next/navigation';
 
 export default function Home() {
-  return <Portal />;
+  redirect('/surf');
 }

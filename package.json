@@ -4,25 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "tsx scripts/ensure-tracks.ts && tsx scripts/build-worklets.ts && tsx scripts/copy-models.ts",
+    "predev": "tsx scripts/ensure-tracks.ts",
     "dev": "next dev",
-    "prebuild": "tsx scripts/ensure-tracks.ts && tsx scripts/build-worklets.ts --production && tsx scripts/copy-models.ts",
+    "prebuild": "tsx scripts/ensure-tracks.ts",
     "build": "next build",
     "tracks": "tsx scripts/build-tracks.ts",
     "start": "next start",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p src/dj/engine/worklets/tsconfig.json",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "worklets": "tsx scripts/build-worklets.ts",
-    "worklets:watch": "tsx scripts/build-worklets.ts --watch",
-    "models": "tsx scripts/copy-models.ts"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "next": "16.3.7",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "signalsmith-stretch": "1.3.2",
     "three": "^0.186.1",
     "zustand": "^5.0.15"
   },

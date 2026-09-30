@@ -7,7 +7,7 @@ const mono = VT323({ weight: '400', subsets: ['latin'], variable: '--font-mono' 
 
 export const metadata: Metadata = {
   title: 'Zach Farrell',
-  description: 'Surf by day. DJ by night.',
+  description: 'Surf, career and projects — a PS2-style portfolio.',
 };
 
 export const viewport: Viewport = {

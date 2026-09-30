@@ -2,8 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { LoadingScreen } from '@/retro/ui/LoadingScreen';
-import ModeSwitch from '@/shared/ModeSwitch';
-import { browserStorage } from '@/shared/mode';
+import { browserStorage } from '@/shared/storage';
 import type { Side } from './config';
 import { SurfGame } from './game/SurfGame';
 import { loadGuide, saveGuide } from './state/guidePref';
@@ -64,7 +63,6 @@ export default function SurfApp() {
       <NowPlayingToast store={store} />
       {game && phase === 'playing' ? <TouchControls actions={game.actions} onPause={pause} /> : null}
       {game && debug ? <DebugPanel game={game} /> : null}
-      {phase !== 'playing' ? <ModeSwitch current="light" /> : null}
     </div>
   );
 }

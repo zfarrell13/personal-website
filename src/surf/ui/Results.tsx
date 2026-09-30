@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Panel } from '@/retro/ui/Panel';
 import { RetroButton } from '@/retro/ui/RetroButton';
-import { browserStorage } from '@/shared/mode';
+import { browserStorage } from '@/shared/storage';
 import type { WipeoutReason } from '../physics/events';
 import { insertHighScore, loadHighScores, qualifies, sanitizeInitials, saveHighScores, type HighScore } from '../scoring/highScores';
 import type { RunSummary } from '../state/store';
