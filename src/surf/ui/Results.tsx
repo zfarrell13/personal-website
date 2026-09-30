@@ -13,7 +13,6 @@ import styles from './surf.module.css';
 const REASONS: Record<WipeoutReason, string> = {
   swallowed: 'SWALLOWED BY THE BARREL',
   badLanding: 'BLEW THE LANDING',
-  grabbing: 'STILL GRABBING ON LANDING',
   whitewater: 'LANDED IN THE WHITEWATER',
 };
 const A = 'A'.charCodeAt(0);

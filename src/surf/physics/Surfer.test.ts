@@ -763,10 +763,66 @@ describe('Surfer — air', () => {
     expect(landed).toMatchObject({ type: 'landed', spinDeg: 360, revert: false, ollie: true });
   });
 
-  it('a 90° landing is a wipeout', () => {
-    const h = bigOllie(20); // 90°
-    expect(h.s.mode).toBe('wipeout');
-    expect(h.s.wipeoutReason).toBe('badLanding');
+  /** Air ticks of the big ollie with no input (its flight is fixed by the ollie impulse). */
+  function bigOllieTicks(): number {
+    const h = setup({ ollieImpulse: 9 });
+    h.run(1);
+    h.run(DT, () => ({ ollie: true }));
+    let n = 0;
+    while (h.s.mode === 'airborne' && n < 600) {
+      h.run(DT);
+      n++;
+    }
+    return n;
+  }
+
+  it('a spin held right into the landing, 90° off, is a wipeout', () => {
+    // Spin until just before touchdown, finishing a quarter turn past a half turn: too little time to settle.
+    const n = bigOllieTicks();
+    const spun = setup({ ollieImpulse: 9 });
+    spun.run(1);
+    spun.run(DT, () => ({ ollie: true }));
+    let i = 0;
+    const stop = n - 2;
+    // … a spin that ends ~90° off a half turn, 2 ticks before touchdown.
+    const start = stop - Math.round((450 / SURF_CONFIG.physics.spinRate) * 120);
+    while (spun.s.mode === 'airborne' && i < 600) {
+      spun.run(DT, () => ({ spin: i >= start && i < stop ? 1 : 0 }));
+      i++;
+    }
+    expect(spun.s.mode).toBe('wipeout');
+    expect(spun.s.wipeoutReason).toBe('badLanding');
+  });
+
+  it('a spin let go part-way settles to the nearest half turn and lands clean', () => {
+    const h = bigOllie(20); // 90° of spin, then let go with most of the air left
+    expect(h.s.mode).toBe('riding');
+    expect(h.events.find((e) => e.type === 'landed')).toBeDefined();
+    const h2 = bigOllie(30); // 135° → settles to a 180
+    expect(h2.s.mode).toBe('riding');
+    expect(h2.events.find((e) => e.type === 'landed')).toMatchObject({ spinDeg: 180, revert: true });
+  });
+
+  it('a carve key still held from the face does not spin an ollie (a spin needs a fresh press)', () => {
+    const h = setup({ ollieImpulse: 9 });
+    h.run(1);
+    h.run(0.05, () => ({ carve: 1, spin: 1 }));
+    h.run(DT, () => ({ ollie: true, carve: 1, spin: 1 }));
+    expect(h.s.mode).toBe('airborne');
+    let i = 0;
+    while (h.s.mode === 'airborne' && i++ < 600) h.run(DT, () => ({ carve: 1, spin: 1 }));
+    expect(h.s.mode).toBe('riding');
+    expect(h.events.find((e) => e.type === 'landed')).toMatchObject({ spinDeg: 0, revert: false });
+    // Released and pressed again in the air, it spins.
+    const f = setup({ ollieImpulse: 9 });
+    f.run(1);
+    f.run(0.05, () => ({ carve: 1, spin: 1 }));
+    f.run(DT, () => ({ ollie: true, carve: 1, spin: 1 }));
+    f.run(DT);
+    f.run(80 * DT, () => ({ spin: 1 }));
+    let j = 0;
+    while (f.s.mode === 'airborne' && j++ < 600) f.run(DT);
+    expect(f.events.find((e) => e.type === 'landed')).toMatchObject({ spinDeg: 360 });
   });
 
   it('a 180 lands reversed and auto-reverts', () => {
@@ -776,20 +832,23 @@ describe('Surfer — air', () => {
     expect(h.s.stanceFlipped).toBe(true);
   });
 
-  it('holding a grab into the landing is a wipeout; releasing early is clean', () => {
+  it('a grab held into the landing is let go just before touchdown: scored and clean', () => {
     const held = setup({ ollieImpulse: 9 });
     held.run(1);
     held.run(DT, () => ({ ollie: true }));
     held.run(3, () => ({ grab: 'indy' }));
-    expect(held.s.wipeoutReason).toBe('grabbing');
+    expect(held.s.mode).toBe('riding');
+    const landed = held.events.find((e) => e.type === 'landed');
+    expect(landed && landed.type === 'landed' && landed.grabs[0]?.kind).toBe('indy');
+    expect(landed && landed.type === 'landed' && landed.grabs[0]!.heldSec).toBeGreaterThan(1.4);
 
     const released = setup({ ollieImpulse: 9 });
     released.run(1);
     released.run(DT, () => ({ ollie: true }));
     released.run(0.4, () => ({ grab: 'method' }));
     released.run(3);
-    const landed = released.events.find((e) => e.type === 'landed');
-    expect(landed && landed.type === 'landed' && landed.grabs[0]?.kind).toBe('method');
+    const l2 = released.events.find((e) => e.type === 'landed');
+    expect(l2 && l2.type === 'landed' && l2.grabs[0]?.kind).toBe('method');
   });
 });
 

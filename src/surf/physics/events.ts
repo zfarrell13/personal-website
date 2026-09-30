@@ -1,5 +1,5 @@
 export type GrabKind = 'method' | 'rail' | 'stalefish' | 'indy';
-export type WipeoutReason = 'swallowed' | 'badLanding' | 'grabbing' | 'whitewater';
+export type WipeoutReason = 'swallowed' | 'badLanding' | 'whitewater';
 export type LaunchKind = 'ollie' | 'crest';
 
 export interface GrabRecord {

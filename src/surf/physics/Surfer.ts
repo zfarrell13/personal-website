@@ -157,7 +157,15 @@ export class Surfer {
   private carveAccum = 0;
   private carveDir = 0;
   private grabStart = 0;
-  private lastGrabTime = -Infinity;
+  /** The spin input on the current tick (read by enterAir for the spin latch). */
+  private spinInput = 0;
+  /**
+   * A spin needs a fresh press in the air: a carve key still held from the face (e.g. an ollie
+   * mid-carve) does nothing until it is released.
+   */
+  private spinArmed = false;
+  /** The held grab was let go automatically just before touchdown; grab input is ignored until landing. */
+  private grabLocked = false;
   private grabs: GrabRecord[] = [];
 
   constructor(
@@ -235,7 +243,9 @@ export class Surfer {
     this.slowTime = 0;
     this.carveAccum = 0;
     this.carveDir = 0;
-    this.lastGrabTime = -Infinity;
+    this.spinInput = 0;
+    this.spinArmed = false;
+    this.grabLocked = false;
     this.grabs = [];
   }
 
@@ -274,6 +284,7 @@ export class Surfer {
     this.prevP.copy(s.p);
     this.prevHeading.copy(s.heading);
     s.time += dt;
+    this.spinInput = input.spin;
     if (s.mode === 'riding') this.ride(input, dt);
     else if (s.mode === 'airborne') this.air(input, dt);
   }
@@ -664,6 +675,8 @@ export class Surfer {
     this.nearTop = false;
     this.topPending = false;
     this.grabs = [];
+    this.spinArmed = this.spinInput === 0;
+    this.grabLocked = false;
     this.headingFromMotion(s.heading, true);
     if (kind) this.emit({ type: 'launched', time: s.time, kind });
   }
@@ -756,17 +769,27 @@ export class Surfer {
     s.airTime += dt;
     s.carve = 0;
     if (a.kind === 'jump') {
-      s.turnRate = input.spin * c.spinRate * DEG;
-      s.airYaw += s.turnRate * dt;
-      if (input.grab !== s.grab) {
+      if (input.spin === 0) this.spinArmed = true;
+      const spin = this.spinArmed ? input.spin : 0;
+      s.turnRate = spin * c.spinRate * DEG;
+      if (spin === 0) {
+        // Landing assist: not spinning, the board settles to the nearest half turn (0 / 180 / 360…).
+        const target = Math.round(s.airYaw / Math.PI) * Math.PI;
+        const step = c.spinSettleRate * DEG * dt;
+        s.turnRate = clamp((target - s.airYaw) / dt, -c.spinSettleRate * DEG, c.spinSettleRate * DEG);
+        s.airYaw = Math.abs(target - s.airYaw) <= step ? target : s.airYaw + Math.sign(target - s.airYaw) * step;
+      } else s.airYaw += s.turnRate * dt;
+      // A grab still held just before touchdown is let go automatically (scored, no wipeout).
+      if (!this.grabLocked && a.flightTime - s.airTime <= c.grabAutoRelease) this.grabLocked = true;
+      const grab = this.grabLocked ? null : input.grab;
+      if (grab !== s.grab) {
         if (s.grab) this.endGrab();
-        if (input.grab) {
+        if (grab) {
           this.grabStart = s.time;
-          this.emit({ type: 'grabStart', time: s.time, kind: input.grab });
+          this.emit({ type: 'grabStart', time: s.time, kind: grab });
         }
-        s.grab = input.grab;
+        s.grab = grab;
       }
-      if (s.grab) this.lastGrabTime = s.time;
     }
 
     const time = s.airTime;
@@ -840,13 +863,11 @@ export class Surfer {
     const s = this.state;
     const c = this.cfg;
     const a = this.path;
-    const grabRecent = s.grab !== null || s.time - this.lastGrabTime < c.grabGrace;
     this.endGrab();
     const off = Math.abs(wrapAngle(s.airYaw)) / DEG; // 0…180, board vs its take-off heading
     const aligned = off <= c.landTolerance;
     const reverse = off >= 180 - c.landTolerance;
     if (s.param.x < -this.wave.params.tubeDepth) return this.wipe('whitewater');
-    if (grabRecent) return this.wipe('grabbing');
     if (!aligned && !reverse) return this.wipe('badLanding');
 
     s.mode = 'riding';

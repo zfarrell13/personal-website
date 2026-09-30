@@ -96,8 +96,12 @@ export const SURF_CONFIG = {
     /** Cap on the pop speed of a crest launch (m/s). */
     maxAirSpeed: 9,
     spinRate: 540,
-    landTolerance: 40,
-    grabGrace: 0.1,
+    /** A landing within this many degrees of a half turn (0 / 180 / 360…) is clean. */
+    landTolerance: 60,
+    /** Not spinning in the air, the board settles to the nearest half turn at this rate (deg/s). */
+    spinSettleRate: 360,
+    /** A grab held this close to touchdown (s) is let go automatically. */
+    grabAutoRelease: 0.15,
     landingSpeedKeep: 0.9,
     /**
      * In the tube when −D ≤ x ≤ tubeXMax, y < tubeHeightFrac × crest height, and under the lip: at least
