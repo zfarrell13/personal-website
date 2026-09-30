@@ -44,7 +44,7 @@ const SUN_DIR = new Vector3(-0.62, 0.13, -0.77).normalize();
 export const SKY_RADIUS = 600;
 /** Opaque sea floor under the translucent water, below the reef (reef tops at ≈ −2.4 m). */
 const SEA_FLOOR_Y = -4.3;
-const SEA_FLOOR_COLOR = new Color('#115a62');
+const SEA_FLOOR_COLOR = new Color('#1b808a');
 /**
  * View depth (m) over which the sea floor and the reef fade into the fog colour. The water is opaque
  * from ≈ 35 m (waveMaterial), so nothing under it is seen that far out — except through pinholes the
@@ -181,8 +181,9 @@ export class Environment {
     const reefEdge = (z: number) => smoothstep(70, 45, Math.abs(z));
     const reefGeo = paint(new PlaneGeometry(TILE, 140, 40, 24).rotateX(-Math.PI / 2), (x, _y, z, c) => {
       const n = 0.5 + 0.25 * Math.sin((x / TILE) * Math.PI * 2 * 3 + z * 0.1) + 0.25 * Math.sin((x / TILE) * Math.PI * 2 * 7 + z * 0.23);
-      // Muted coral / sand / weed: seen through the teal water it reads as a hint of reef, not an oily mauve smear.
-      c.set(n > 0.62 ? '#8c8a5a' : n > 0.4 ? '#c9bf8e' : '#3c6e63')
+      // Coral / pale sand / weed in cool tones: through the teal water sand reads as clear turquoise and
+      // the rest as a hint of reef — no warm colour to smear brown or mauve.
+      c.set(n > 0.62 ? '#5f8f80' : n > 0.4 ? '#a8dccf' : '#2f6c64')
         .lerp(SEA_FLOOR_COLOR, 0.3)
         .lerp(SEA_FLOOR_COLOR, 1 - reefEdge(z));
     });

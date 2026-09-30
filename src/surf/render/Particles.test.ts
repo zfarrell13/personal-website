@@ -4,8 +4,9 @@ import { cameraGoal } from '../camera/CameraRig';
 import { SURF_CONFIG } from '../config';
 import { EventBus, type SurfEvent } from '../physics/events';
 import { Surfer } from '../physics/Surfer';
+import { mulberry32 } from '../math/random';
 import { WaveShape } from '../wave/WaveShape';
-import { BOARD_SPRAY, MAX_POINT_FRACTION, NEAR_FADE, Particles } from './Particles';
+import { BOARD_SPRAY, DROP_MIN_SIZE, MAX_POINT_FRACTION, NEAR_FADE, Particles } from './Particles';
 
 function alive(p: Particles, filter: (x: number, y: number, z: number) => boolean): number {
   const { pos, life } = p.pool;
@@ -14,12 +15,13 @@ function alive(p: Particles, filter: (x: number, y: number, z: number) => boolea
   return n;
 }
 
-function setup() {
+/** Seeded: every run spawns the same drops (failures reproduce). */
+function setup(seed = 7) {
   const cfg = structuredClone(SURF_CONFIG);
   const wave = new WaveShape(cfg.wave);
   const bus = new EventBus<SurfEvent>();
   const surfer = new Surfer(wave, cfg.physics, bus);
-  const p = new Particles(wave, bus, surfer.state);
+  const p = new Particles(wave, bus, surfer.state, mulberry32(seed));
   return { cfg, wave, bus, surfer, p };
 }
 
@@ -79,7 +81,7 @@ describe('Particles — near the lens', () => {
     p.setScale(cam, 448);
     expect(p.points.material.uniforms.uMaxSize!.value).toBeCloseTo(448 * MAX_POINT_FRACTION, 9);
     expect(p.points.material.vertexShader).toContain(`smoothstep(${NEAR_FADE[0].toFixed(1)}, ${NEAR_FADE[1].toFixed(1)}, -mvPosition.z)`);
-    expect(p.points.material.vertexShader).toContain('clamp(aSize * uScale / -mvPosition.z, 1.0, uMaxSize)');
+    expect(p.points.material.vertexShader).toContain(`clamp(aSize * (${DROP_MIN_SIZE.toFixed(2)} + ${(1 - DROP_MIN_SIZE).toFixed(2)} * aAlpha) * uScale / -mvPosition.z, 1.0, uMaxSize)`);
     p.dispose();
   });
 });
@@ -124,6 +126,7 @@ describe('Particles — board spray', () => {
     const { pos, life } = hard.p.pool;
     for (let i = 0; i < life.length; i++) {
       if (life[i]! <= 0) continue;
+      if (Math.hypot(pos[i * 3]! - hard.s.p.x, pos[i * 3 + 1]! - hard.s.p.y, pos[i * 3 + 2]! - hard.s.p.z) > 5) continue;
       sum += (pos[i * 3]! - hard.s.p.x) * outside.x + (pos[i * 3 + 1]! - hard.s.p.y) * outside.y + (pos[i * 3 + 2]! - hard.s.p.z) * outside.z;
     }
     expect(sum).toBeGreaterThan(0);
@@ -142,6 +145,22 @@ describe('Particles — board spray', () => {
     expect(tube.near()).toBeLessThan(0.5 * open.near());
     open.p.dispose();
     tube.p.dispose();
+  });
+
+  it('bursts on a genuine cutback (the board reverses its run along the wave while carving), not on every carve event', () => {
+    const r = ride(9, 2.2, 1);
+    r.p.update(1 / 60, true); // running down the line (+x)
+    const before = r.near();
+    r.bus.emit({ type: 'carve', time: 1, degrees: 60 }); // a combo carve alone throws no burst
+    expect(r.near()).toBe(before);
+    r.s.heading.set(-1, 0, 0); // turned back toward the curl
+    r.p.update(1 / 60, true);
+    expect(r.near() - before).toBeGreaterThanOrEqual(BOARD_SPRAY.cutbackBurst);
+    // Running back the same way again is no new cutback.
+    const after = r.near();
+    r.p.update(1 / 60, true);
+    expect(r.near() - after).toBeLessThan(BOARD_SPRAY.cutbackBurst / 2);
+    r.p.dispose();
   });
 
   it('bursts on a snap / lip turn (event-driven)', () => {

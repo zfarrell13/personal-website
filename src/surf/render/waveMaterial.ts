@@ -93,13 +93,15 @@ const LIP_GLSL = /* glsl */ `
 const FOAM_GLSL = /* glsl */ `
   float foamA = texture2D(uFoamTex, vFoamUv).r;
   float foamB = texture2D(uFoamTex, vFoamUv * vec2(0.35, 2.2) + vec2(0.37, 0.61)).r;
-  float foamN = 0.55 * foamA + 0.45 * foamB;
+  // Fine, slowly boiling detail: lumps and streaks inside the covered foam (volume up close).
+  float foamC = texture2D(uFoamTex, vFoamUv * vec2(1.3, 4.7) + vec2(0.11 + uTime * 0.05, 0.53 - uTime * 0.08)).r;
+  float foamN = 0.5 * foamA + 0.35 * foamB + 0.15 * foamC;
   float foamAmt = clamp(vFoam, 0.0, 1.0);
-  float foamCover = foamAmt * smoothstep(0.95 - foamAmt, 1.15 - foamAmt, foamN);
+  float foamCover = foamAmt * smoothstep(0.9 - foamAmt, 1.2 - foamAmt, foamN);
   // Milky aerated water only where the foam is thick: thin foam is patches on clear water, not a haze.
   float foamMilky = smoothstep(0.35, 0.9, foamAmt) * (1.0 - foamCover);
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.86, 0.84), 0.75 * foamMilky);
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 1.0, 1.0), foamCover);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.88, 0.86), 0.75 * foamMilky);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 1.0, 1.0) * (0.8 + 0.25 * foamC + 0.1 * foamB), foamCover);
 `;
 
 /** Inject ripple, the animated pitching lip, foam scrolling, fake subsurface and sky reflection into a Lambert shader. Pure string surgery (unit-tested). */
@@ -135,7 +137,7 @@ ${FOAM_GLSL}`,
   float rim = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
   totalEmissiveRadiance += uSSS * rim * rim * vFace;
   // Self-lit foam is for daylight above the water; from below (the wipeout cut, uReflect = 0) it stays dim.
-  totalEmissiveRadiance += diffuseColor.rgb * (0.5 * foamCover + 0.2 * foamMilky) * uReflect;`,
+  totalEmissiveRadiance += diffuseColor.rgb * (0.5 * foamCover + 0.3 * foamMilky) * uReflect;`,
       )
       .replace('#include <opaque_fragment>', `${SKY_REFLECTION_GLSL}\n#include <opaque_fragment>`);
 }

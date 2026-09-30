@@ -4,7 +4,7 @@ import { PITCH_AT } from '../wave/sections';
 import type { WaveShape } from '../wave/WaveShape';
 
 /** The open sea: colour and opacity of flat water. The wave's trough, the flats and the far sea all use it. */
-export const SEA = { color: new Color('#13787f'), alpha: 0.7 };
+export const SEA = { color: new Color('#1d979d'), alpha: 0.7 };
 /**
  * Half-size of the ocean surface (m). Fog is depth-based, so an edge seen near the corner of a wide
  * frustum is nearer in depth than in distance: this is far enough that the edge is past full fog
@@ -28,6 +28,8 @@ const BACK_PROFILE: ReadonlyArray<readonly [number, number]> = [
 const BACK_FLATS = [8, 25, 150, 400];
 /** Hollowness below which the lip no longer animates (just ahead of where it pitches, PITCH_AT). */
 const LIP_ANIM_FROM = PITCH_AT - 0.04;
+/** Fraction of the lip (past the crest) left undrawn at the tip where it pitches over at the barrel's mouth. */
+const MOUTH_TRIM = 0.06;
 /** Largest share of the profile rows given to the lip (past the crest) where it is fully drawn. */
 const LIP_ROW_SHARE = 0.42;
 /** Samples along the lip top, from the tip back over the crest. */
@@ -239,7 +241,9 @@ export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: numb
     // The lip thickens as it pitches: a feathering crest is thin, the barrel's lip a real slab.
     // Never thinner than LIP_MIN_THICKNESS where drawn, so the lip top never coincides with the underside (z-fighting).
     const slab = lipOut * (LIP_MIN_THICKNESS + (LIP_THICKNESS - LIP_MIN_THICKNESS) * smoothstep(0.25, 0.8, hollow));
-    const tEnd = tc + (1 - tc) * lipOut;
+    // Where the lip is pitching over (≈ 0.2–3.5 m ahead of the curl) its tip is drawn a touch short: the
+    // finer lip rows otherwise show a tip that dips across the deepest tube camera's view out of the eye.
+    const tEnd = tc + (1 - tc) * lipOut * (1 - MOUTH_TRIM * smoothstep(0.2, 0.8, xc) * (1 - smoothstep(2, 3.5, xc)));
     const base = i * R;
     const z0 = shape.profile(xc, 0, p).z;
     const troughFoam = foamAt(shape, xc, 0, tc) * e;
