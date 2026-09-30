@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { checkSupport } from '@/retro/support';
 import { LoadingScreen } from '@/retro/ui/LoadingScreen';
 import styles from './site.module.css';
-import { stageModeFor } from './stageMode';
+import { attractFpsFor, stageModeFor } from './stageMode';
 
 /** While the game's chunk loads: /surf shows the loading screen as before; the attract stage shows nothing. */
 function StageLoading() {
@@ -31,11 +31,13 @@ function useReducedMotion(): boolean {
 
 /**
  * The persistent surf stage: one SurfGame behind every page, created once (SiteShell lives in the root
- * layout, which persists across navigations). /surf plays it; every other route shows the attract loop.
+ * layout, which persists across navigations). /surf plays it; every other route shows the attract loop, at a
+ * lower frame rate behind the section screens (attractFpsFor).
  * Without WebGL 2 it renders nothing (/surf shows the SupportGate message instead).
  */
 export function Stage() {
-  const mode = stageModeFor(usePathname());
+  const pathname = usePathname();
+  const mode = stageModeFor(pathname);
   const reducedMotion = useReducedMotion();
   const router = useRouter();
   const toMenu = useCallback(() => router.push('/'), [router]);
@@ -44,7 +46,7 @@ export function Stage() {
   if (!webgl2) return null;
   return (
     <div className={styles.stage} data-mode={mode} aria-hidden={mode === 'attract' || undefined}>
-      <SurfApp mode={mode} reducedMotion={reducedMotion} onMenu={toMenu} />
+      <SurfApp mode={mode} reducedMotion={reducedMotion} attractFps={attractFpsFor(pathname)} onMenu={toMenu} />
     </div>
   );
 }

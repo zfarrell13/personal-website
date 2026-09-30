@@ -747,6 +747,29 @@ describe('SurfGame', () => {
     game.dispose();
   });
 
+  it('the attract cap is settable: 12 fps draws every 5th 60 Hz frame; back to 30 draws every other', async () => {
+    const game = new SurfGame(canvas, createSurfStore(), { attract: true, attractFps: 12 });
+    await game.load();
+    clock = performance.now();
+    frame();
+    const retro = retroInstances[0]!;
+    let drawn = retro.render.mock.calls.length;
+    for (let i = 0; i < 20; i++) frame(1000 / 60);
+    expect(retro.render.mock.calls.length).toBe(drawn + 4);
+    for (let i = 0; i < 20; i++) frame(1000 / 120);
+    expect(retro.render.mock.calls.length).toBe(drawn + 6); // 120 Hz: every 10th
+    game.setAttractFps(30);
+    drawn = retro.render.mock.calls.length;
+    for (let i = 0; i < 10; i++) frame(1000 / 60);
+    expect(retro.render.mock.calls.length).toBe(drawn + 5);
+    game.setAttract(false); // play mode ignores the cap
+    drawn = retro.render.mock.calls.length;
+    game.setAttractFps(12);
+    for (let i = 0; i < 10; i++) frame(1000 / 60);
+    expect(retro.render.mock.calls.length).toBe(drawn + 10);
+    game.dispose();
+  });
+
   it('attract mode from a paused run or the results also lands on the title', async () => {
     const { game, store } = await playing();
     game.pause();

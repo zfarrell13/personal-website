@@ -43,6 +43,8 @@ export interface SurfGameOptions {
   music?: Pick<MusicPlayer, 'setMuffleHz' | 'setDuck' | 'start'>;
   /** Start in attract mode (see setAttract): the key listeners are never attached until play. */
   attract?: boolean;
+  /** Attract mode's frame cap (see setAttractFps). Default 30. */
+  attractFps?: number;
 }
 
 /** Music level under the pause menu. */
@@ -55,8 +57,11 @@ const END_DELAY = { wipeout: 1.6, kickedOut: 1.0 } as const;
 const MAX_FRAME = 0.25;
 /** Particles integrate at most this much time per frame (s). */
 const MAX_PARTICLE_DT = 0.1;
-/** Attract mode draws at most ~30 fps: a frame is skipped until this much time (ms) has passed. */
-const ATTRACT_MIN_FRAME_MS = 1000 / 30 - 4;
+/** Attract mode's default frame cap. */
+const ATTRACT_FPS = 30;
+/** Slack (ms) under the attract frame interval, so a display's frame that lands a little early still counts. */
+const ATTRACT_FRAME_SLACK_MS = 4;
+const attractMinFrameMs = (fps: number): number => 1000 / fps - ATTRACT_FRAME_SLACK_MS;
 
 /**
  * Owns the loop: fixed 120 Hz simulation (surfer, scoring) with render
@@ -122,6 +127,8 @@ export class SurfGame {
   private attract = false;
   /** Reduced motion: in attract mode, one still frame instead of a loop. */
   private frozen = false;
+  /** Attract mode draws a frame only once this much time (ms) has passed since the last (the fps cap). */
+  private attractMinFrameMs = attractMinFrameMs(ATTRACT_FPS);
   private last: number | null = null;
   private frames = 0;
   private fps = 60;
@@ -142,6 +149,7 @@ export class SurfGame {
     this.look = opts.look ?? SURFER_LOOK;
     this.music = opts.music ?? getMusicPlayer();
     this.attract = opts.attract ?? false;
+    if (opts.attractFps !== undefined) this.setAttractFps(opts.attractFps);
     this.writer = new ThrottledWriter(store, 15);
     const coarse = window.matchMedia?.('(pointer: coarse)').matches === true;
     if (coarse) {
@@ -275,6 +283,12 @@ export class SurfGame {
     this.wake();
   }
 
+  /** Attract mode's frame cap (fps, > 0): the site draws the title menu's backdrop faster than a section's. */
+  setAttractFps(fps: number): void {
+    if (!(fps > 0)) return;
+    this.attractMinFrameMs = attractMinFrameMs(fps);
+  }
+
   /** Reduced motion: in attract mode the stage draws one frame and stops. Play mode is unaffected. */
   setFrozen(on: boolean): void {
     if (this.disposed || on === this.frozen) return;
@@ -371,8 +385,8 @@ export class SurfGame {
     // Frozen in attract: this frame is drawn, and no next one is asked for (wake() restarts it).
     this.looping = !(this.attract && this.frozen);
     if (this.looping) this.raf = requestAnimationFrame(this.loop);
-    // Attract (a dimmed backdrop) is capped at ~30 fps: skipped frames leave the clock alone, so dt accumulates.
-    if (this.attract && !this.frozen && this.last !== null && Number.isFinite(now) && now - this.last < ATTRACT_MIN_FRAME_MS) return;
+    // Attract (a dimmed backdrop) is capped (setAttractFps): skipped frames leave the clock alone, so dt accumulates.
+    if (this.attract && !this.frozen && this.last !== null && Number.isFinite(now) && now - this.last < this.attractMinFrameMs) return;
     let dt = 0;
     if (Number.isFinite(now)) {
       if (this.last !== null) {

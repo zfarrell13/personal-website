@@ -20,12 +20,14 @@ export interface SurfAppProps {
   mode?: 'play' | 'attract';
   /** prefers-reduced-motion: the attract stage holds a still frame. */
   reducedMotion?: boolean;
+  /** The attract loop's frame cap (the site lowers it behind a section screen). Default: the game's own (30). */
+  attractFps?: number;
   /** Back to the site's title menu, offered on the game's title screen ("◀ MENU", Esc). */
   onMenu?: () => void;
 }
 
 /** The surf game. Created once per mount: mode changes switch it in place, never re-create it. */
-export default function SurfApp({ mode = 'play', reducedMotion = false, onMenu }: SurfAppProps) {
+export default function SurfApp({ mode = 'play', reducedMotion = false, attractFps, onMenu }: SurfAppProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [store] = useState(createSurfStore);
   const [game, setGame] = useState<SurfGame | null>(null);
@@ -37,15 +39,17 @@ export default function SurfApp({ mode = 'play', reducedMotion = false, onMenu }
 
   // The mode at creation, so an attract stage is born in attract mode (never a play-mode moment with the keys).
   const modeRef = useRef(mode);
+  const attractFpsRef = useRef(attractFps);
   useEffect(() => {
     modeRef.current = mode;
+    attractFpsRef.current = attractFps;
   });
 
   useEffect(() => {
     const dbg = new URLSearchParams(window.location.search).has('debug');
     setDebug(dbg);
     store.setState({ guide: loadGuide(browserStorage()) });
-    const g = new SurfGame(canvasRef.current!, store, { debug: dbg, attract: modeRef.current === 'attract' });
+    const g = new SurfGame(canvasRef.current!, store, { debug: dbg, attract: modeRef.current === 'attract', attractFps: attractFpsRef.current });
     setGame(g);
     g.load().catch((e: unknown) => console.error('Surf failed to load', e));
     return () => {
@@ -57,6 +61,9 @@ export default function SurfApp({ mode = 'play', reducedMotion = false, onMenu }
   const attract = mode === 'attract';
   useEffect(() => game?.setAttract(attract), [game, attract]);
   useEffect(() => game?.setFrozen(reducedMotion), [game, reducedMotion]);
+  useEffect(() => {
+    if (attractFps !== undefined) game?.setAttractFps(attractFps);
+  }, [game, attractFps]);
 
   const start = useCallback((s: Side) => game?.start(s), [game]);
   const again = useCallback(() => game?.start(store.getState().side), [game, store]);

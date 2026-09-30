@@ -4,7 +4,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import type { SurfStore } from './state/store';
 
 // A stand-in SurfGame: no WebGL. load() shows the title, like the real one.
-const fake = vi.hoisted(() => ({ games: [] as Array<{ store: SurfStore; opts: { attract?: boolean }; setAttract: ReturnType<typeof vi.fn>; setFrozen: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }> }));
+const fake = vi.hoisted(() => ({ games: [] as Array<{ store: SurfStore; opts: { attract?: boolean; attractFps?: number }; setAttract: ReturnType<typeof vi.fn>; setAttractFps: ReturnType<typeof vi.fn>; setFrozen: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }> }));
 vi.mock('./game/SurfGame', async () => {
   const { vi } = await import('vitest');
   class SurfGame {
@@ -15,12 +15,13 @@ vi.mock('./game/SurfGame', async () => {
     resume = vi.fn();
     quitToTitle = vi.fn();
     setAttract = vi.fn();
+    setAttractFps = vi.fn();
     setFrozen = vi.fn();
     dispose = vi.fn();
     constructor(
       _canvas: HTMLCanvasElement,
       readonly store: SurfStore,
-      readonly opts: { attract?: boolean } = {},
+      readonly opts: { attract?: boolean; attractFps?: number } = {},
     ) {
       fake.games.push(this);
     }
@@ -87,5 +88,15 @@ describe('SurfApp modes', () => {
     expect(game.setFrozen).toHaveBeenLastCalledWith(true);
     await act(async () => void view.rerender(<SurfApp mode="attract" reducedMotion={false} />));
     expect(game.setFrozen).toHaveBeenLastCalledWith(false);
+  });
+
+  it('passes the attract frame cap to the game: at creation, and when the route changes it', async () => {
+    let view!: ReturnType<typeof render>;
+    await act(async () => void (view = render(<SurfApp mode="attract" attractFps={12} />)));
+    const game = fake.games[0]!;
+    expect(game.opts.attractFps).toBe(12); // born at the route's rate
+    await act(async () => void view.rerender(<SurfApp mode="attract" attractFps={30} />));
+    expect(game.setAttractFps).toHaveBeenLastCalledWith(30);
+    expect(fake.games).toHaveLength(1);
   });
 });
