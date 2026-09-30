@@ -30,7 +30,7 @@ export const NEAR_SHRINK = [0.8, 3.5] as const;
  * the lip curtain and shoulder feathering are thinned (`thin` × their rates). The distant spray line and the
  * impact plume are untouched.
  */
-export const ATTRACT_PARTICLES = { nearFade: [4, 6], nearShrink: [4, 8], maxPointFraction: 0.02, thin: 0.35 } as const;
+export const ATTRACT_PARTICLES = { nearFade: [4, 6], nearShrink: [4, 12], maxPointFraction: 0.02, thin: 0.35 } as const;
 /** A dying drop shrinks to this fraction of its size as it fades … */
 export const DROP_MIN_SIZE = 0.3;
 /** … and is fully opaque until its fade value (ParticlePool alpha, 1 → 0 over the last 30% of life) drops below this. */
