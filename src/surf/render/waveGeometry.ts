@@ -4,8 +4,12 @@ import type { WaveShape } from '../wave/WaveShape';
 
 /** The open sea: colour and opacity of flat water. The wave's trough, the flats and the far sea all use it. */
 export const SEA = { color: new Color('#0b4f5c'), alpha: 0.62 };
-/** Half-size of the ocean surface (m): well past the fog and the camera far plane, so no edge is ever seen. */
-export const OCEAN_EXTENT = 700;
+/**
+ * Half-size of the ocean surface (m). Fog is depth-based, so an edge seen near the corner of a wide
+ * frustum is nearer in depth than in distance: this is far enough that the edge is past full fog
+ * (and the camera far plane) in every view in play (see the horizon test in Environment.test).
+ */
+export const OCEAN_EXTENT = 1500;
 /** Flat rows toward shore, metres beyond the trough (t = 0); the outermost row sits at +OCEAN_EXTENT. */
 const FRONT_FLATS = [48, 24, 10, 4];
 /** How much of the trough's whitewater reaches each front flat row (it spreads out and fades). */

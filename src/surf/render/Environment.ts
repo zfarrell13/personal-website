@@ -1,6 +1,5 @@
 import {
   AdditiveBlending,
-  BackSide,
   BufferAttribute,
   BufferGeometry,
   Color,
@@ -19,6 +18,7 @@ import {
   MeshLambertMaterial,
   PlaneGeometry,
   Quaternion,
+  ShaderMaterial,
   SphereGeometry,
   Sprite,
   SpriteMaterial,
@@ -31,12 +31,16 @@ import { retroMaterial } from '@/retro/retroMaterial';
 import { FOG_CONFIG } from '../config';
 import { smoothstep } from '../math/scalar';
 import { REEF_TILES, scrollWrap } from './scroll';
+import { createSkyMaterial } from './sky';
 import { makeRadialTexture } from './textures';
+import { OCEAN_EXTENT } from './waveGeometry';
 
 export const FOG_COLOR = new Color(FOG_CONFIG.color);
 /** Wipeout cut: thick blue fog, no sky or sun. */
 export const UNDERWATER_COLOR = new Color('#0b3b66');
 const SUN_DIR = new Vector3(-0.62, 0.13, -0.77).normalize();
+/** Sky dome radius (m): inside the camera far plane (CAMERA_FAR). */
+export const SKY_RADIUS = 600;
 /** Opaque sea floor under the translucent water, below the reef (reef tops at ≈ −2.4 m). */
 const SEA_FLOOR_Y = -4.3;
 const SEA_FLOOR_COLOR = new Color('#0a3a44');
@@ -83,6 +87,7 @@ export class Environment {
   private underwater = false;
   private readonly hemi: HemisphereLight;
   private readonly sky: Mesh;
+  private readonly skyMat: ShaderMaterial;
   private readonly sun: Sprite;
   private readonly sunLight: DirectionalLight;
   private readonly flares: Sprite[] = [];
@@ -106,12 +111,9 @@ export class Environment {
     this.background = FOG_COLOR.clone();
     scene.background = this.background;
 
-    // Sky dome — follows the camera, gradient by height.
-    const skyGeo = paint(new SphereGeometry(600, 16, 10), (_x, y, _z, c) => {
-      const h = Math.max(0, y / 600);
-      c.set('#ffd9a8').lerp(new Color('#7fb8ff'), Math.min(1, h * 3)).lerp(new Color('#2f6fe0'), Math.max(0, h * 1.4 - 0.3));
-    });
-    this.sky = new Mesh(skyGeo, new MeshBasicMaterial({ vertexColors: true, side: BackSide, fog: false, depthWrite: false }));
+    // Sky dome — follows the camera; per-pixel gradient whose horizon haze is the fog colour.
+    this.skyMat = createSkyMaterial();
+    this.sky = new Mesh(new SphereGeometry(SKY_RADIUS, 32, 16), this.skyMat);
     this.sky.renderOrder = -10;
     scene.add(this.sky);
 
@@ -138,9 +140,9 @@ export class Environment {
     });
     scene.add(camera);
 
-    // The water surface is all the wave mesh (one ocean). Under it: an opaque sea floor, so the
-    // translucent water always has something below it (the reef shows through near shore).
-    const floor = new Mesh(new PlaneGeometry(1400, 1400, 1, 1).rotateX(-Math.PI / 2), retroMaterial(new MeshLambertMaterial({ color: SEA_FLOOR_COLOR }), { snap: false }));
+    // The water surface is all the wave mesh (one ocean). Under it: an opaque sea floor as big as the
+    // ocean, so the translucent water always has something below it (the reef shows through near shore).
+    const floor = new Mesh(new PlaneGeometry(2 * OCEAN_EXTENT, 2 * OCEAN_EXTENT, 1, 1).rotateX(-Math.PI / 2), retroMaterial(new MeshLambertMaterial({ color: SEA_FLOOR_COLOR }), { snap: false }));
     floor.name = 'seaFloor';
     floor.position.y = SEA_FLOOR_Y - 0.05;
     this.frameStuff.add(floor);
@@ -260,6 +262,7 @@ export class Environment {
     this.sky.position.copy(this.camera.position);
     this.sunWorld.set(SUN_DIR.x * sideSign, SUN_DIR.y, SUN_DIR.z).multiplyScalar(500).add(this.camera.position);
     this.sun.position.copy(this.sunWorld);
+    (this.skyMat.uniforms.uSunDir!.value as Vector3).set(SUN_DIR.x * sideSign, SUN_DIR.y, SUN_DIR.z);
     // Keep the lit side consistent with the visible sun.
     this.sunLight.position.set(SUN_DIR.x * sideSign, SUN_DIR.y, SUN_DIR.z).multiplyScalar(100);
 

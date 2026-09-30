@@ -85,6 +85,50 @@ test.describe('surf game', () => {
     expect(Math.max(...samples.map((s) => s.triangles))).toBeLessThan(150_000);
   });
 
+  test('the horizon is seamless: no luminance step where the sea meets the sky', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/surf?debug');
+    await page.getByRole('button', { name: 'DROP IN' }).click();
+    await page.waitForFunction(() => window.__surf?.phase === 'playing');
+    await page.getByTestId('debug-panel').evaluate((el) => ((el as HTMLElement).style.display = 'none'));
+    // Low free camera behind the wave looking straight out to sea: the horizon crosses mid-frame.
+    await page.evaluate(() => {
+      window.__surfCam = { pos: [40, 3, -15], look: [40, 2.6, -300] };
+    });
+    // Let the retro trail (blend with the previous frames) settle on the new view.
+    const f0 = await page.evaluate(() => window.__surf!.frames);
+    await page.waitForFunction((f) => (window.__surf?.frames ?? 0) > f + 20, f0);
+    const png = (await page.screenshot()).toString('base64');
+    // Mean luminance of each row over the middle of the frame (clear of the HUD), smoothed over the
+    // 4-row dither period; the largest change across 4 rows is the hardest edge in the gradient.
+    const step = await page.evaluate(async (b64) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${b64}`;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const { data, width } = ctx.getImageData(0, 0, img.width, img.height);
+      const rows: number[] = [];
+      for (let y = 150; y < 600; y++) {
+        let s = 0;
+        for (let x = 100; x < 900; x++) {
+          const i = (y * width + x) * 4;
+          s += 0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!;
+        }
+        rows.push(s / 800);
+      }
+      const smooth = rows.map((_, i) => (rows[Math.max(0, i - 2)]! + rows[Math.max(0, i - 1)]! + rows[i]! + rows[Math.min(rows.length - 1, i + 1)]!) / 4);
+      let max = 0;
+      for (let i = 4; i < smooth.length; i++) max = Math.max(max, Math.abs(smooth[i]! - smooth[i - 4]!));
+      return max;
+    }, png);
+    // The old hard horizon (dark sea straight into a pale band) stepped ≈ 40 here; a soft haze is ≈ 10.
+    expect(step).toBeLessThan(20);
+  });
+
   test('?debug shows the live tuning panel', async ({ page }) => {
     await page.goto('/surf?debug');
     await expect(page.getByTestId('debug-panel')).toBeVisible();
