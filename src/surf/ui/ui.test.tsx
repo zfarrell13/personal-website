@@ -72,6 +72,15 @@ describe('Hud', () => {
     expect(screen.getByText('TUBE 1.3s')).toBeTruthy();
     expect(screen.getByText('Air 360 +700')).toBeTruthy();
   });
+  it('flashes ⚡ FAST SECTION while a fast section is on', () => {
+    const store = createSurfStore();
+    render(<Hud store={store} />);
+    expect(screen.queryByTestId('fast-section')).toBeNull();
+    act(() => store.setState({ fastSection: true }));
+    expect(screen.getByTestId('fast-section').textContent).toBe('⚡ FAST SECTION');
+    act(() => store.setState({ fastSection: false }));
+    expect(screen.queryByTestId('fast-section')).toBeNull();
+  });
 });
 
 describe('TouchControls', () => {

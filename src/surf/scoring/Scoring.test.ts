@@ -103,3 +103,18 @@ describe('Scoring', () => {
     expect(scoring.score).toBe((550 + 300 + 150) * 3);
   });
 });
+
+describe('fast sections', () => {
+  it('surviving a fast section awards SECTION MADE (500) into the combo', () => {
+    const bus = new EventBus<SurfEvent>();
+    const onAward = vi.fn();
+    const scoring = new Scoring(SURF_CONFIG.scoring, { onAward });
+    scoring.attach(bus);
+    bus.emit({ type: 'fastSection', time: 1, boost: 0.4 });
+    expect(scoring.pot).toBe(0);
+    bus.emit({ type: 'sectionMade', time: 5 });
+    expect(onAward).toHaveBeenCalledWith({ name: 'Section Made', points: 500, repeated: false });
+    scoring.update(7, false);
+    expect(scoring.score).toBe(500);
+  });
+});

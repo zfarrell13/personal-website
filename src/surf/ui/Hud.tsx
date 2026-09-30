@@ -11,6 +11,7 @@ export function Hud({ store }: { store: SurfStore }) {
   const tubeTime = useStore(store, (s) => s.tubeTime);
   const speed = useStore(store, (s) => s.speedKmh);
   const ticker = useStore(store, (s) => s.ticker);
+  const fast = useStore(store, (s) => s.fastSection);
   return (
     <div className={styles.layer} aria-live="off">
       <div className={styles.hudTop}>
@@ -22,6 +23,11 @@ export function Hud({ store }: { store: SurfStore }) {
         ) : null}
       </div>
       {tubeTime > 0 ? <div className={styles.tube}>TUBE {tubeTime.toFixed(1)}s</div> : null}
+      {fast ? (
+        <div className={styles.fast} data-testid="fast-section">
+          ⚡ FAST SECTION
+        </div>
+      ) : null}
       <div className={styles.ticker}>
         {ticker.map((t) => (
           <div key={t.id} className={styles.trick} data-neg={t.points < 0 ? 'true' : 'false'}>

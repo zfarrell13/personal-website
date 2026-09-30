@@ -11,6 +11,9 @@ export interface SurfDebugHook {
   calls: number;
   triangles: number;
   fps: number;
+  /** Current peel speed (m/s) and whether a fast section is on. */
+  peel: number;
+  fast: boolean;
   /** Camera shot: 'chase' | 'tube' | 'underwater'. */
   shot: string;
 }

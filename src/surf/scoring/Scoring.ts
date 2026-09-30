@@ -14,12 +14,14 @@ export type TrickName =
   | 'Rail Grab'
   | 'Stalefish'
   | 'Indy'
-  | 'Revert';
+  | 'Revert'
+  | 'Section Made';
 
 export const TRICK_BASE = {
   Ollie: 100,
   Snap: 250,
   Revert: 150,
+  sectionMade: 500,
   floaterBase: 400,
   floaterPerSec: 100,
   barrelPerSec: 500,
@@ -116,6 +118,7 @@ export class Scoring {
         this.longestTube = Math.max(this.longestTube, e.duration);
         this.award('Barrel', Math.round(TRICK_BASE.barrelPerSec * e.duration), e.time);
       }),
+      bus.on('sectionMade', (e) => this.award('Section Made', TRICK_BASE.sectionMade, e.time)),
       bus.on('carve', (e) => this.touch(e.time)),
       bus.on('launched', (e) => this.touch(e.time)),
       bus.on('wipeout', () => this.lose()),

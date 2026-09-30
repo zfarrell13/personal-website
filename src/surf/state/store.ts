@@ -39,6 +39,8 @@ export interface SurfHudState {
   nowPlaying: NowPlaying | null;
   run: RunSummary | null;
   underwater: boolean;
+  /** A fast section is on: the HUD shows ⚡ FAST SECTION. */
+  fastSection: boolean;
 }
 
 export type SurfStore = StoreApi<SurfHudState>;
@@ -55,6 +57,7 @@ export const INITIAL_HUD: SurfHudState = {
   nowPlaying: null,
   run: null,
   underwater: false,
+  fastSection: false,
 };
 
 /** Vanilla (React-free) store; the engine writes, HUD components read via `useStore`. */

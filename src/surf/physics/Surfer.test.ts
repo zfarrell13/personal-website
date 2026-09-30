@@ -178,32 +178,57 @@ describe('Surfer — riding', () => {
     expect(r.x).toBeGreaterThanOrEqual(r.x0);
   });
 
-  /** Lines + pumps for 20 s with a 1.4× fast section from 8 s (0.5 s ramps, 4 s hold). */
-  function fastSection(pumpEvery: number) {
+  /**
+   * Lines + pumps (every `pumpEvery` s) with one fast section of the given boost / hold from t = 8 s
+   * (the configured ramps), riding on to 20 s. `lost` = frame-x ground lost over the section.
+   */
+  function fastSection(pumpEvery: number, boost: number, hold: number) {
     const h = setup();
     const bot = lineBot(h.surfer, h.wave, { pumpEvery });
     const base = h.cfg.wave.peelSpeed;
+    const { ramp } = h.cfg.sections;
+    const total = 2 * ramp + hold;
     let xStart = NaN;
     let xEnd = NaN;
     for (let i = 0; i < 20 * 120; i++) {
       const u = h.s.time + DT - 8;
-      const k = u < 0 || u > 5 ? 0 : u < 0.5 ? u / 0.5 : u > 4.5 ? (5 - u) / 0.5 : 1;
+      const k = u < 0 || u > total ? 0 : Math.min(1, u / ramp, (total - u) / ramp);
       if (u >= 0 && Number.isNaN(xStart)) xStart = h.s.param.x;
-      if (u >= 5 && Number.isNaN(xEnd)) xEnd = h.s.param.x;
-      h.surfer.setPeelSpeed(base * (1 + 0.4 * k));
+      if (u >= total && Number.isNaN(xEnd)) xEnd = h.s.param.x;
+      h.surfer.setPeelSpeed(base * (1 + boost * k));
       h.surfer.step(bot(DT), DT);
-      if (h.s.mode === 'wipeout' || h.s.mode === 'kickedOut') break;
+      if (h.s.mode === 'wipeout') break;
     }
-    const survived = h.s.mode === 'riding' || h.s.mode === 'airborne';
+    const survived = h.s.mode !== 'wipeout';
     return { survived, lost: survived ? xStart - xEnd : Infinity };
   }
 
-  it('a fast section: the base effort loses ≥ 5 m of ground; pumping every 0.6 s survives it and loses less', () => {
-    const base = fastSection(1);
-    const hard = fastSection(0.6);
-    expect(base.lost).toBeGreaterThanOrEqual(5);
+  // Racy sections must be felt (Task 2b carry: +30%/3 s cost a 1 s pumper only 1.2 m).
+  it('the mildest fast section: the base effort (pump 1 s) loses ≥ 6 m; pumping every 0.6 s survives it and loses ≥ 3 m less', () => {
+    const { minBoost, minHold } = SURF_CONFIG.sections;
+    const base = fastSection(1, minBoost, minHold);
+    const hard = fastSection(0.6, minBoost, minHold);
+    expect(base.survived).toBe(true);
+    expect(base.lost).toBeGreaterThanOrEqual(6);
     expect(hard.survived).toBe(true);
     expect(hard.lost).toBeLessThan(base.lost - 3);
+  });
+
+  it('the hardest fast section: the base effort loses ≥ 10 m but survives; pumping every 0.6 s survives it and loses ≥ 3 m less', () => {
+    const { maxBoost, maxHold } = SURF_CONFIG.sections;
+    const base = fastSection(1, maxBoost, maxHold);
+    const hard = fastSection(0.6, maxBoost, maxHold);
+    expect(base.survived).toBe(true);
+    expect(base.lost).toBeGreaterThanOrEqual(10);
+    expect(hard.survived).toBe(true);
+    expect(hard.lost).toBeLessThan(base.lost - 3);
+  });
+
+  // SECTION MADE is not free: a lazy rider who holds their ground at base peel gets caught by a hard section.
+  it('a lazy rider (pump every 2 s) holds 20 s at base peel but the hardest fast section swallows them', () => {
+    const { maxBoost, maxHold } = SURF_CONFIG.sections;
+    expect(fastSection(2, 0, maxHold).survived).toBe(true);
+    expect(fastSection(2, maxBoost, maxHold).survived).toBe(false);
   });
 
   it('stalling drives frame x-velocity negative and puts you in the tube within 3 s', () => {

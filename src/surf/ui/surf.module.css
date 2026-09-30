@@ -25,6 +25,8 @@
 .trick[data-neg='true'] { color: #ff6b6b; }
 @keyframes pop { 0% { transform: scale(1.4); opacity: 0; } 12% { transform: scale(1); opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
 .tube { position: fixed; top: 18%; left: 50%; transform: translateX(-50%); font-family: var(--font-mono), monospace; font-size: 2.2rem; color: #9dffea; text-shadow: 2px 2px 0 #003b3b; }
+.fast { position: fixed; top: 27%; left: 50%; transform: translateX(-50%) skewX(-12deg); font-style: italic; font-size: 2rem; letter-spacing: 0.08em; color: #ffe16b; text-shadow: 3px 3px 0 #7a1d00; animation: flash 0.5s steps(2) infinite; }
+@keyframes flash { 50% { color: #ff8a3d; } }
 .speed { position: fixed; bottom: 14px; left: 16px; display: grid; gap: 4px; font-family: var(--font-mono), monospace; font-size: 1.3rem; color: #fff; }
 .toast {
   position: fixed; right: 16px; bottom: 16px; padding: 10px 16px; max-width: 60vw;

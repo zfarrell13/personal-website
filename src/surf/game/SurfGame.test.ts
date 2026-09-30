@@ -444,6 +444,55 @@ describe('SurfGame', () => {
     expect(game.actions.isDown('ollie')).toBe(false);
   });
 
+  it('a fast section speeds up the peel, flashes the HUD and pays SECTION MADE when the rider survives it', async () => {
+    const saved = { ...SURF_CONFIG.sections };
+    Object.assign(SURF_CONFIG.sections, { minGap: 0.1, maxGap: 0.1, minHold: 0.2, maxHold: 0.2, minBoost: 0.4, maxBoost: 0.4, ramp: 0.1 });
+    try {
+      const { game, store } = await playing();
+      const s = game.surfer.state;
+      const peels: number[] = [];
+      vi.spyOn(game.surfer, 'step').mockImplementation((_i, dt) => {
+        s.mode = 'riding';
+        s.time += dt;
+        peels.push(game.surfer.peelSpeed);
+      });
+      const events: string[] = [];
+      game.bus.onAny((e) => events.push(e.type));
+      for (let i = 0; i < 12; i++) frame(); // 0.2 s: the section is on
+      for (let i = 0; i < 4; i++) frame(); // let the throttled HUD writer flush
+      expect(store.getState().fastSection).toBe(true);
+      expect(Math.max(...peels)).toBeCloseTo(SURF_CONFIG.wave.peelSpeed * 1.4, 6);
+      for (let i = 0; i < 30; i++) frame(); // past the end of the 0.4 s section
+      expect(events).toContain('fastSection');
+      expect(events).toContain('sectionMade');
+      expect(store.getState().ticker.map((t) => t.text)).toContain('Section Made');
+      game.dispose();
+    } finally {
+      Object.assign(SURF_CONFIG.sections, saved);
+    }
+  });
+
+  it('no SECTION MADE when the rider wipes out during the section', async () => {
+    const saved = { ...SURF_CONFIG.sections };
+    Object.assign(SURF_CONFIG.sections, { minGap: 0.1, maxGap: 0.1, minHold: 0.2, maxHold: 0.2, ramp: 0.1 });
+    try {
+      const { game } = await playing();
+      const s = game.surfer.state;
+      vi.spyOn(game.surfer, 'step').mockImplementation((_i, dt) => {
+        s.time += dt;
+        if (s.time > 0.25) s.mode = 'wipeout';
+      });
+      const events: string[] = [];
+      game.bus.onAny((e) => events.push(e.type));
+      for (let i = 0; i < 40; i++) frame();
+      expect(events).toContain('fastSection');
+      expect(events).not.toContain('sectionMade');
+      game.dispose();
+    } finally {
+      Object.assign(SURF_CONFIG.sections, saved);
+    }
+  });
+
   it('dispose during load does not attach the character or leave the title phase', async () => {
     const store = createSurfStore();
     const game = new SurfGame(canvas, store);

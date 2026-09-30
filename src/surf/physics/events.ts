@@ -21,7 +21,11 @@ export type SurfEvent =
   | { type: 'tubeEnter'; time: number }
   | { type: 'tubeExit'; time: number; duration: number }
   | { type: 'wipeout'; time: number; reason: WipeoutReason }
-  | { type: 'kickedOut'; time: number };
+  | { type: 'kickedOut'; time: number }
+  /** A fast section begins (the peel speeds up by `boost` × Vp). */
+  | { type: 'fastSection'; time: number; boost: number }
+  /** A fast section ended with the rider still up. */
+  | { type: 'sectionMade'; time: number };
 
 export type SurfEventType = SurfEvent['type'];
 export type EventOf<T extends SurfEventType> = Extract<SurfEvent, { type: T }>;

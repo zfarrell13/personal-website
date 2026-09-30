@@ -27,6 +27,7 @@ import { WaveMesh } from '../render/WaveMesh';
 import { Scoring } from '../scoring/Scoring';
 import { pushTicker, ThrottledWriter, type Phase, type SurfStore, type TickerItem } from '../state/store';
 import { sideSign } from '../wave/mirror';
+import { PeelController } from '../wave/PeelController';
 import { WaveShape } from '../wave/WaveShape';
 import type { SurfDebugHook } from './debugHook';
 import './debugHook';
@@ -51,6 +52,8 @@ export class SurfGame {
   readonly bus = new EventBus<SurfEvent>();
   readonly wave = new WaveShape(SURF_CONFIG.wave);
   readonly surfer = new Surfer(this.wave, SURF_CONFIG.physics, this.bus);
+  /** Peel speed over the run (base Vp + seeded fast sections). */
+  readonly peel = new PeelController(SURF_CONFIG.wave, SURF_CONFIG.sections);
   readonly scoring: Scoring;
   readonly actions = new ActionState<SurfAction>(SURF_BINDINGS);
   private readonly retro: RetroRenderer;
@@ -67,7 +70,7 @@ export class SurfGame {
   private readonly input: SurferInput = { ...NO_INPUT };
   private readonly renderP = new Vector3();
   /** The one debug-hook object, mutated each frame (no per-frame allocation). */
-  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, shot: 'chase' };
+  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, shot: 'chase' };
   private readonly look: SurferLook;
   private character: Character | null = null;
   private audio: SurfAudio | null = null;
@@ -83,6 +86,8 @@ export class SurfGame {
   private frameSimDt = 0;
   /** Water/particle clock: advances with the sim while playing, freezes on pause. */
   private waterTime = 0;
+  /** Runs started (mixed into each run's fast-section seed). */
+  private runs = 0;
   /** Carve keys' screen meaning (see CameraRig.keyFacing), latched while a carve key is held. */
   private keyFacing: 1 | -1 = 1;
   private endAt = -1;
@@ -186,7 +191,7 @@ export class SurfGame {
     this.actions.reset();
     this.startAudio();
     this.writer.flush(performance.now());
-    this.store.setState({ side, run: null, underwater: false, score: 0, pot: 0, multiplier: 0, tubeTime: 0, speedKmh: 0, ticker: [] });
+    this.store.setState({ side, run: null, underwater: false, fastSection: false, score: 0, pot: 0, multiplier: 0, tubeTime: 0, speedKmh: 0, ticker: [] });
     this.setPhase('playing');
   }
 
@@ -210,7 +215,7 @@ export class SurfGame {
     // The title shows a fresh wave: no underwater camera or tumbling rider left from a wipeout.
     this.resetView();
     this.writer.flush(performance.now());
-    this.store.setState({ run: null, underwater: false });
+    this.store.setState({ run: null, underwater: false, fastSection: false });
     this.setPhase('title');
   }
 
@@ -243,6 +248,8 @@ export class SurfGame {
 
   /** Surfer back at the drop-in, camera snapped behind, above water, no end-of-run timer. */
   private resetView(): void {
+    // A fresh seeded fast-section schedule per run; the peel is back at base speed.
+    this.peel.reset((Date.now() ^ Math.imul(++this.runs, 0x9e3779b9)) >>> 0);
     this.surfer.reset();
     this.character?.reset();
     this.rig.snap(this.surfer.state, this.side);
@@ -315,10 +322,16 @@ export class SurfGame {
     // swinging round mid-cutback never inverts the turn in progress.
     if (!this.actions.isDown('carveLeft') && !this.actions.isDown('carveRight')) this.keyFacing = this.rig.keyFacing;
     readSurferInput(this.actions, this.side, this.input, this.keyFacing);
+    const section = this.peel.update(s.time + dt);
+    this.surfer.setPeelSpeed(this.peel.speed);
     this.surfer.step(this.input, dt);
+    // Only a live ride (riding / airborne) announces a section or makes one: none after a wipeout / kick-out.
+    const live = s.mode === 'riding' || s.mode === 'airborne';
+    if (section === 'start' && live) this.bus.emit({ type: 'fastSection', time: s.time, boost: this.peel.boost });
+    else if (section === 'end' && live) this.bus.emit({ type: 'sectionMade', time: s.time });
     this.frameSimDt += dt;
     this.scoring.update(s.time, (s.mode === 'airborne' && s.launchKind !== null) || s.inTube || s.floating);
-    this.travel += this.wave.params.peelSpeed * dt;
+    this.travel += this.peel.speed * dt;
     if ((s.mode === 'wipeout' || s.mode === 'kickedOut') && this.endAt < 0) {
       this.endAt = s.time;
       if (s.mode === 'wipeout') {
@@ -377,7 +390,7 @@ export class SurfGame {
   private publish(now: number): void {
     const s = this.surfer.state;
     if (this.phase === 'playing') {
-      const speed = this.surfer.worldSpeed(this.wave.params.peelSpeed);
+      const speed = this.surfer.worldSpeed(this.peel.speed);
       this.audio?.update(s, speed);
       this.writer.push({
         score: this.scoring.score,
@@ -386,6 +399,7 @@ export class SurfGame {
         // A wipeout inside the barrel never exits it: stop the TUBE timer with the ride.
         tubeTime: s.mode === 'riding' || s.mode === 'airborne' ? s.tubeTime : 0,
         speedKmh: Math.round(speed * 3.6),
+        fastSection: this.peel.active && (s.mode === 'riding' || s.mode === 'airborne'),
       });
     }
     if (Number.isFinite(now)) this.writer.tick(now);
@@ -399,6 +413,8 @@ export class SurfGame {
     hook.calls = info.calls;
     hook.triangles = info.triangles;
     hook.fps = Math.round(this.fps);
+    hook.peel = this.peel.speed;
+    hook.fast = this.peel.active;
     hook.shot = this.rig.shot;
     window.__surf = hook;
   }

@@ -106,6 +106,24 @@ export const SURF_CONFIG = {
     comboCarveDeg: 60,
     minSpeed: 0.5,
   },
+  /** Fast sections: the break outruns the rider for a while (see PeelController). */
+  sections: {
+    /** Seconds between sections (uniform, seeded per run). */
+    minGap: 10,
+    maxGap: 20,
+    /**
+     * Seconds a section holds at full speed (the ramps come on top). Task 4 retune (with the boost):
+     * every section must be felt — the mildest (+45%, 4 s) costs a 1 s pumper ≈ 6.4–7.4 m of ground,
+     * the hardest (+50%, 5 s) ≈ 10.5–11.3 m and swallows a rider pumping only every 2 s.
+     */
+    minHold: 4,
+    maxHold: 5,
+    /** Peel speed boost as a fraction of Vp. */
+    minBoost: 0.45,
+    maxBoost: 0.5,
+    /** Ramp up / down time (s). */
+    ramp: 0.5,
+  },
   scoring: {
     comboWindow: 1.5,
     repeatFactor: 0.5,
