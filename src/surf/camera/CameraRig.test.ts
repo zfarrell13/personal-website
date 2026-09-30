@@ -311,7 +311,7 @@ describe('CameraRig on the real wave (ray / visibility probes)', () => {
     expect(r.chaseSeen / r.chase).toBeGreaterThanOrEqual(0.9);
     expect(r.big / r.chase).toBeGreaterThanOrEqual(0.95);
     expect(r.wet).toBe(0);
-  });
+  }, 20_000); // 30 s of sim with raycasts: ~3.4 s alone, up to ~8 s under a parallel full run
   it('no input until swallowed: chase then tube view, rider seen ≥ 90% of chase frames and ≥ 90% overall, never under water', () => {
     const r = probe(() => () => NO_INPUT, 10);
     expect(r.tube).toBeGreaterThan(0);

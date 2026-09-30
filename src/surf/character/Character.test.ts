@@ -9,6 +9,7 @@ import { sideSign } from '../wave/mirror';
 import { WaveShape } from '../wave/WaveShape';
 import { Character, loadSurferRig, MAX_BOARD_TURN_RATE } from './Character';
 import { buildProceduralRig } from './rig';
+import { TEST_RIGS } from './testRigs';
 
 function setup() {
   const cfg = structuredClone(SURF_CONFIG);
@@ -98,8 +99,10 @@ describe('Character', () => {
 
 describe('Character stance', () => {
   // Rendered as in the game: the character inside the frame group, which mirrors x on a RIGHT.
-  it.each(['left', 'right'] as const)('rides regular (left foot forward) on a %s', (side) => {
-    const { surfer, ch } = setup();
+  it.each(TEST_RIGS.flatMap(([name, make]) => (['left', 'right'] as const).map((side) => [name, side, make] as const)))('%s rig rides regular (left foot forward) on a %s', async (_name, side, make) => {
+    const cfg = structuredClone(SURF_CONFIG);
+    const surfer = new Surfer(new WaveShape(cfg.wave), cfg.physics, new EventBus<SurfEvent>());
+    const ch = new Character(await make(), SURFER_LOOK);
     const frame = new Group();
     frame.scale.x = sideSign(side);
     frame.add(ch.root);
@@ -117,8 +120,10 @@ describe('Character stance', () => {
     const right = (mirrored ? b.LeftFoot : b.RightFoot).getWorldPosition(new Vector3());
     expect(left.sub(right).dot(nose)).toBeGreaterThan(0.3);
     // Regular = backside on a left (chest to the beach, +z), frontside on a right (chest to the wave).
-    const chest = new Vector3(1, 0, 0).transformDirection(ch.rig.model.matrixWorld);
-    expect(Math.sign(chest.z)).toBe(side === 'left' ? 1 : -1);
+    // Bent knees point the way the rider faces: knee minus the hip–ankle midpoint.
+    const w = (n: 'LeftUpLeg' | 'LeftLeg' | 'LeftFoot') => b[n].getWorldPosition(new Vector3());
+    const facing = w('LeftLeg').sub(w('LeftUpLeg').add(w('LeftFoot')).multiplyScalar(0.5));
+    expect(Math.sign(facing.z)).toBe(side === 'left' ? 1 : -1);
   });
 });
 

@@ -182,6 +182,8 @@ export class SurfGame {
     this.tracks = manifest.tracks;
     this.character = character;
     this.frame.add(character.root);
+    // The title shows whatever way the frame currently faces (canonical = a LEFT): stay regular there too.
+    character.setSide(this.frame.scale.x < 0 ? 'right' : 'left');
     this.setPhase('title');
   }
 
@@ -190,6 +192,7 @@ export class SurfGame {
     if (this.disposed || this.phase === 'loading' || this.phase === 'playing') return;
     this.side = side;
     this.frame.scale.x = sideSign(side);
+    this.character?.setSide(side);
     this.resetView();
     this.scoring.reset();
     this.ticker = [];
