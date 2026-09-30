@@ -29,9 +29,15 @@ export type CoachFrame = Pick<SurferState, 'time' | 'mode' | 'stalling' | 'inTub
 export interface CoachState {
   /** The ▲ PUMP prompt is up. */
   show: boolean;
+  /** … and the rider is in the tube (the HUD reads "▲ PUMP OUT!"). */
+  tube: boolean;
   /** Pumps landed this run (the HUD re-pops the prompt on each). */
   pumps: number;
-  /** 0…1 through the current beat; the beat restarts on each pump. */
+  /**
+   * 0…1 through the current beat on sim time; 0 = pump now. The beat restarts on the show and on each
+   * pump. The HUD mirrors it in CSS (re-mounted on the show and each pump: pop, then a peak every
+   * beat, paused with the game), so this is the reference clock for tests / the debug hook.
+   */
   beatPhase: number;
 }
 
@@ -44,7 +50,7 @@ const HISTORY = 256;
  * pause freezes it.
  */
 export class Coach {
-  readonly state: CoachState = { show: false, pumps: 0, beatPhase: 0 };
+  readonly state: CoachState = { show: false, tube: false, pumps: 0, beatPhase: 0 };
   private enabled = true;
   private readonly times = new Float64Array(HISTORY);
   private readonly xs = new Float64Array(HISTORY);
@@ -59,6 +65,7 @@ export class Coach {
   reset(enabled: boolean): void {
     this.enabled = enabled;
     this.state.show = false;
+    this.state.tube = false;
     this.state.pumps = 0;
     this.state.beatPhase = 0;
     this.head = 0;
@@ -80,8 +87,9 @@ export class Coach {
     const x = f.param.x;
     this.record(t, x);
     const st = this.state;
-    // Going for the barrel on purpose (stall / tube), or off the face: say nothing.
-    const eligible = this.enabled && f.mode === 'riding' && !f.stalling && !f.inTube;
+    // Stalling = going for the barrel on purpose, or off the face: say nothing. In the tube without a
+    // stall the rider is just being caught: keep prompting (PUMP OUT).
+    const eligible = this.enabled && f.mode === 'riding' && !f.stalling;
     const drop = this.change(t, c.dropWindow);
     const losing = eligible && x < c.nearX && drop !== null && drop <= -c.dropMin;
     this.losingSince = losing ? (this.losingSince < 0 ? t : this.losingSince) : -1;
@@ -96,6 +104,7 @@ export class Coach {
       st.show = true;
       this.beatAt = t;
     }
+    st.tube = st.show && f.inTube;
     st.beatPhase = st.show ? (((t - this.beatAt) / c.beat) % 1 + 1) % 1 : 0;
   }
 

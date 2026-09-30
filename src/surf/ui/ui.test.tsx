@@ -50,6 +50,15 @@ describe('TitleMenu — GUIDE option', () => {
     expect(onGuide).toHaveBeenLastCalledWith(true);
   });
 
+  it('the GUIDE buttons are in the Tab order, between the break buttons and DROP IN', () => {
+    render(<TitleMenu initialSide="right" onStart={vi.fn()} guide onGuide={vi.fn()} />);
+    const tabbable = screen
+      .getAllByRole('button')
+      .filter((b) => !(b as HTMLButtonElement).disabled && b.tabIndex >= 0)
+      .map((b) => b.getAttribute('aria-label') ?? b.textContent);
+    expect(tabbable).toEqual(['LEFT', 'RIGHT', 'GUIDE ON', 'GUIDE OFF', 'DROP IN']);
+  });
+
   it('Enter on a focused GUIDE button does not drop in', () => {
     const onStart = vi.fn();
     render(<TitleMenu initialSide="right" onStart={onStart} guide onGuide={vi.fn()} />);
@@ -112,6 +121,8 @@ describe('Hud', () => {
     expect(screen.getByTestId('coach-pump')).not.toBe(el);
     act(() => store.setState({ phase: 'paused' }));
     expect(screen.getByTestId('coach-pump').getAttribute('data-paused')).toBe('true');
+    act(() => store.setState({ pumpTube: true }));
+    expect(screen.getByTestId('coach-pump').textContent).toContain('▲ PUMP OUT! Press ↑');
     act(() => store.setState({ pumpPrompt: false }));
     expect(screen.queryByTestId('coach-pump')).toBeNull();
   });

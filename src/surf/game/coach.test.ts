@@ -21,8 +21,9 @@ function setup(guide = true) {
   const s = surfer.state;
   let shows = 0;
   let wasShown = false;
-  /** First sim time the prompt showed, or -1. */
+  /** First sim time the prompt showed, or -1; last sim time it was up, or -1. */
   let firstShow = -1;
+  let lastShown = -1;
   const step = (input: SurferInput) => {
     surfer.step(input, DT);
     coach.update(s);
@@ -30,10 +31,11 @@ function setup(guide = true) {
       shows++;
       if (firstShow < 0) firstShow = s.time;
     }
+    if (coach.state.show) lastShown = s.time;
     wasShown = coach.state.show;
   };
   const over = () => s.mode === 'wipeout' || s.mode === 'kickedOut';
-  return { wave, surfer, s, coach, step, over, stats: () => ({ shows, firstShow }) };
+  return { wave, surfer, s, coach, step, over, stats: () => ({ shows, firstShow, lastShown }) };
 }
 
 /** A hand-fed frame (for the pure-logic cases). */
@@ -93,18 +95,32 @@ describe('Coach — pure logic', () => {
     expect(coach.state.show).toBe(false);
   });
 
-  it('stays quiet while stalling or in the tube, and hides at once when a stall starts', () => {
-    for (const quiet of [{ stalling: true }, { inTube: true }] as const) {
-      const coach = new Coach();
-      coach.reset(true);
-      expect(feed(coach, (t) => 6 - t, 0, 4, () => quiet)).toBe(0);
-    }
+  it('stays quiet while stalling (going for the barrel on purpose), and hides at once when a stall starts', () => {
+    const quiet = new Coach();
+    quiet.reset(true);
+    expect(feed(quiet, (t) => 6 - t, 0, 4, () => ({ stalling: true }))).toBe(0);
     const coach = new Coach();
     coach.reset(true);
     feed(coach, (t) => 6 - t, 0, 2);
     expect(coach.state.show).toBe(true);
     coach.update(frame(2 + DT, 4 - DT, { stalling: true }));
     expect(coach.state.show).toBe(false);
+  });
+
+  it('shows in the tube while not stalling and losing ground (flagged as a tube prompt: PUMP OUT)', () => {
+    const coach = new Coach();
+    coach.reset(true);
+    feed(coach, (t) => 6 - t, 0, 2, (t) => ({ inTube: t > 1.5 }));
+    expect(coach.state.show).toBe(true);
+    expect(coach.state.tube).toBe(true);
+    // Out of the tube, still losing ground: the same prompt, plain PUMP.
+    feed(coach, (t) => 6 - t, 2, 2.2);
+    expect(coach.state.show).toBe(true);
+    expect(coach.state.tube).toBe(false);
+    // Stalling in the tube silences it.
+    coach.update(frame(2.2, 3.8, { inTube: true, stalling: true }));
+    expect(coach.state.show).toBe(false);
+    expect(coach.state.tube).toBe(false);
   });
 
   it('hides when airborne, wiped out or kicked out', () => {
@@ -176,15 +192,22 @@ describe('Coach — on a real ride', () => {
     expect(shows).toBe(1);
   });
 
-  it('a down-the-line rider that never pumps gets the prompt ≥ 1.5 s before being caught', () => {
+  it('a down-the-line rider that never pumps gets the prompt ≥ 1.5 s before being caught, and keeps it (tube included) until swallowed', () => {
     const h = setup();
     const bot = lineBot(h.surfer, h.wave, { pumpEvery: 0 });
-    while (!h.over() && h.s.time < 30) h.step(bot(DT));
+    let tubePrompt = false;
+    while (!h.over() && h.s.time < 30) {
+      h.step(bot(DT));
+      tubePrompt ||= h.coach.state.show && h.coach.state.tube;
+    }
     expect(h.s.wipeoutReason).toBe('swallowed');
-    const { shows, firstShow } = h.stats();
+    const { shows, firstShow, lastShown } = h.stats();
     expect(firstShow).toBeGreaterThan(0);
     expect(h.s.time - firstShow).toBeGreaterThanOrEqual(1.5);
-    expect(shows).toBeLessThanOrEqual(2);
+    // Up once, continuously, until the tick the curl takes the rider (this rider drifts through the tube).
+    expect(shows).toBe(1);
+    expect(h.s.time - lastShown).toBeLessThanOrEqual(1.5 * DT);
+    expect(tubePrompt).toBe(true);
   });
 
   it('no prompt for a rider pumping in rhythm down the line (30 s)', () => {
@@ -199,8 +222,16 @@ describe('Coach — on a real ride', () => {
     while (!h.coach.state.show && h.s.time < 10) h.step(NO_INPUT);
     expect(h.coach.state.show).toBe(true);
     const pumpsAtShow = h.coach.state.pumps;
-    // The player reacts: pumps quickly and trims a flat, fast line down the face (no tube detour).
-    const bot = lineBot(h.surfer, h.wave, { pumpEvery: 0.4, low: 0.1, high: 0.3, slope: 0.05 });
+    // The player does what the prompt teaches: pumps at 1 Hz from the moment it shows, trimming a flat,
+    // fast line down the face.
+    const carve = lineBot(h.surfer, h.wave, { pumpEvery: 0, low: 0.1, high: 0.3, slope: 0.05 });
+    let lastPump = -Infinity;
+    const bot = (dt: number): SurferInput => {
+      const input = { ...carve(dt) };
+      input.pump = h.s.time - lastPump >= 1;
+      if (input.pump) lastPump = h.s.time;
+      return input;
+    };
     const reactedAt = h.s.time;
     const xAtShow = h.s.param.x;
     let lowest = xAtShow;

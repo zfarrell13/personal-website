@@ -45,6 +45,8 @@ export interface SurfHudState {
   guide: boolean;
   /** The coach's "▲ PUMP!" prompt is up. */
   pumpPrompt: boolean;
+  /** … while the rider is in the tube: "▲ PUMP OUT!". */
+  pumpTube: boolean;
   /** Pumps landed this run: the prompt re-pops (and its beat restarts) on each. */
   pumpCount: number;
 }
@@ -66,6 +68,7 @@ export const INITIAL_HUD: SurfHudState = {
   fastSection: false,
   guide: true,
   pumpPrompt: false,
+  pumpTube: false,
   pumpCount: 0,
 };
 

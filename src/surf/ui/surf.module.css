@@ -28,13 +28,14 @@
 .fast { position: fixed; top: 27%; left: 50%; transform: translateX(-50%) skewX(-12deg); font-style: italic; font-size: 2rem; letter-spacing: 0.08em; color: #ffe16b; text-shadow: 3px 3px 0 #7a1d00; animation: flash 0.5s steps(2) infinite; }
 @keyframes flash { 50% { color: #ff8a3d; } }
 /* Coach: "▲ PUMP! Press ↑" above the rider, below the TUBE / FAST banners, clear of the curl behind. Pops on
-   show and on each pump (the element re-mounts), then beats once a second — the pump rhythm. */
+   show and on each pump (the element re-mounts), then peaks once a second after it — the pump rhythm: the
+   beat's peak is at 12 % of its cycle and it starts 0.88 s in, so peaks land 1 s, 2 s, … after the pump. */
 .coach {
   position: fixed; top: 36%; left: 50%; transform: translateX(-50%); white-space: nowrap;
   display: flex; align-items: baseline; gap: 0.5em;
   font-style: italic; font-size: clamp(1.6rem, 4.4vw, 2.8rem); letter-spacing: 0.06em;
   color: #fff; text-shadow: 3px 3px 0 #0a1a5c, 0 0 18px rgba(79, 182, 255, 0.8);
-  animation: coachPop 0.35s ease-out, coachBeat 1s ease-in-out 0.35s infinite;
+  animation: coachPop 0.35s ease-out, coachBeat 1s ease-in-out 0.88s infinite;
 }
 .coach[data-paused='true'] { animation-play-state: paused; }
 .coachCall { color: #ffe16b; text-shadow: 3px 3px 0 #7a1d00, 0 0 18px rgba(255, 225, 107, 0.6); }
@@ -45,7 +46,7 @@
   .coachTouch { display: inline; }
 }
 @keyframes coachPop { 0% { transform: translateX(-50%) scale(1.6); opacity: 0.2; } 100% { transform: translateX(-50%) scale(1); opacity: 1; } }
-@keyframes coachBeat { 0%, 100% { transform: translateX(-50%) scale(1); } 15% { transform: translateX(-50%) scale(1.12); } 40% { transform: translateX(-50%) scale(1); } }
+@keyframes coachBeat { 0%, 100% { transform: translateX(-50%) scale(1); } 12% { transform: translateX(-50%) scale(1.12); } 42% { transform: translateX(-50%) scale(1); } }
 .speed { position: fixed; bottom: 14px; left: 16px; display: grid; gap: 4px; font-family: var(--font-mono), monospace; font-size: 1.3rem; color: #fff; }
 .toast {
   position: fixed; right: 16px; bottom: 16px; padding: 10px 16px; max-width: 60vw;

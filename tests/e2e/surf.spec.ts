@@ -98,6 +98,28 @@ test.describe('surf game', () => {
     await expect(page.getByText(/SWALLOWED BY THE BARREL/)).toBeVisible();
   });
 
+  test('coach: the GUIDE buttons are reachable with Tab and toggle with Space / Enter', async ({ page }) => {
+    await page.goto('/surf');
+    const on = page.getByRole('button', { name: 'GUIDE ON' });
+    const off = page.getByRole('button', { name: 'GUIDE OFF' });
+    const drop = page.getByRole('button', { name: 'DROP IN' });
+    await expect(drop).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(off).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(off).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('Shift+Tab');
+    await expect(on).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(on).toHaveAttribute('aria-pressed', 'true');
+    // Enter on a GUIDE button toggled it without dropping in.
+    expect(await page.evaluate(() => window.__surf?.phase)).toBe('title');
+    await page.keyboard.press('Tab');
+    await expect(off).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(drop).toBeFocused();
+  });
+
   test('stays inside the draw-call and triangle budget', async ({ page }) => {
     await dropIn(page);
     const f0 = await page.evaluate(() => window.__surf!.frames);

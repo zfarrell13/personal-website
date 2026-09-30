@@ -422,6 +422,7 @@ export class SurfGame {
         speedKmh: Math.round(speed * 3.6),
         fastSection: this.peel.active && (s.mode === 'riding' || s.mode === 'airborne'),
         pumpPrompt: this.coach.state.show,
+        pumpTube: this.coach.state.tube,
         pumpCount: this.coach.state.pumps,
       });
     }
