@@ -13,5 +13,7 @@
   cursor: pointer;
 }
 .switch:focus-visible { outline: 3px solid #ffe16b; outline-offset: 3px; }
-.sun { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle, #fff6b0, #ffb300); box-shadow: 0 0 10px #ffcf40; }
-.moon { width: 22px; height: 22px; border-radius: 50%; box-shadow: inset -7px -3px 0 0 #e8e4ff; }
+.wave, .note { width: 28px; height: 28px; fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.wave { stroke: #7fd3ff; filter: drop-shadow(0 0 4px #7fd3ff); }
+.note { stroke: #e8e4ff; filter: drop-shadow(0 0 4px #c9a8ff); }
+.note circle { fill: #e8e4ff; stroke: none; }

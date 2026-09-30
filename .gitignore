@@ -5,6 +5,7 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 public/tracks/
+public/tracks-test/
 content/tracks-test/
 content/tracks/*.wav
 content/tracks/*.aif

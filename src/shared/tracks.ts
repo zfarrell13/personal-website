@@ -99,7 +99,15 @@ export function parseManifest(json: unknown): TrackManifest {
   return json as unknown as TrackManifest;
 }
 
-export async function loadManifest(fetchFn: typeof fetch = fetch, url = '/tracks/manifest.json'): Promise<TrackManifest> {
+/**
+ * The synthetic test tracks are always published at /tracks-test too, so e2e tests run against known
+ * BPMs and ids whatever real tracks are installed: `?tracks=test` on a page selects them.
+ */
+export function manifestUrl(search: string = typeof location !== 'undefined' ? location.search : ''): string {
+  return new URLSearchParams(search).get('tracks') === 'test' ? '/tracks-test/manifest.json' : '/tracks/manifest.json';
+}
+
+export async function loadManifest(fetchFn: typeof fetch = fetch, url = manifestUrl()): Promise<TrackManifest> {
   const res = await fetchFn(url);
   if (!res.ok) throw new Error(`Failed to load track manifest: HTTP ${res.status}`);
   return parseManifest(await res.json());

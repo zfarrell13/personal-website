@@ -59,7 +59,7 @@ for (const id of ['test-sunrise', 'test-tidal', 'test-midnight']) {
     const errors = trackConsoleErrors(page);
     await page.goto('/dev/dj-engine');
     const r = await page.evaluate(async (trackId) => {
-      const manifest = (await (await fetch('/tracks/manifest.json')).json()) as {
+      const manifest = (await (await fetch('/tracks-test/manifest.json')).json()) as {
         tracks: { id: string; audioUrl: string; firstBeatSec: number }[];
       };
       const t = manifest.tracks.find((x) => x.id === trackId)!;

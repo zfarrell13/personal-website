@@ -7,6 +7,8 @@ import { makeTestTracks } from './make-test-tracks';
 const REAL = 'content/tracks';
 const TEST = 'content/tracks-test';
 const OUT = 'public/tracks';
+/** The test tracks are always built here too (`?tracks=test`, used by the e2e suite). */
+const TEST_OUT = 'public/tracks-test';
 
 try {
   execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
@@ -23,12 +25,10 @@ try {
   process.exit(1);
 }
 
-if (source === 'real') {
-  await buildTracks({ sourceDir: REAL, outDir: OUT });
-} else {
-  if (!existsSync(`${TEST}/tracks.json`)) {
-    console.log('No tracks in content/tracks yet — synthesizing placeholder tracks…');
-    await makeTestTracks(TEST);
-  }
-  await buildTracks({ sourceDir: TEST, outDir: OUT });
+if (!existsSync(`${TEST}/tracks.json`)) {
+  console.log('Synthesizing placeholder test tracks…');
+  await makeTestTracks(TEST);
 }
+await buildTracks({ sourceDir: TEST, outDir: TEST_OUT, urlPrefix: '/tracks-test' });
+if (source === 'real') await buildTracks({ sourceDir: REAL, outDir: OUT });
+else await buildTracks({ sourceDir: TEST, outDir: OUT });

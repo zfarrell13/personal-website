@@ -2,6 +2,7 @@
 import { useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { MODE_ROUTES, otherMode, type Mode } from '@/shared/mode';
+import { NoteIcon, WaveIcon } from '@/shared/ModeIcons';
 import { useMode } from '@/shared/useMode';
 import styles from './portal.module.css';
 
@@ -55,15 +56,8 @@ export default function Portal() {
           onClick={toggle}
         >
           <span className={styles.knob} aria-hidden />
-          <svg className={styles.wave} viewBox="0 0 32 32" aria-hidden>
-            <path d="M3 22c3 0 4-3 7-3s4 3 7 3 4-3 7-3 4 3 5 3" />
-            <path d="M5 17c0-7 6-12 13-11-4 2-5 6-3 9 1.5 2.2 4.5 2.4 6 1" />
-          </svg>
-          <svg className={styles.note} viewBox="0 0 32 32" aria-hidden>
-            <path d="M12 23V7l14-3v16" />
-            <circle cx="8.5" cy="23.5" r="3.5" />
-            <circle cx="22.5" cy="20.5" r="3.5" />
-          </svg>
+          <WaveIcon className={styles.wave} />
+          <NoteIcon className={styles.note} />
         </button>
         <p className={styles.caption} data-testid="mode-caption">
           {current === 'light' ? 'LIGHT MODE — SURF' : 'DARK MODE — DJ'}

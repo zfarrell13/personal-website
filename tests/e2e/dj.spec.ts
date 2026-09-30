@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { trackConsoleErrors } from './helpers';
 
 async function boot(page: Page) {
-  await page.goto('/dj');
+  await page.goto('/dj?tracks=test');
   await page.getByTestId('dj-start').click();
   await page.waitForFunction(() => window.__dj?.ready === true, null, { timeout: 60_000 });
 }

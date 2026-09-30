@@ -2,6 +2,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { browserStorage, MODE_ROUTES, otherMode, writeMode, type Mode } from './mode';
+import { NoteIcon, WaveIcon } from './ModeIcons';
 import styles from './modeSwitch.module.css';
 
 /** Declares which mode the current page is, and jumps to the other experience. */
@@ -22,7 +23,7 @@ export default function ModeSwitch({ current }: { current: Mode }) {
         router.push(MODE_ROUTES[next]);
       }}
     >
-      <span className={next === 'dark' ? styles.moon : styles.sun} aria-hidden />
+      {next === 'dark' ? <NoteIcon className={styles.note} /> : <WaveIcon className={styles.wave} />}
     </button>
   );
 }

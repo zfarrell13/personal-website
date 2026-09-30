@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { beatAtTime, beatTimeSec, loadManifest, parseManifest, parseTrackSources, secondsPerBeat } from './tracks';
+import { beatAtTime, beatTimeSec, loadManifest, manifestUrl, parseManifest, parseTrackSources, secondsPerBeat } from './tracks';
 
 const source = {
   id: 'sunset-drive',
@@ -39,6 +39,12 @@ describe('parseTrackSources', () => {
 });
 
 describe('manifest', () => {
+  it('selects the test-track manifest with ?tracks=test', () => {
+    expect(manifestUrl('')).toBe('/tracks/manifest.json');
+    expect(manifestUrl('?tracks=test')).toBe('/tracks-test/manifest.json');
+    expect(manifestUrl('?debug&tracks=test')).toBe('/tracks-test/manifest.json');
+    expect(manifestUrl('?tracks=real')).toBe('/tracks/manifest.json');
+  });
   it('parses a manifest', () => {
     expect(parseManifest({ version: 1, tracks: [entry] }).tracks[0]!.id).toBe('sunset-drive');
   });
