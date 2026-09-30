@@ -53,8 +53,15 @@ export interface ProfileProbe {
  */
 export const TUBE_CLEARANCE = 0.4;
 const CLEAR_SAMPLES = 64;
-/** The pocket (tube) view is off with the rider from this far inside the lip tip to this far in front of it (m): under the falling curtain. */
-const CURTAIN_MARGIN = [0.3, 1.0] as const;
+/** The tube camera is lifted off the face in steps of this (m), at most TUBE_LIFT_STEPS of them, to find the barrel's air. */
+const TUBE_LIFT_STEP = 0.12;
+const TUBE_LIFT_STEPS = 6;
+/** …and moved in toward the rider along the line in steps of this (m), at most TUBE_IN_STEPS of them (never nearer than minDistance). */
+const TUBE_IN_STEP = 0.3;
+const TUBE_IN_STEPS = 3;
+/** Line-of-sight samples from the tube camera to the rider, and the clearance each needs from the water (m). */
+const SIGHT_SAMPLES = 10;
+const SIGHT_CLEARANCE = 0.05;
 
 /**
  * Is frame point p in the air of its column's cross-section, at least `clearance` from the water
@@ -203,6 +210,11 @@ export class CameraRig {
   private readonly tmpF = new Vector3();
   private readonly tmpG = new Vector3();
   private readonly tmpH = new Vector3();
+  private readonly probeSubject: Subject = { p: new Vector3(), normal: new Vector3(0, 1, 0), heading: new Vector3(1, 0, 0), mode: 'riding', launchKind: null };
+  private readonly probeGoal: CameraGoal = { pos: new Vector3(), look: new Vector3() };
+  /** The tube spot found this frame: moved in along the line / lifted off the face (m). */
+  private spotIn = 0;
+  private spotLift = 0;
   private readonly subject: Subject = { p: new Vector3(), normal: new Vector3(0, 1, 0), heading: new Vector3(1, 0, 0), mode: 'riding', launchKind: null };
 
   constructor(
@@ -248,17 +260,23 @@ export class CameraRig {
     else if (cos < -FACING_SWITCH) this.facing = -1;
     // The tube view also covers riding low in the pocket (either way along the line), under the
     // pitching lip: from above the crest the lip hides the rider there.
-    // Not with the rider right where the lip comes down (between just inside its tip and a little in
-    // front of it): the tube camera would look at them through the falling curtain; the chase, shoreward
-    // and above, sees them clear. Under the lip, or well out on the flats in front of it, is fine.
-    const tipZ = this.wave.profile ? this.wave.profile(s.p.x, 1, this.tmpA).z : 0;
-    const clearOfCurtain = !this.wave.profile || s.p.z < tipZ - CURTAIN_MARGIN[0] || s.p.z > tipZ + CURTAIN_MARGIN[1];
-    const tubed = s.mode === 'riding' && (s.inTube || (s.p.x <= c.pocketX && s.p.x >= -this.wave.params.tubeDepth && s.p.y < c.pocketHeightFrac * this.wave.crestY(s.p.x) && clearOfCurtain));
+    const wanted = s.mode === 'riding' && (s.inTube || (s.p.x <= c.pocketX && s.p.x >= -this.wave.params.tubeDepth && s.p.y < c.pocketHeightFrac * this.wave.crestY(s.p.x)));
+    // …as long as there IS a tube shot: a spot behind the rider in the barrel's air that sees them
+    // (not through the falling curtain, not with the barrel closing on them). Otherwise the chase.
+    const tubed = wanted && this.findTubeSpot(renderP, s.normal);
     this.inFor = tubed ? this.inFor + dt : 0;
     this.outFor = tubed ? 0 : this.outFor + dt;
-    const shot: CameraShot = underwater ? 'underwater' : this.shot === 'tube' ? (this.outFor >= c.tubeCutOut ? 'chase' : 'tube') : this.inFor >= c.tubeCutIn ? 'tube' : 'chase';
+    // No valid tube spot any more (the barrel closing on the rider): one clean cut out, no lingering.
+    const lost = this.shot === 'tube' && wanted && !tubed;
+    const shot: CameraShot = underwater ? 'underwater' : this.shot === 'tube' ? (lost || this.outFor >= c.tubeCutOut ? 'chase' : 'tube') : this.inFor >= c.tubeCutIn ? 'tube' : 'chase';
     this.track(s, renderP, side, shot);
     cameraGoal(this.subject, side, shot, this.wave, this.goal, c);
+    if (shot === 'tube' && (this.spotLift > 0 || this.spotIn > 0)) {
+      // Moved in / lifted off the face into the air — in the goal, so the spring eases it (no jump).
+      frameToView(s.normal, side, this.tmpA);
+      this.goal.pos.addScaledVector(this.tmpA, this.spotLift);
+      this.goal.pos.x += (side === 'right' ? -1 : 1) * this.facing * this.spotIn;
+    }
     // A new shot, the wipeout, or the tube camera changing sides of the rider (a glide would pass
     // through them) is a cut.
     if (shot !== this.shot || shot === 'underwater' || (shot === 'tube' && this.facing !== wasFacing)) this.cut();
@@ -276,71 +294,81 @@ export class CameraRig {
       this.look.addVectors(this.follow, this.offLook);
     }
     this.shot = shot;
-    if (shot === 'tube') this.keepInTubeAir(side);
+    if (shot === 'tube') this.clampBehindCloseout(side);
     const x = side === 'right' ? -this.pos.x : this.pos.x;
     this.apply(shot === 'underwater' ? 0 : shakeAmplitude(x, this.wave.params.tubeDepth, c.shake), time);
   }
 
   /**
-   * The tube camera never sits in the water or inside the lip: where its spot is not in the barrel's
-   * air (clamped deep behind the rider near the closeout, low in the trough under the falling lip, or
-   * lagging a fast carve) it slides toward the rider until it is.
+   * Is there a tube shot for a rider at p (frame coordinates)? The tube goal, moved in toward the rider
+   * (up to TUBE_IN_STEPS × TUBE_IN_STEP along the line, never nearer than minDistance) and lifted off
+   * the face (up to TUBE_LIFT_STEPS × TUBE_LIFT_STEP), until it is in the barrel's air (TUBE_CLEARANCE,
+   * in its column and the neighbouring ones) with a clear line of sight to the rider's chest. Sets
+   * spotIn / spotLift; false when there is no such spot (the rider under the falling curtain, the
+   * barrel closing on them). Without a profile (unit stubs) the plain goal is fine.
    */
-  private keepInTubeAir(side: Side): void {
+  private findTubeSpot(p: Vector3, normal: Vector3): boolean {
+    this.spotIn = 0;
+    this.spotLift = 0;
     const w = this.wave;
-    if (!w.profile || w.params.xMin === undefined) return;
+    if (!w.profile || w.params.xMin === undefined) return true;
     const probe = w as ProfileProbe;
-    const start = frameToView(this.pos, side, this.tmpA);
-    const cam = this.tmpE.copy(start);
-    // The springs can carry it a little past the closeout the goal is clamped to.
-    if (cam.x < this.cfg.tubeMinX) {
-      cam.x = this.cfg.tubeMinX;
-      // Pulled in closer behind the rider: lift off the face instead of crowding them (as the goal does).
-      const minD = CAMERA_OFFSETS.tube.minDistance;
-      for (let i = 0; i < 8; i++) {
-        const d = cam.distanceTo(this.subject.p);
-        if (d >= minD) break;
-        cam.addScaledVector(this.subject.normal, minD - d + 0.01);
-      }
-    }
-    const clear = (p: Vector3) => {
-      // Its own column and the neighbouring ones (the surface changes fast along x near the closeout).
-      for (const dx of [0, -0.5, 0.5]) {
-        this.tmpF.set(p.x + dx, p.y, p.z);
-        if (!inAir(probe, this.tmpF, TUBE_CLEARANCE, this.tmpB, this.tmpC)) return false;
-      }
-      return true;
-    };
-    if (!clear(cam)) this.findTubeAir(cam, clear);
-    frameToView(cam, side, this.pos);
-    // Moved off its line (over the rider as the barrel closes): turn to keep the rider in view.
-    const moved = cam.distanceTo(start);
-    if (moved > 0.05) {
-      const chest = this.tmpF.copy(this.subject.p).addScaledVector(this.subject.normal, 0.9);
-      frameToView(chest, side, chest);
-      this.look.lerp(chest, Math.min(1, moved));
-    }
-  }
-
-  /** Lift `cam` off the face (keeps its distance behind the rider); failing that, slide it toward a spot minDistance straight off the face at the rider. */
-  private findTubeAir(cam: Vector3, clear: (p: Vector3) => boolean): void {
+    const subj = this.probeSubject;
+    subj.p.copy(p);
+    subj.normal.copy(normal);
+    subj.heading.set(this.facing, 0, 0);
+    cameraGoal(subj, 'left', 'tube', w, this.probeGoal, this.cfg);
+    const base = this.probeGoal.pos;
+    const chest = this.tmpG.copy(p).addScaledVector(normal, 0.9);
     const q = this.tmpD;
-    for (let k = 1; k <= 6; k++) {
-      q.copy(cam).addScaledVector(this.subject.normal, 0.12 * k);
-      if (clear(q)) {
-        cam.copy(q);
-        return;
+    const minD = CAMERA_OFFSETS.tube.minDistance - 0.1;
+    for (let i = 0; i <= TUBE_IN_STEPS; i++) {
+      for (let k = 0; k <= TUBE_LIFT_STEPS; k++) {
+        q.copy(base).addScaledVector(normal, TUBE_LIFT_STEP * k);
+        q.x += this.facing * TUBE_IN_STEP * i;
+        if (q.distanceTo(p) < minD) continue;
+        if (this.clearAround(probe, q) && this.sees(probe, q, chest)) {
+          this.spotIn = TUBE_IN_STEP * i;
+          this.spotLift = TUBE_LIFT_STEP * k;
+          return true;
+        }
       }
     }
-    const anchor = this.tmpG.copy(this.subject.p).addScaledVector(this.subject.normal, CAMERA_OFFSETS.tube.minDistance);
-    const from = this.tmpH.copy(cam);
-    for (let k = 1; k <= 12; k++) {
-      q.lerpVectors(from, anchor, k / 12);
-      if (k === 12 || clear(q)) break;
-    }
-    cam.copy(q);
+    return false;
   }
 
+  private clearAround(probe: ProfileProbe, q: Vector3): boolean {
+    // Its own column and the neighbouring ones (the surface changes fast along x near the closeout).
+    for (const dx of [0, -0.5, 0.5]) {
+      this.tmpF.set(q.x + dx, q.y, q.z);
+      if (!inAir(probe, this.tmpF, TUBE_CLEARANCE, this.tmpB, this.tmpC)) return false;
+    }
+    return true;
+  }
+
+  /** No water between `from` and the rider's chest (sampled along the line, stopping short of the rider). */
+  private sees(probe: ProfileProbe, from: Vector3, chest: Vector3): boolean {
+    for (let i = 1; i < SIGHT_SAMPLES; i++) {
+      this.tmpH.lerpVectors(from, chest, i / SIGHT_SAMPLES);
+      if (!inAir(probe, this.tmpH, SIGHT_CLEARANCE, this.tmpB, this.tmpC)) return false;
+    }
+    return true;
+  }
+
+  /** The springs can carry the tube camera a little past the closeout its goal is clamped to: hold it there. */
+  private clampBehindCloseout(side: Side): void {
+    const cam = frameToView(this.pos, side, this.tmpA);
+    if (cam.x >= this.cfg.tubeMinX) return;
+    cam.x = this.cfg.tubeMinX;
+    // Pulled in closer behind the rider: lift off the face instead of crowding them (as the goal does).
+    const minD = CAMERA_OFFSETS.tube.minDistance;
+    for (let i = 0; i < 8; i++) {
+      const d = cam.distanceTo(this.subject.p);
+      if (d >= minD) break;
+      cam.addScaledVector(this.subject.normal, minD - d + 0.01);
+    }
+    frameToView(cam, side, this.pos);
+  }
 
   private track(s: SurferState, p: Vector3, side: Side, shot: CameraShot): void {
     this.subject.p.copy(p);

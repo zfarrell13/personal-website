@@ -56,8 +56,9 @@
   border: 2px solid #8fb4ff; border-radius: 6px; color: #fff;
   animation: slide 4s ease forwards; pointer-events: none;
 }
-/* Phones: the OLLIE/grab buttons own the bottom-right corner. */
-@media (pointer: coarse) { .toast { bottom: auto; top: 16px; } }
+/* Phones: the OLLIE/grab buttons own the bottom-right corner; at the top it stays right of the centred
+   pause button (48px wide), wrapping instead of running under it. */
+@media (pointer: coarse) { .toast { bottom: auto; top: 16px; max-width: calc(50vw - 16px - 24px - 12px); padding: 6px 10px; font-size: 0.85rem; } }
 .toastLabel { font-family: var(--font-mono), monospace; color: #ffe16b; letter-spacing: 0.2em; }
 @keyframes slide { 0% { transform: translateX(120%); } 10%, 85% { transform: translateX(0); } 100% { transform: translateX(120%); } }
 .underwater { position: fixed; inset: 0; background: radial-gradient(ellipse at center, rgba(20, 80, 160, 0.35), rgba(0, 20, 60, 0.85)); animation: sink 1.6s ease-in forwards; pointer-events: none; }
