@@ -14,6 +14,8 @@ export interface SurfDebugHook {
   /** Current peel speed (m/s) and whether a fast section is on. */
   peel: number;
   fast: boolean;
+  /** The run's fast-section seed (replay a run by feeding it to PeelController.reset). */
+  seed: number;
   /** Camera shot: 'chase' | 'tube' | 'underwater'. */
   shot: string;
 }

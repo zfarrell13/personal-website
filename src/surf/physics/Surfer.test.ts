@@ -182,8 +182,9 @@ describe('Surfer — riding', () => {
    * Lines + pumps (every `pumpEvery` s) with one fast section of the given boost / hold from t = 8 s
    * (the configured ramps), riding on to 20 s. `lost` = frame-x ground lost over the section.
    */
-  function fastSection(pumpEvery: number, boost: number, hold: number) {
+  function fastSection(pumpEvery: number, boost: number, hold: number, startX?: number, at = 8) {
     const h = setup();
+    if (startX !== undefined) h.surfer.reset(startX, 0.5);
     const bot = lineBot(h.surfer, h.wave, { pumpEvery });
     const base = h.cfg.wave.peelSpeed;
     const { ramp } = h.cfg.sections;
@@ -191,16 +192,16 @@ describe('Surfer — riding', () => {
     let xStart = NaN;
     let xEnd = NaN;
     for (let i = 0; i < 20 * 120; i++) {
-      const u = h.s.time + DT - 8;
+      const u = h.s.time + DT - at;
       const k = u < 0 || u > total ? 0 : Math.min(1, u / ramp, (total - u) / ramp);
       if (u >= 0 && Number.isNaN(xStart)) xStart = h.s.param.x;
       if (u >= total && Number.isNaN(xEnd)) xEnd = h.s.param.x;
       h.surfer.setPeelSpeed(base * (1 + boost * k));
       h.surfer.step(bot(DT), DT);
-      if (h.s.mode === 'wipeout') break;
+      if (h.s.mode === 'wipeout' || h.s.mode === 'kickedOut') break;
     }
-    const survived = h.s.mode !== 'wipeout';
-    return { survived, lost: survived ? xStart - xEnd : Infinity };
+    const survived = h.s.mode === 'riding' || h.s.mode === 'airborne';
+    return { survived, lost: survived ? xStart - xEnd : Infinity, h };
   }
 
   // Racy sections must be felt (Task 2b carry: +30%/3 s cost a 1 s pumper only 1.2 m).
@@ -229,6 +230,15 @@ describe('Surfer — riding', () => {
     const { maxBoost, maxHold } = SURF_CONFIG.sections;
     expect(fastSection(2, 0, maxHold).survived).toBe(true);
     expect(fastSection(2, maxBoost, maxHold).survived).toBe(false);
+  });
+
+  // Regression: the section's frame shift must not read as "the wave left you" far down the line.
+  it('a strong rider (pump every 0.6 s) far down the line (x = 75) rides the hardest section out: no kick-out, SECTION MADE', () => {
+    const { maxBoost, maxHold } = SURF_CONFIG.sections;
+    const r = fastSection(0.6, maxBoost, maxHold, 75, 1);
+    expect(r.h.events.some((e) => e.type === 'kickedOut')).toBe(false);
+    expect(r.survived).toBe(true);
+    expect(r.h.s.time).toBeGreaterThan(19.9);
   });
 
   it('stalling drives frame x-velocity negative and puts you in the tube within 3 s', () => {

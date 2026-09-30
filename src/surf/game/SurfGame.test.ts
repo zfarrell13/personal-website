@@ -493,6 +493,33 @@ describe('SurfGame', () => {
     }
   });
 
+  it('once the rider is no longer live (wipeout delay) there is no fastSection event, HUD flag or hook.fast; hook.seed is exposed', async () => {
+    const saved = { ...SURF_CONFIG.sections };
+    Object.assign(SURF_CONFIG.sections, { minGap: 1, maxGap: 1, minHold: 0.5, maxHold: 0.5, ramp: 0.1 });
+    try {
+      const { game, store } = await playing();
+      const s = game.surfer.state;
+      vi.spyOn(game.surfer, 'step').mockImplementation((_i, dt) => {
+        s.time += dt;
+        s.mode = 'wipeout';
+      });
+      const events: string[] = [];
+      game.bus.onAny((e) => events.push(e.type));
+      let fastHook = false;
+      for (let i = 0; i < 150; i++) {
+        frame();
+        fastHook ||= (win.__surf as { fast: boolean }).fast;
+      }
+      expect(events).not.toContain('fastSection');
+      expect(store.getState().fastSection).toBe(false);
+      expect(fastHook).toBe(false);
+      expect((win.__surf as { seed: number }).seed).toEqual(expect.any(Number));
+      game.dispose();
+    } finally {
+      Object.assign(SURF_CONFIG.sections, saved);
+    }
+  });
+
   it('dispose during load does not attach the character or leave the title phase', async () => {
     const store = createSurfStore();
     const game = new SurfGame(canvas, store);

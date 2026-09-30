@@ -70,7 +70,7 @@ export class SurfGame {
   private readonly input: SurferInput = { ...NO_INPUT };
   private readonly renderP = new Vector3();
   /** The one debug-hook object, mutated each frame (no per-frame allocation). */
-  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, shot: 'chase' };
+  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase' };
   private readonly look: SurferLook;
   private character: Character | null = null;
   private audio: SurfAudio | null = null;
@@ -88,6 +88,8 @@ export class SurfGame {
   private waterTime = 0;
   /** Runs started (mixed into each run's fast-section seed). */
   private runs = 0;
+  /** The current run's fast-section seed (exposed on the debug hook for replays). */
+  private seed = 0;
   /** Carve keys' screen meaning (see CameraRig.keyFacing), latched while a carve key is held. */
   private keyFacing: 1 | -1 = 1;
   private endAt = -1;
@@ -249,7 +251,8 @@ export class SurfGame {
   /** Surfer back at the drop-in, camera snapped behind, above water, no end-of-run timer. */
   private resetView(): void {
     // A fresh seeded fast-section schedule per run; the peel is back at base speed.
-    this.peel.reset((Date.now() ^ Math.imul(++this.runs, 0x9e3779b9)) >>> 0);
+    this.seed = (Date.now() ^ Math.imul(++this.runs, 0x9e3779b9)) >>> 0;
+    this.peel.reset(this.seed);
     this.surfer.reset();
     this.character?.reset();
     this.rig.snap(this.surfer.state, this.side);
@@ -414,7 +417,8 @@ export class SurfGame {
     hook.triangles = info.triangles;
     hook.fps = Math.round(this.fps);
     hook.peel = this.peel.speed;
-    hook.fast = this.peel.active;
+    hook.fast = this.peel.active && (s.mode === 'riding' || s.mode === 'airborne');
+    hook.seed = this.seed;
     hook.shot = this.rig.shot;
     window.__surf = hook;
   }

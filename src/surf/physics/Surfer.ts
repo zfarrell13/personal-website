@@ -522,7 +522,9 @@ export class Surfer {
 
     // --- lost the wave ---
     this.frameAt(s.param.x, s.param.t);
-    if (s.param.x > c.kickOutX && s.v.dot(this.e1) < c.kickOutMinSpeed) {
+    // Measured against the BASE peel: a fast section's frame shift never counts as the wave leaving you.
+    const sectionShift = this.vp - this.wave.params.peelSpeed;
+    if (s.param.x > c.kickOutX && s.v.dot(this.e1) + sectionShift < c.kickOutMinSpeed) {
       this.slowTime += dt;
       if (this.slowTime >= c.kickOutTime) {
         this.kickOut();
