@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { Color, Vector3 } from 'three';
 import { FOG_CONFIG, SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
-import { buildWaveGeometry, columnsX, SEA, waveVertexColor, type OceanLayout } from './waveGeometry';
-import { injectWaveShader, makeFoamTexture } from './waveMaterial';
+import { buildWaveGeometry, columnsX, lipWeight, SEA, waveVertexColor, type OceanLayout } from './waveGeometry';
+import { injectWaveShader, LIP_MAX_OFFSET, lipOffset, makeFoamTexture } from './waveMaterial';
 
 const shape = () => new WaveShape(structuredClone(SURF_CONFIG.wave));
 
@@ -180,11 +180,57 @@ describe('injectWaveShader', () => {
       vertexShader: 'void main(){\n#include <beginnormal_vertex>\n#include <begin_vertex>\n#include <project_vertex>\n}',
       fragmentShader: 'void main(){\n#include <color_fragment>\n#include <emissivemap_fragment>\n}',
     };
-    const u = { uTime: { value: 0 }, uPeel: { value: 7 }, uFoamTex: { value: makeFoamTexture() }, uSSS: { value: new Vector3() } };
+    const u = { uTime: { value: 0 }, uTravel: { value: 0 }, uFoamTex: { value: makeFoamTexture() }, uSSS: { value: new Vector3() } };
     injectWaveShader(shader as never, u);
     expect(shader.vertexShader).toContain('attribute float aFoam;');
+    expect(shader.vertexShader).toContain('attribute float aLip;');
+    expect(shader.vertexShader).toContain('position.x + uTravel');
     expect(shader.vertexShader.indexOf('transformed +=')).toBeGreaterThan(shader.vertexShader.indexOf('#include <begin_vertex>'));
     expect(shader.fragmentShader).toContain('totalEmissiveRadiance += uSSS');
-    expect(shader.uniforms.uPeel).toBe(u.uPeel);
+    expect(shader.uniforms.uTravel).toBe(u.uTravel);
+  });
+});
+
+describe('lip animation weight', () => {
+  it('is zero on the rideable face and at the crest, and grows past the crest where the lip pitches', () => {
+    const w = shape();
+    const geo = buildWaveGeometry(w, columnsX(40, -10, 60), 32);
+    const L = geo.userData as OceanLayout;
+    const lip = geo.getAttribute('aLip');
+    const { xMin, xMax } = w.params;
+    let maxOnFace = 0;
+    let maxPastCrest = 0;
+    for (let i = 0; i < L.columns; i++) {
+      const xc = Math.min(xMax, Math.max(xMin, L.xs[i]!));
+      const tc = w.crestT(xc);
+      for (let r = 0; r < L.rows; r++) {
+        const v = i * L.rows + r;
+        const a = lip.getX(v);
+        const t = L.t[v]!;
+        // Every row that isn't past the crest on the profile — the flats, the face, the back — is still.
+        if (Number.isNaN(t) ? r < L.lipRow || r >= L.backRow : t <= tc) maxOnFace = Math.max(maxOnFace, a);
+        else if (xc > -3 && xc < 2) maxPastCrest = Math.max(maxPastCrest, a);
+      }
+    }
+    expect(maxOnFace).toBe(0);
+    expect(maxPastCrest).toBeGreaterThan(0.9);
+    expect(lipWeight(w, 40, 1, w.crestT(40))).toBeLessThan(0.01); // the shoulder does not pitch
+  });
+
+  it('only ever moves the lip up and out (away from the face, never down into the tube), within LIP_MAX_OFFSET', () => {
+    const out = new Vector3();
+    let maxLen = 0;
+    for (let k = 0; k < 400; k++) {
+      const x = -8 + (k % 40) * 0.5;
+      const time = k * 0.137;
+      lipOffset(x, 1, time, out);
+      expect(out.y).toBeGreaterThanOrEqual(0);
+      expect(out.z).toBeGreaterThanOrEqual(0);
+      maxLen = Math.max(maxLen, out.length());
+      lipOffset(x, 0, time, out);
+      expect(out.length()).toBe(0);
+    }
+    expect(maxLen).toBeGreaterThan(0.15); // it visibly throws
+    expect(maxLen).toBeLessThanOrEqual(LIP_MAX_OFFSET + 1e-9);
   });
 });

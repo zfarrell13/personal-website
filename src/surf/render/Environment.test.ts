@@ -3,7 +3,7 @@ import { Box3, Mesh, PerspectiveCamera, Scene, type Material } from 'three';
 import { CAMERA_FAR } from '../camera/CameraRig';
 import { FOG_CONFIG, SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
-import { Environment } from './Environment';
+import { createSeaFloorMaterial, Environment, FLOOR_FOG_FADE } from './Environment';
 import { seaReflection } from './sky';
 import { buildWaveGeometry, columnsX } from './waveGeometry';
 
@@ -49,6 +49,16 @@ describe('Environment underwater cut', () => {
 });
 
 describe('Environment water', () => {
+  it('fades the sea floor into the fog colour where the water is opaque (pinholes in the far water read as haze)', () => {
+    const m = createSeaFloorMaterial();
+    const shader = { uniforms: {}, vertexShader: '', fragmentShader: 'void main(){\n#include <fog_fragment>\n}' };
+    m.onBeforeCompile(shader as never, undefined as never);
+    expect(shader.fragmentShader).toContain(`smoothstep(${FLOOR_FOG_FADE[0].toFixed(1)}, ${FLOOR_FOG_FADE[1].toFixed(1)}, vFogDepth)`);
+    expect(shader.fragmentShader.indexOf('fogColor, smoothstep')).toBeLessThan(shader.fragmentShader.indexOf('#include <fog_fragment>'));
+    expect(FLOOR_FOG_FADE[0]).toBeGreaterThanOrEqual(35);
+    m.dispose();
+  });
+
   it('draws no water surface of its own (the wave mesh is the one ocean) and an opaque sea floor under it', () => {
     const scene = new Scene();
     const env = new Environment(scene, new PerspectiveCamera(60, 1, 0.1, 650));

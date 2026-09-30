@@ -26,6 +26,7 @@ import { Particles } from '../render/Particles';
 import { WaveMesh } from '../render/WaveMesh';
 import { Scoring } from '../scoring/Scoring';
 import { pushTicker, ThrottledWriter, type Phase, type SurfStore, type TickerItem } from '../state/store';
+import { impactDistance } from '../wave/impact';
 import { sideSign } from '../wave/mirror';
 import { PeelController } from '../wave/PeelController';
 import { WaveShape } from '../wave/WaveShape';
@@ -87,6 +88,8 @@ export class SurfGame {
   private frameSimDt = 0;
   /** Water/particle clock: advances with the sim while playing, freezes on pause. */
   private waterTime = 0;
+  /** Foam scroll distance (m): advances at the live peel speed with the water clock (freezes on pause). */
+  private waterTravel = 0;
   /** Runs started (mixed into each run's fast-section seed). */
   private runs = 0;
   /** The current run's fast-section seed (exposed on the debug hook for replays). */
@@ -309,6 +312,7 @@ export class SurfGame {
       else if (this.phase !== 'paused') this.frameSimDt = dt;
     }
     this.waterTime += this.frameSimDt;
+    this.waterTravel += this.frameSimDt * this.peel.speed;
     this.syncConfig();
     this.render(now, dt, alpha);
     this.publish(now);
@@ -381,8 +385,9 @@ export class SurfGame {
     this.rig.update(s, this.renderP, this.side, underwater, dt, this.waterTime);
     if (this.gizmo && window.__surfCam) this.applyDebugCamera(window.__surfCam);
     this.env.update(Number.isFinite(now) ? now / 1000 : 0, this.travel, sideSign(this.side));
+    this.particles.tubeView = this.rig.shot === 'tube';
     this.particles.update(Math.min(MAX_PARTICLE_DT, this.frameSimDt), this.phase === 'playing');
-    this.waveMesh.update(this.waterTime);
+    this.waveMesh.update(this.waterTime, this.waterTravel);
     if (this.normalArrow) {
       this.normalArrow.position.copy(this.renderP);
       this.normalArrow.setDirection(s.normal);
@@ -396,7 +401,7 @@ export class SurfGame {
     const s = this.surfer.state;
     if (this.phase === 'playing') {
       const speed = this.surfer.worldSpeed(this.peel.speed);
-      this.audio?.update(s, speed);
+      this.audio?.update(s, speed, { distance: impactDistance(s.p.x, this.wave.params.tubeDepth), fast: this.peel.level });
       this.writer.push({
         score: this.scoring.score,
         pot: this.scoring.pot,

@@ -4,6 +4,7 @@ import { cameraGoal } from '../camera/CameraRig';
 import { SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
 import { buildWaveGeometry, columnsX } from './waveGeometry';
+import { LIP_LIFT, LIP_THROW, lipOffset } from './waveMaterial';
 
 const EYE_UP = (5 * Math.PI) / 180;
 /** Desktop and phone (coarse-pointer) wave meshes. */
@@ -11,6 +12,12 @@ const MESHES = [
   ['desktop', SURF_CONFIG.mesh.columns, SURF_CONFIG.mesh.rows],
   ['phone', 112, 44],
 ] as const;
+/**
+ * The lip animation (waveMaterial's lipOffset) at rest, at several water-clock times, and at its
+ * worst-case bound (every lip vertex thrown fully up and out at once): the eye stays open throughout.
+ */
+const LIP_TIMES = [null, 0, 0.21, 0.47, 0.8, 1.13, 1.52, 'max'] as const;
+const CASES = MESHES.flatMap((m) => LIP_TIMES.map((time) => [...m, time] as const));
 
 /**
  * The barrel as the tube camera sees it: an open tunnel. From the real tube-camera pose, with the
@@ -18,10 +25,23 @@ const MESHES = [
  * clear air within 15 m — the eye is open, no curtain — while rays up and over the rider hit the lip
  * (it IS a barrel).
  */
-describe.each(MESHES)('open barrel from the tube camera (%s mesh)', (_name, columns, rows) => {
+describe.each(CASES)('open barrel from the tube camera (%s mesh %i × %i, lip animated at t = %s)', (_name, columns, rows, lipTime) => {
   const params = structuredClone(SURF_CONFIG.wave);
   const shape = new WaveShape(params);
-  const mesh = new Mesh(buildWaveGeometry(shape, columnsX(columns, params.xMin, params.xMax), rows), new MeshBasicMaterial({ side: DoubleSide }));
+  const geo = buildWaveGeometry(shape, columnsX(columns, params.xMin, params.xMax), rows);
+  if (lipTime !== null) {
+    // Apply the vertex shader's lip animation on the CPU (same formula, lipOffset).
+    const pos = geo.getAttribute('position');
+    const lip = geo.getAttribute('aLip');
+    const d = new Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      if (lipTime === 'max') d.set(0, LIP_LIFT, LIP_THROW).multiplyScalar(lip.getX(i));
+      else lipOffset(pos.getX(i), lip.getX(i), lipTime, d);
+      pos.setXYZ(i, pos.getX(i) + d.x, pos.getY(i) + d.y, pos.getZ(i) + d.z);
+    }
+    geo.computeBoundingSphere();
+  }
+  const mesh = new Mesh(geo, new MeshBasicMaterial({ side: DoubleSide }));
   mesh.updateMatrixWorld();
   const ray = new Raycaster();
 

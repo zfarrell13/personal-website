@@ -7,7 +7,7 @@ import { createWaveMaterial, type WaveUniforms } from './waveMaterial';
 /**
  * The rendered ocean: the breaking wave and the sea around it as one surface with one water
  * material (see buildWaveGeometry). Geometry is rebuilt only when shape parameters change
- * (`rebuild()`); per-frame work is the shader ripple/foam.
+ * (`rebuild()`); per-frame work is the shader ripple, lip and foam.
  */
 export class WaveMesh {
   readonly group = new Group();
@@ -18,7 +18,7 @@ export class WaveMesh {
     private readonly shape: WaveShape,
     private readonly mesh: SurfConfig['mesh'],
   ) {
-    const { material, uniforms } = createWaveMaterial(shape.params.peelSpeed);
+    const { material, uniforms } = createWaveMaterial();
     this.uniforms = uniforms;
     this.ocean = new Mesh(new BufferGeometry(), material);
     this.ocean.frustumCulled = false;
@@ -31,11 +31,12 @@ export class WaveMesh {
     const xs = columnsX(this.mesh.columns, xMin, xMax);
     this.ocean.geometry.dispose();
     this.ocean.geometry = buildWaveGeometry(this.shape, xs, this.mesh.rows);
-    this.uniforms.uPeel.value = this.shape.params.peelSpeed;
   }
 
-  update(time: number): void {
+  /** `time` = water clock (s), `travel` = frame distance along the reef (m); both freeze on pause. */
+  update(time: number, travel: number): void {
     this.uniforms.uTime.value = time;
+    this.uniforms.uTravel.value = travel;
   }
 
   dispose(): void {

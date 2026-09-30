@@ -2,7 +2,15 @@ import type { TrackEntry } from '@/shared/tracks';
 import type { SurfEvent } from '../physics/events';
 import type { SurferState } from '../physics/Surfer';
 import { Playlist } from './Playlist';
-import { fillImpulse, fillNoise, hootVoices, sprayParams, tubeCutoffHz, type HootVoice } from './synth';
+import { fillImpulse, fillNoise, hootVoices, rumbleParams, sprayParams, tubeCutoffHz, type HootVoice } from './synth';
+
+/** What the crashing rumble follows each frame. */
+export interface RumbleInput {
+  /** Distance (m) from the rider to the impact zone. */
+  distance: number;
+  /** Fast-section level, 0–1. */
+  fast: number;
+}
 
 const TAU = 0.08; // smoothing time constant for parameter changes (s)
 
@@ -75,6 +83,7 @@ export async function renderHoots(sampleRate = 44100, variants = 3): Promise<Aud
  *   spray ─┴► tubeLP ─► dry ─────────► master ► compressor ► out
  *                    └► reverb ► wet ─┘
  *   ocean (filtered noise with slow swells) ► master
+ *   rumble (low-passed noise: the crashing lip, by distance / fast section) ► master
  *   hoots / stingers / spit whoosh ► master
  */
 export class SurfAudio {
@@ -88,6 +97,8 @@ export class SurfAudio {
   private readonly musicGain = this.ctx.createGain();
   private readonly sprayBP = this.ctx.createBiquadFilter();
   private readonly sprayGain = this.ctx.createGain();
+  private readonly rumbleLP = this.ctx.createBiquadFilter();
+  private readonly rumbleGain = this.ctx.createGain();
   private readonly noise: AudioBuffer;
   private readonly sources: AudioScheduledSourceNode[] = [];
   private hoots: AudioBuffer[] = [];
@@ -124,6 +135,11 @@ export class SurfAudio {
     this.sprayBP.Q.value = 1.2;
     this.sprayGain.gain.value = 0;
     this.loopNoise().connect(this.sprayBP).connect(this.sprayGain).connect(this.tubeLP);
+
+    this.rumbleLP.type = 'lowpass';
+    this.rumbleLP.frequency.value = 200;
+    this.rumbleGain.gain.value = 0;
+    this.loopNoise().connect(this.rumbleLP).connect(this.rumbleGain).connect(this.master);
 
     this.ocean(500, 'lowpass', 0.22, 0.07, 0.12);
     this.ocean(2500, 'highpass', 0.035, 0.11, 0.02);
@@ -234,8 +250,11 @@ export class SurfAudio {
     this.playMusic();
   }
 
-  update(s: SurferState, speed: number): void {
+  update(s: SurferState, speed: number, rumble: RumbleInput): void {
     const now = this.ctx.currentTime;
+    const r = rumbleParams(rumble.distance, rumble.fast);
+    this.rumbleLP.frequency.setTargetAtTime(r.cutoff, now, TAU);
+    this.rumbleGain.gain.setTargetAtTime(r.gain, now, TAU);
     const riding = s.mode === 'riding';
     const sp = sprayParams(speed, Math.min(1, Math.abs(s.turnRate) / 2.5) + (s.stalling ? 0.5 : 0));
     this.sprayBP.frequency.setTargetAtTime(sp.freq, now, TAU);

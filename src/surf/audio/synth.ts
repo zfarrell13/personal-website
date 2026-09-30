@@ -28,6 +28,16 @@ export function sprayParams(speed: number, carve: number): { freq: number; gain:
   };
 }
 
+/**
+ * Crashing rumble: louder and brighter the closer the rider is to the impact zone (`distance`, m)
+ * and during a fast section (`fast`, 0–1).
+ */
+export function rumbleParams(distance: number, fast: number): { gain: number; cutoff: number } {
+  const near = Math.max(0, 1 - Math.max(0, distance) / 30);
+  const f = Math.min(1, Math.max(0, fast));
+  return { gain: (0.06 + 0.3 * near * near) * (1 + 0.8 * f), cutoff: 140 + 360 * near + 260 * f };
+}
+
 export interface HootVoice {
   delay: number;
   duration: number;

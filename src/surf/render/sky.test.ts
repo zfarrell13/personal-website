@@ -58,7 +58,7 @@ describe('sky dome, fog and water reflection agree', () => {
       vertexShader: '#include <begin_vertex>',
       fragmentShader: '#include <color_fragment>\n#include <emissivemap_fragment>\n#include <opaque_fragment>',
     };
-    injectWaveShader(shader as never, { uTime: { value: 0 }, uPeel: { value: 7 }, uFoamTex: { value: makeFoamTexture() }, uSSS: { value: new Vector3() } });
+    injectWaveShader(shader as never, { uTime: { value: 0 }, uTravel: { value: 0 }, uFoamTex: { value: makeFoamTexture() }, uSSS: { value: new Vector3() } });
     expect(shader.uniforms.uHaze).toBe(skyUniforms.uHaze);
     expect(shader.uniforms.uHaze).toBe(mat.uniforms.uHaze);
     expect(shader.uniforms.uReflect).toBe(seaReflection.uReflect);

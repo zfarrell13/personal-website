@@ -23,6 +23,7 @@ import {
   Sprite,
   SpriteMaterial,
   Vector3,
+  type Material,
   type PerspectiveCamera,
   type Scene,
 } from 'three';
@@ -43,7 +44,34 @@ const SUN_DIR = new Vector3(-0.62, 0.13, -0.77).normalize();
 export const SKY_RADIUS = 600;
 /** Opaque sea floor under the translucent water, below the reef (reef tops at ≈ −2.4 m). */
 const SEA_FLOOR_Y = -4.3;
-const SEA_FLOOR_COLOR = new Color('#0a3a44');
+const SEA_FLOOR_COLOR = new Color('#115a62');
+/**
+ * View depth (m) over which the sea floor and the reef fade into the fog colour. The water is opaque
+ * from ≈ 35 m (waveMaterial), so nothing under it is seen that far out — except through pinholes the
+ * rasterizer can leave along the far water's long, clipped triangles, which then read as haze
+ * instead of dark specks on the horizon.
+ */
+export const FLOOR_FOG_FADE = [40, 120] as const;
+
+/** Fades a (fogged) material under the water into the fog colour past FLOOR_FOG_FADE. */
+export function fadeUnderwaterIntoFog<M extends Material>(m: M): M {
+  m.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <fog_fragment>',
+      `#ifdef USE_FOG
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(${FLOOR_FOG_FADE[0].toFixed(1)}, ${FLOOR_FOG_FADE[1].toFixed(1)}, vFogDepth));
+#endif
+#include <fog_fragment>`,
+    );
+  };
+  m.customProgramCacheKey = () => 'under-water-fog-fade';
+  return m;
+}
+
+/** The opaque sea floor's material: lit, fogged, and faded into the fog colour far out. */
+export function createSeaFloorMaterial(): MeshLambertMaterial {
+  return fadeUnderwaterIntoFog(new MeshLambertMaterial({ color: SEA_FLOOR_COLOR }));
+}
 
 function paint(geo: BufferGeometry, fn: (x: number, y: number, z: number, out: Color) => void): BufferGeometry {
   const g = geo.index ? geo.toNonIndexed() : geo;
@@ -142,7 +170,7 @@ export class Environment {
 
     // The water surface is all the wave mesh (one ocean). Under it: an opaque sea floor as big as the
     // ocean, so the translucent water always has something below it (the reef shows through near shore).
-    const floor = new Mesh(new PlaneGeometry(2 * OCEAN_EXTENT, 2 * OCEAN_EXTENT, 1, 1).rotateX(-Math.PI / 2), retroMaterial(new MeshLambertMaterial({ color: SEA_FLOOR_COLOR }), { snap: false }));
+    const floor = new Mesh(new PlaneGeometry(2 * OCEAN_EXTENT, 2 * OCEAN_EXTENT, 1, 1).rotateX(-Math.PI / 2), createSeaFloorMaterial());
     floor.name = 'seaFloor';
     floor.position.y = SEA_FLOOR_Y - 0.05;
     this.frameStuff.add(floor);
@@ -153,7 +181,10 @@ export class Environment {
     const reefEdge = (z: number) => smoothstep(70, 45, Math.abs(z));
     const reefGeo = paint(new PlaneGeometry(TILE, 140, 40, 24).rotateX(-Math.PI / 2), (x, _y, z, c) => {
       const n = 0.5 + 0.25 * Math.sin((x / TILE) * Math.PI * 2 * 3 + z * 0.1) + 0.25 * Math.sin((x / TILE) * Math.PI * 2 * 7 + z * 0.23);
-      c.set(n > 0.62 ? '#b86a5c' : n > 0.4 ? '#d9c28f' : '#3c6e63').lerp(SEA_FLOOR_COLOR, 1 - reefEdge(z));
+      // Muted coral / sand / weed: seen through the teal water it reads as a hint of reef, not an oily mauve smear.
+      c.set(n > 0.62 ? '#8c8a5a' : n > 0.4 ? '#c9bf8e' : '#3c6e63')
+        .lerp(SEA_FLOOR_COLOR, 0.3)
+        .lerp(SEA_FLOOR_COLOR, 1 - reefEdge(z));
     });
     const reefPos = reefGeo.getAttribute('position');
     for (let i = 0; i < reefPos.count; i++) {
@@ -163,7 +194,7 @@ export class Environment {
       reefPos.setY(i, SEA_FLOOR_Y + (y - SEA_FLOOR_Y) * reefEdge(z));
     }
     reefGeo.computeVertexNormals();
-    const reefMat = retroMaterial(new MeshLambertMaterial({ vertexColors: true }));
+    const reefMat = retroMaterial(fadeUnderwaterIntoFog(new MeshLambertMaterial({ vertexColors: true })));
     for (let k = 0; k < REEF_TILES.count; k++) {
       const reef = new Mesh(reefGeo, reefMat);
       reef.position.z = 70;

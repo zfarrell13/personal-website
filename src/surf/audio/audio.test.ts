@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TrackEntry } from '@/shared/tracks';
 import { Playlist } from './Playlist';
-import { fillImpulse, hootVoices, mulberry32, shuffle, sprayParams, tubeCutoffHz } from './synth';
+import { fillImpulse, hootVoices, mulberry32, rumbleParams, shuffle, sprayParams, tubeCutoffHz } from './synth';
 
 const track = (id: string, surf = true): TrackEntry => ({
   id,
@@ -52,6 +52,17 @@ describe('synth helpers', () => {
     expect(tubeCutoffHz(0)).toBeCloseTo(20000);
     expect(tubeCutoffHz(1)).toBeCloseTo(800);
     expect(tubeCutoffHz(0.5)).toBeLessThan(5000);
+  });
+  it('makes the crashing rumble louder and brighter near the impact zone and in a fast section', () => {
+    const far = rumbleParams(40, 0);
+    const near = rumbleParams(0, 0);
+    const fast = rumbleParams(0, 1);
+    expect(far.gain).toBeGreaterThan(0);
+    expect(near.gain).toBeGreaterThan(far.gain * 3);
+    expect(near.cutoff).toBeGreaterThan(far.cutoff);
+    expect(fast.gain).toBeGreaterThan(near.gain * 1.5);
+    expect(fast.cutoff).toBeGreaterThan(near.cutoff);
+    expect(rumbleParams(-5, 3)).toEqual(rumbleParams(0, 1)); // clamped inputs
   });
   it('raises spray pitch and level with speed and carving', () => {
     const slow = sprayParams(3, 0);
