@@ -55,7 +55,7 @@ The soundtrack is the tracks in `content/tracks/tracks.json` that have `"surf": 
 
 ## Deploying
 
-- **Set `NEXT_PUBLIC_SITE_URL`** to the site's public origin (for example `https://zachfarrell.com`) **at build time**. It becomes the `metadataBase`, so link previews get absolute `og:image` / `twitter:image` URLs. The pages are prerendered, so setting it only at runtime has no effect. Without it, the URLs point at `http://localhost:3000`.
+- **`NEXT_PUBLIC_SITE_URL`** (optional) sets the site's public origin (for example `https://zachfarrell.com`) as the `metadataBase`, so link previews get absolute `og:image` / `twitter:image` URLs on your own domain. Set it **at build time**: the pages are prerendered, so setting it only at runtime has no effect. Without it, Next falls back on its own: on Vercel, the project's production URL (or the preview URL on a preview deployment); in `npm run dev`, `http://localhost:3000`. A self-hosted build without it gets `localhost` URLs (and a build warning), so set it there.
 - The share card (`/opengraph-image`) is prerendered at build time from `assets/fonts/RussoOne-Regular.ttf`.
 - Put the real track files in `content/tracks/` on the build machine. Otherwise the placeholder tracks ship.
 

@@ -12,8 +12,9 @@ const { name, title, tagline } = site.profile;
 const description = `${title} · ${tagline}`;
 
 export const metadata: Metadata = {
-  // Absolute URLs for the share image (app/opengraph-image.tsx); set NEXT_PUBLIC_SITE_URL in production.
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
+  // Absolute URLs for the share image (app/opengraph-image.tsx). Unset, Next falls back on its own: the
+  // deployment's URL on Vercel, localhost in dev (a hard-coded default here would override that fallback).
+  metadataBase: process.env.NEXT_PUBLIC_SITE_URL ? new URL(process.env.NEXT_PUBLIC_SITE_URL) : undefined,
   title: name,
   description,
   openGraph: { title: name, description, siteName: name, type: 'website' },
