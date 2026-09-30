@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Russo_One, VT323 } from 'next/font/google';
+import { SiteShell } from '@/site/SiteShell';
 import './globals.css';
 
 const display = Russo_One({ weight: '400', subsets: ['latin'], variable: '--font-display' });
@@ -19,7 +20,9 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${display.variable} ${mono.variable}`}>
-      <body>{children}</body>
+      <body>
+        <SiteShell>{children}</SiteShell>
+      </body>
     </html>
   );
 }

@@ -1,7 +1,7 @@
 import type { TrackEntry } from '@/shared/tracks';
 import type { SurfEvent } from '../physics/events';
 import type { SurferState } from '../physics/Surfer';
-import { Playlist } from './Playlist';
+import { Playlist } from '@/site/music/Playlist';
 import { fillImpulse, fillNoise, hootVoices, rumbleParams, sprayParams, tubeCutoffHz, type HootVoice } from './synth';
 
 /** What the crashing rumble follows each frame. */

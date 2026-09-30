@@ -1,5 +1,5 @@
 import type { TrackEntry } from '@/shared/tracks';
-import { shuffle } from './synth';
+import { shuffle } from '@/surf/audio/synth';
 
 /** Shuffled surf soundtrack: plays every `surf: true` track once per cycle, no immediate repeats. */
 export class Playlist {

@@ -1,0 +1,32 @@
+/* NOW PLAYING tag: the surf HUD toast look (src/surf/ui/surf.module.css .toast), but it stays put. */
+.tag {
+  position: fixed; right: 16px; bottom: 16px; z-index: 900;
+  display: flex; align-items: center; gap: 10px; max-width: min(60vw, 640px); padding: 8px 10px 8px 16px;
+  background: linear-gradient(180deg, rgba(34, 46, 110, 0.92), rgba(10, 14, 42, 0.94));
+  border: 2px solid #8fb4ff; border-radius: 6px; color: #fff;
+  box-shadow: 0 0 0 2px #0a0f2c, 0 0 18px rgba(90, 150, 255, 0.3);
+}
+/* Phones: the surf OLLIE/grab buttons own the bottom-right corner, so the tag sits top-right (as the toast did). */
+@media (pointer: coarse) {
+  .tag { bottom: auto; top: 16px; max-width: calc(50vw - 16px - 24px - 12px); padding: 4px 6px 4px 10px; gap: 6px; font-size: 0.85rem; }
+}
+.prompt { padding: 10px 16px; cursor: pointer; font: inherit; animation: blink 1.6s steps(2, jump-none) infinite; }
+.prompt:hover, .prompt:focus-visible { outline: none; box-shadow: 0 0 0 3px #ffe16b, 0 0 18px #ffe16b; }
+@keyframes blink { 50% { opacity: 0.55; } }
+.track { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: pop 600ms ease-out; }
+@keyframes pop {
+  0% { transform: translateX(24px); opacity: 0; }
+  60% { transform: translateX(-3px); opacity: 1; text-shadow: 0 0 10px #ffe16b; }
+  100% { transform: translateX(0); }
+}
+.label { font-family: var(--font-mono), monospace; color: #ffe16b; letter-spacing: 0.2em; }
+.title { font-style: italic; }
+.control {
+  flex: none; min-width: 34px; height: 30px; padding: 0 6px;
+  border: 2px solid #c9d8ff; border-radius: 999px; background: linear-gradient(180deg, #3c5bd8, #1a2a86);
+  font-size: 0.8rem; letter-spacing: -0.1em; cursor: pointer; text-shadow: 1px 1px 0 #050a24;
+}
+.control:hover, .control:focus-visible { outline: none; box-shadow: 0 0 0 3px #ffe16b, 0 0 12px #ffe16b; }
+.control:active { transform: scale(0.94); }
+.control[aria-pressed='true'] { background: #1b2350; border-color: #ffe16b; color: #ffe16b; }
+@media (prefers-reduced-motion: reduce) { .track, .prompt { animation: none; } }
