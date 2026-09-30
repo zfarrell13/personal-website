@@ -8,6 +8,8 @@ export interface MusicState {
   muted: boolean;
   /** Increments each time a new track starts (drives the NOW PLAYING pop). */
   trackKey: number;
+  /** The manifest failed to load or has no tracks: there is nothing to play. */
+  unavailable: boolean;
 }
 
 export const MUTE_STORAGE_KEY = 'zf-music-muted';
@@ -20,7 +22,7 @@ export interface MusicDeps {
   random: () => number;
 }
 
-export const INITIAL_MUSIC_STATE: MusicState = { track: null, playing: false, muted: false, trackKey: 0 };
+export const INITIAL_MUSIC_STATE: MusicState = { track: null, playing: false, muted: false, trackKey: 0, unavailable: false };
 
 const MUSIC_LEVEL = 0.8;
 const OPEN_HZ = 20000;
@@ -49,6 +51,9 @@ export class MusicPlayer {
   private audio: HTMLAudioElement | null = null;
   private playlist: Playlist | null = null;
   private current: TrackEntry | null = null;
+  private tracksLoading: Promise<readonly TrackEntry[]> | null = null;
+  /** Set once the manifest has resolved, so a gesture can start playback synchronously. */
+  private tracks: readonly TrackEntry[] | null = null;
   private started: Promise<void> | null = null;
   private disposed = false;
   private failures = 0;
@@ -64,14 +69,36 @@ export class MusicPlayer {
     return this.ctx;
   }
 
+  /**
+   * Fetch the manifest ahead of the first gesture (idempotent; call on mount). With the tracks already in hand,
+   * start() calls play() synchronously inside the gesture, which WebKit requires to unlock the element.
+   */
+  prefetch(): Promise<void> {
+    this.tracksLoading ??= this.deps.loadTracks().then(
+      (tracks) => this.tracksLoaded(tracks),
+      (e: unknown) => {
+        console.warn('Music manifest failed to load', e);
+        return this.tracksLoaded([]);
+      },
+    );
+    return this.tracksLoading.then(() => undefined);
+  }
+
+  private tracksLoaded(tracks: readonly TrackEntry[]): readonly TrackEntry[] {
+    this.tracks = tracks;
+    if (!tracks.some((t) => t.surf)) this.setState({ unavailable: true });
+    return tracks;
+  }
+
   /** Idempotent; call from a user gesture. Later calls resume the context and retry a blocked play(). */
   start(): Promise<void> {
     if (this.disposed) return Promise.resolve();
     if (this.started) {
-      this.retry();
+      this.resume();
       return this.started;
     }
     // Everything the browser gates on a user gesture happens synchronously, inside it.
+    setPlaybackAudioSession();
     const ctx = this.deps.createContext();
     this.ctx = ctx;
     this.filter = ctx.createBiquadFilter();
@@ -88,25 +115,31 @@ export class MusicPlayer {
     audio.addEventListener('ended', this.onEnded);
     audio.addEventListener('error', this.onError);
     void ctx.resume().catch(() => undefined);
-    this.started = this.init();
+    if (this.tracks) {
+      this.beginPlaylist(this.tracks);
+      this.started = Promise.resolve();
+    } else {
+      // The gesture beat the manifest: start when it arrives (a strict browser may then need another gesture).
+      this.started = this.prefetch().then(() => {
+        if (this.tracks) this.beginPlaylist(this.tracks);
+      });
+    }
     return this.started;
   }
 
-  private async init(): Promise<void> {
-    let tracks: readonly TrackEntry[] = [];
-    try {
-      tracks = await this.deps.loadTracks();
-    } catch (e) {
-      console.warn('Music manifest failed to load', e);
-    }
-    if (this.disposed) return;
+  private beginPlaylist(tracks: readonly TrackEntry[]): void {
+    if (this.disposed || this.playlist) return;
     this.playlist = new Playlist(tracks, this.deps.random);
     if (!this.state.muted) this.nextTrack();
   }
 
-  private retry(): void {
-    if (this.disposed || this.state.muted) return;
-    void this.ctx?.resume().catch(() => undefined);
+  /**
+   * Cheap re-arm after an interruption (backgrounding, a phone call): resumes a suspended context and a paused
+   * element. A no-op before start() and while muted. Safe to call on every pointerdown / visibilitychange.
+   */
+  resume(): void {
+    if (this.disposed || !this.started || this.state.muted) return;
+    if (this.ctx && this.ctx.state !== 'running') void this.ctx.resume().catch(() => undefined);
     if (this.current && this.audio?.paused) this.play();
   }
 
@@ -132,7 +165,7 @@ export class MusicPlayer {
       return;
     }
     void this.ctx?.resume().catch(() => undefined);
-    // Started muted: the playlist begins now (a no-op until the manifest arrives; init() then starts it).
+    // Started muted: the playlist begins now, synchronously inside this click once the manifest has arrived.
     if (!this.current) this.nextTrack();
     else this.play();
   }
@@ -214,8 +247,10 @@ export class MusicPlayer {
 
   private play(): void {
     this.audio?.play().catch((e: unknown) => {
-      // A pause, skip or dispose interrupting a pending play() rejects with AbortError: expected, not a failure.
-      if ((e as { name?: unknown } | null)?.name !== 'AbortError') console.warn('Music playback blocked', e);
+      // AbortError: a pause, skip or dispose interrupted a pending play(), which is expected. NotSupportedError: an
+      // undecodable source, already handled (skipped) by the `error` listener.
+      const name = (e as { name?: unknown } | null)?.name;
+      if (name !== 'AbortError' && name !== 'NotSupportedError') console.warn('Music playback blocked', e);
     });
   }
 
@@ -243,9 +278,23 @@ export class MusicPlayer {
   }
 }
 
+/** iOS 16.4+: play as media (ignores the ringer switch) rather than as an ambient sound effect. */
+function setPlaybackAudioSession(): void {
+  try {
+    const session = (globalThis.navigator as { audioSession?: { type: string } } | undefined)?.audioSession;
+    if (session) session.type = 'playback';
+  } catch {
+    // unsupported
+  }
+}
+
 type MusicGlobal = typeof globalThis & { __zfMusic?: MusicPlayer };
 
-/** The browser-wide player, cached on globalThis so StrictMode double-mounts and route changes share it. */
+/**
+ * The browser-wide player, cached on globalThis so StrictMode double-mounts and route changes share it.
+ * `globalThis.__zfMusic` is also the one debug / e2e handle (every build). In dev, an HMR edit of this file keeps
+ * the instance created by the old class until a full reload.
+ */
 export function getMusicPlayer(): MusicPlayer {
   const g = globalThis as MusicGlobal;
   return (g.__zfMusic ??= new MusicPlayer());

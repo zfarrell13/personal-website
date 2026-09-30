@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TrackEntry } from '@/shared/tracks';
-import { mulberry32 } from '@/surf/audio/synth';
+import { mulberry32 } from '@/shared/random';
 import { MUTE_STORAGE_KEY, MusicPlayer, type MusicDeps, type MusicState } from './MusicPlayer';
 
 // --- Minimal HTMLAudioElement / Web Audio fakes (node has neither). ---------
@@ -9,10 +9,10 @@ class FakeAudio {
   src = '';
   preload = '';
   paused = true;
-  /** When true, play() never reaches `playing` (an undecodable file). */
+  /** When true, play() rejects as a browser does for an undecodable file (and `error` fires). */
   broken = false;
   play = vi.fn(() => {
-    if (this.broken) return Promise.resolve();
+    if (this.broken) return Promise.reject(Object.assign(new Error('undecodable'), { name: 'NotSupportedError' }));
     this.paused = false;
     this.fire('playing');
     return Promise.resolve();
@@ -41,10 +41,14 @@ type Param = ReturnType<typeof param>;
 
 class FakeContext {
   currentTime = 0;
+  state: AudioContextState = 'suspended';
   destination = { connect: vi.fn() };
   filters: Array<{ type: string; frequency: Param }> = [];
   gains: Array<{ gain: Param }> = [];
-  resume = vi.fn(() => Promise.resolve());
+  resume = vi.fn(() => {
+    this.state = 'running';
+    return Promise.resolve();
+  });
   close = vi.fn(() => Promise.resolve());
   createMediaElementSource = vi.fn(() => ({ connect: (n: unknown) => n }));
   createBiquadFilter = vi.fn(() => {
@@ -119,6 +123,7 @@ afterEach(() => {
 });
 
 const idOf = (s: MusicState) => s.track?.id;
+const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
 describe('MusicPlayer', () => {
   it('is idempotent: one element, one context; the first track plays', async () => {
@@ -236,6 +241,7 @@ describe('MusicPlayer', () => {
       audio().fire('error');
       a.add(audio().src);
     }
+    await flush();
     // The first src was already attempted before `broken` was set, so 1 + 2 skips = the whole cycle.
     expect(a.size).toBe(3);
     expect(audio().play).toHaveBeenCalledTimes(3);
@@ -326,13 +332,84 @@ describe('MusicPlayer', () => {
     expect(player.getState().playing).toBe(true);
   });
 
-  it('an empty or failed manifest leaves the player idle', async () => {
+  it('a failed manifest leaves the player idle and marks the music unavailable', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { player, audios } = setup({ loadTracks: () => Promise.reject(new Error('404')) });
+    expect(player.getState().unavailable).toBe(false);
+    await player.prefetch();
+    expect(player.getState().unavailable).toBe(true);
     await player.start();
-    expect(player.getState()).toMatchObject({ track: null, playing: false });
+    expect(player.getState()).toMatchObject({ track: null, playing: false, unavailable: true });
     expect(audios.every((a) => a.play.mock.calls.length === 0)).toBe(true);
     expect(warn).toHaveBeenCalled();
+  });
+
+  it('an empty manifest marks the music unavailable', async () => {
+    const { player } = setup({ loadTracks: () => Promise.resolve([]) });
+    await player.start();
+    expect(player.getState()).toMatchObject({ track: null, unavailable: true });
+  });
+
+  it('with the manifest prefetched, start() calls play() synchronously inside the gesture', async () => {
+    const { player, audio, loadTracks } = setup();
+    await player.prefetch();
+    const started = player.start();
+    expect(audio().play).toHaveBeenCalledTimes(1); // before the promise is awaited
+    expect(player.getState().trackKey).toBe(1);
+    await started;
+    expect(audio().play).toHaveBeenCalledTimes(1);
+    expect(loadTracks).toHaveBeenCalledTimes(1);
+  });
+
+  it('with the manifest prefetched, the unmute click of a muted visitor plays synchronously', async () => {
+    const storage = memoryStorage({ [MUTE_STORAGE_KEY]: '1' });
+    const { player, audio } = setup({ storage });
+    await player.prefetch();
+    await player.start(); // muted: nothing plays
+    expect(audio().play).not.toHaveBeenCalled();
+    player.setMuted(false);
+    expect(audio().play).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefetch() is idempotent and shared with start()', async () => {
+    const { player, loadTracks } = setup();
+    void player.prefetch();
+    void player.prefetch();
+    await player.start();
+    expect(loadTracks).toHaveBeenCalledTimes(1);
+  });
+
+  it('resume() re-arms after an interruption, and is a no-op before start or while muted', async () => {
+    const { player, audio, ctx } = setup();
+    player.resume(); // before start: nothing to resume, and it must not start anything
+    expect(player.context).toBeNull();
+    await player.start();
+    ctx().state = 'interrupted' as AudioContextState;
+    audio().pause(); // e.g. iOS paused the element for a phone call
+    audio().fire('pause');
+    const resumes = ctx().resume.mock.calls.length;
+    player.resume();
+    expect(ctx().resume).toHaveBeenCalledTimes(resumes + 1);
+    expect(audio().play).toHaveBeenCalledTimes(2);
+    expect(player.getState().playing).toBe(true);
+    player.resume(); // already running and playing: cheap no-op
+    expect(ctx().resume).toHaveBeenCalledTimes(resumes + 1);
+    expect(audio().play).toHaveBeenCalledTimes(2);
+    player.setMuted(true);
+    player.resume();
+    expect(audio().play).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks iOS for a playback audio session where supported', async () => {
+    const audioSession = { type: 'auto' };
+    vi.stubGlobal('navigator', { audioSession });
+    try {
+      const { player } = setup();
+      await player.start();
+      expect(audioSession.type).toBe('playback');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('dispose() stops the element and closes the context', async () => {

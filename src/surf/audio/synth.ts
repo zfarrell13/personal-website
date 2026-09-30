@@ -1,17 +1,7 @@
 /** Pure helpers for the surf audio graph (unit-tested; no AudioContext needed). */
-import { mulberry32 } from '../math/random';
+import { mulberry32 } from '@/shared/random';
 
 export { mulberry32 };
-
-/** Fisher–Yates on a copy. */
-export function shuffle<T>(items: readonly T[], rand: () => number): T[] {
-  const a = [...items];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [a[i], a[j]] = [a[j]!, a[i]!];
-  }
-  return a;
-}
 
 /** Tube low-pass: 20 kHz open water → 800 Hz deep in the barrel (exponential). */
 export function tubeCutoffHz(depth: number): number {

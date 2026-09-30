@@ -6,14 +6,14 @@
   border: 2px solid #8fb4ff; border-radius: 6px; color: #fff;
   box-shadow: 0 0 0 2px #0a0f2c, 0 0 18px rgba(90, 150, 255, 0.3);
 }
-/* Phones: the surf OLLIE/grab buttons own the bottom-right corner, so the tag sits top-right (as the toast did). */
-@media (pointer: coarse) {
-  .tag { bottom: auto; top: 16px; max-width: calc(50vw - 16px - 24px - 12px); padding: 4px 6px 4px 10px; gap: 6px; font-size: 0.85rem; }
-}
 .prompt { padding: 10px 16px; cursor: pointer; font: inherit; animation: blink 1.6s steps(2, jump-none) infinite; }
-.prompt:hover, .prompt:focus-visible { outline: none; box-shadow: 0 0 0 3px #ffe16b, 0 0 18px #ffe16b; }
+/* outline stays (transparent) so forced-colors mode still draws a focus ring where the box-shadow is dropped. */
+.prompt:hover, .prompt:focus-visible { outline: 2px solid transparent; box-shadow: 0 0 0 3px #ffe16b, 0 0 18px #ffe16b; }
 @keyframes blink { 50% { opacity: 0.55; } }
-.track { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: pop 600ms ease-out; }
+.coarse { display: none; }
+/* Live region stays mounted across tracks; only the keyed .track inside remounts (and pops). */
+.live { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.track { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: pop 600ms ease-out; }
 @keyframes pop {
   0% { transform: translateX(24px); opacity: 0; }
   60% { transform: translateX(-3px); opacity: 1; text-shadow: 0 0 10px #ffe16b; }
@@ -26,7 +26,19 @@
   border: 2px solid #c9d8ff; border-radius: 999px; background: linear-gradient(180deg, #3c5bd8, #1a2a86);
   font-size: 0.8rem; letter-spacing: -0.1em; cursor: pointer; text-shadow: 1px 1px 0 #050a24;
 }
-.control:hover, .control:focus-visible { outline: none; box-shadow: 0 0 0 3px #ffe16b, 0 0 12px #ffe16b; }
+.control:hover, .control:focus-visible { outline: 2px solid transparent; box-shadow: 0 0 0 3px #ffe16b, 0 0 12px #ffe16b; }
 .control:active { transform: scale(0.94); }
 .control[aria-pressed='true'] { background: #1b2350; border-color: #ffe16b; color: #ffe16b; }
+/* Phones: the surf OLLIE/grab buttons own the bottom-right corner, so the tag sits top-right (as the toast did);
+   44px touch targets; the prompt says TAP. */
+@media (pointer: coarse) {
+  .tag { bottom: auto; top: 16px; max-width: calc(50vw - 16px - 24px - 12px); padding: 2px 4px 2px 10px; gap: 4px; font-size: 0.85rem; }
+  .prompt { min-height: 44px; padding: 4px 14px; }
+  .control { min-width: 44px; height: 44px; }
+  .fine { display: none; }
+  .coarse { display: inline; }
+}
+@media (forced-colors: active) {
+  .control[aria-pressed='true'] { border-style: double; border-width: 4px; }
+}
 @media (prefers-reduced-motion: reduce) { .track, .prompt { animation: none; } }

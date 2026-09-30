@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { MusicState } from './MusicPlayer';
 
 const fake = vi.hoisted(() => {
-  let state: MusicState = { track: null, playing: false, muted: false, trackKey: 0 };
+  let state: MusicState = { track: null, playing: false, muted: false, trackKey: 0, unavailable: false };
   const listeners = new Set<(s: MusicState) => void>();
   return {
     set(patch: Partial<MusicState>) {
@@ -12,7 +12,7 @@ const fake = vi.hoisted(() => {
       listeners.forEach((l) => l(state));
     },
     reset() {
-      state = { track: null, playing: false, muted: false, trackKey: 0 };
+      state = { track: null, playing: false, muted: false, trackKey: 0, unavailable: false };
       listeners.clear();
     },
     player: {
@@ -46,7 +46,7 @@ const TRACK = { id: 'x', title: 'One Day At A Time', artist: 'Sudley' };
 describe('NowPlaying', () => {
   it('invites a key press before the music starts, and clicking it starts the player', () => {
     render(<NowPlaying />);
-    const prompt = screen.getByRole('button', { name: /press any key for music/i });
+    const prompt = screen.getByRole('button', { name: /press any key.*for music/i });
     fireEvent.click(prompt);
     expect(fake.player.start).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: /skip/i })).toBeNull();
@@ -97,5 +97,48 @@ describe('NowPlaying', () => {
     expect(second).not.toBe(first); // remounted, so the CSS pop animation replays
     expect(second.textContent).toContain('On And On');
     expect(screen.getByRole('button', { name: /skip/i })).toBe(skip); // controls keep focus
+  });
+
+  it('announces track changes through a live region that persists across tracks', () => {
+    fake.set({ track: TRACK, playing: true, trackKey: 1 });
+    render(<NowPlaying />);
+    const live = screen.getByTestId('now-playing-track').parentElement!;
+    expect(live.getAttribute('aria-live')).toBe('polite');
+    act(() => fake.set({ track: { ...TRACK, id: 'y', title: 'On And On' }, trackKey: 2 }));
+    expect(screen.getByTestId('now-playing-track').parentElement).toBe(live);
+  });
+
+  it('keeps keyboard focus: activating the prompt moves focus to SKIP once a track starts', () => {
+    render(<NowPlaying />);
+    const prompt = screen.getByRole('button', { name: /for music/i });
+    prompt.focus();
+    fireEvent.click(prompt);
+    act(() => fake.set({ track: TRACK, playing: true, trackKey: 1 }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /skip/i }));
+  });
+
+  it('keeps keyboard focus when the window keydown listener starts the music first', () => {
+    render(<NowPlaying />);
+    screen.getByRole('button', { name: /for music/i }).focus();
+    act(() => fake.set({ track: TRACK, playing: true, trackKey: 1 })); // the prompt never sees a click
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /skip/i }));
+  });
+
+  it('does not steal focus when music starts from a gesture elsewhere', () => {
+    render(<NowPlaying />);
+    act(() => fake.set({ track: TRACK, playing: true, trackKey: 1 }));
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('the prompt has touch wording for phones', () => {
+    render(<NowPlaying />);
+    expect(screen.getByText('TAP')).toBeTruthy();
+    expect(screen.getByText('PRESS ANY KEY')).toBeTruthy();
+  });
+
+  it('hides the prompt when the music is unavailable (no manifest)', () => {
+    fake.set({ unavailable: true });
+    const { container } = render(<NowPlaying />);
+    expect(container.textContent).toBe('');
   });
 });

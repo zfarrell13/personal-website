@@ -1,4 +1,5 @@
 'use client';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { getMusicPlayer } from './MusicPlayer';
 import { useMusic } from './useMusic';
 import styles from './music.module.css';
@@ -9,31 +10,48 @@ const SPEAKER_OFF = '\u{1F507}︎';
 
 /** Fixed retro tag: what's playing, SKIP and MUTE. Before the first gesture it invites one. */
 export function NowPlaying() {
-  const { track, muted, trackKey } = useMusic();
+  const { track, muted, trackKey, unavailable } = useMusic();
+  const skipRef = useRef<HTMLButtonElement>(null);
+  // The prompt unmounts when a track starts (its own Enter, or the window keydown listener); if it had keyboard
+  // focus, hand it to SKIP rather than dropping it on <body>.
+  const focusSkip = useRef(false);
+
+  useEffect(() => {
+    if (track && focusSkip.current) {
+      focusSkip.current = false;
+      skipRef.current?.focus();
+    }
+  }, [track]);
+
+  if (unavailable && !muted) return null;
 
   if (!track && !muted) {
     return (
-      <button type="button" className={`${styles.tag} ${styles.prompt}`} onClick={() => void getMusicPlayer().start()}>
-        <span className={styles.label}>♪ PRESS ANY KEY FOR MUSIC</span>
-      </button>
+      <Prompt
+        onUnmountFocused={() => {
+          focusSkip.current = true;
+        }}
+      />
     );
   }
 
   return (
     <div className={styles.tag} data-testid="now-playing" role="group" aria-label="Music">
-      <span key={trackKey} className={styles.track} data-testid="now-playing-track" aria-live="polite">
-        {track ? (
-          <>
-            <span className={styles.label}>NOW PLAYING</span>
-            {' · '}
-            <span className={styles.title}>{`${track.artist} — ${track.title}`}</span>
-          </>
-        ) : (
-          <span className={styles.label}>MUSIC OFF</span>
-        )}
+      <span className={styles.live} aria-live="polite">
+        <span key={trackKey} className={styles.track} data-testid="now-playing-track">
+          {track ? (
+            <>
+              <span className={styles.label}>NOW PLAYING</span>
+              {' · '}
+              <span className={styles.title}>{`${track.artist} — ${track.title}`}</span>
+            </>
+          ) : (
+            <span className={styles.label}>MUSIC OFF</span>
+          )}
+        </span>
       </span>
       {track ? (
-        <button type="button" className={styles.control} aria-label="Skip track" onClick={() => getMusicPlayer().skip()}>
+        <button ref={skipRef} type="button" className={styles.control} aria-label="Skip track" onClick={() => getMusicPlayer().skip()}>
           ▶▶
         </button>
       ) : null}
@@ -47,5 +65,28 @@ export function NowPlaying() {
         {muted ? SPEAKER_OFF : SPEAKER_ON}
       </button>
     </div>
+  );
+}
+
+function Prompt({ onUnmountFocused }: { onUnmountFocused: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const onUnmount = useRef(onUnmountFocused);
+  onUnmount.current = onUnmountFocused;
+  // Layout cleanup runs before React removes the node, while it still holds focus.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    return () => {
+      if (el && document.activeElement === el) onUnmount.current();
+    };
+  }, []);
+  return (
+    <button ref={ref} type="button" className={`${styles.tag} ${styles.prompt}`} onClick={() => void getMusicPlayer().start()}>
+      <span className={styles.label}>
+        {'♪ '}
+        <span className={styles.fine}>PRESS ANY KEY</span>
+        <span className={styles.coarse}>TAP</span>
+        {' FOR MUSIC'}
+      </span>
+    </button>
   );
 }

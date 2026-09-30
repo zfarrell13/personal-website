@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TrackEntry } from '@/shared/tracks';
-import { mulberry32 } from '@/surf/audio/synth';
+import { mulberry32 } from '@/shared/random';
 import { Playlist } from './Playlist';
 
 const track = (id: string, surf = true): TrackEntry => ({

@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { fillImpulse, hootVoices, mulberry32, rumbleParams, shuffle, sprayParams, tubeCutoffHz } from './synth';
+import { fillImpulse, hootVoices, rumbleParams, sprayParams, tubeCutoffHz } from './synth';
 
 describe('synth helpers', () => {
-  it('shuffles deterministically without losing items', () => {
-    const a = shuffle([1, 2, 3, 4, 5], mulberry32(1));
-    expect([...a].sort()).toEqual([1, 2, 3, 4, 5]);
-    expect(shuffle([1, 2, 3, 4, 5], mulberry32(1))).toEqual(a);
-  });
   it('maps tube depth to 20 kHz → 800 Hz', () => {
     expect(tubeCutoffHz(0)).toBeCloseTo(20000);
     expect(tubeCutoffHz(1)).toBeCloseTo(800);
