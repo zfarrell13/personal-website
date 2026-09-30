@@ -19,7 +19,7 @@ button { font: inherit; color: inherit; }
 }
 /* Section screens (SectionScreen sets data-screen and --np-menu-end, the measured right edge of ◀ MENU): in phone
    portrait the NOW PLAYING tag may use the whole top row beside ◀ MENU (12px gap, 16px right gutter) rather than
-   half the width. */
+   half the width. Below 360 px it takes a full-width row under the bar instead (music.module.css). */
 @media (pointer: coarse) and (orientation: portrait) {
   html[data-screen='section'] { --np-max: calc(100vw - var(--np-menu-end, 136px) - 12px - 16px); }
   /* The title menu (TitleScreen) has nothing else in the top row. */

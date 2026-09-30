@@ -266,6 +266,66 @@ test.describe('phone portrait widths', () => {
   });
 });
 
+/** The track name's layout in the NOW PLAYING tag: the text area's width, and whether ♪ shares a line with the name. */
+async function nameLayout(page: Page) {
+  return page.getByTestId('now-playing-track').evaluate((t) => {
+    const note = t.querySelector('[aria-hidden="true"]');
+    const walker = document.createTreeWalker(t, NodeFilter.SHOW_TEXT);
+    let name: Text | null = null;
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.textContent?.includes(' — ')) name = n as Text;
+    if (!note || !name) return null;
+    const first = document.createRange();
+    first.setStart(name, 0);
+    first.setEnd(name, 1);
+    const [a, b] = [note.getBoundingClientRect(), first.getBoundingClientRect()];
+    return { width: t.getBoundingClientRect().width, noteOnNameLine: Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) < 4 };
+  });
+}
+
+test.describe('phone portrait, 320 × 568', () => {
+  test.use({ ...iphone, viewport: { width: 320, height: 568 } });
+
+  for (const s of SECTIONS) {
+    test(`${s.path}: NOW PLAYING gets its own full-width row under the bar, room for the name, clear of everything`, async ({ page }) => {
+      await page.goto(`${s.path}?tracks=test`);
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+      await page.getByRole('button', { name: /FOR MUSIC/ }).tap();
+      const tag = page.getByTestId('now-playing');
+      const menu = page.getByRole('link', { name: 'MENU', exact: true });
+      const heading = page.getByRole('heading', { level: 1 });
+      const main = page.getByRole('main');
+      const seen = new Set<string>();
+      for (let i = 0; i < 3; i++) {
+        const name = page.getByTestId('now-playing-track');
+        await expect(name).toContainText(' — ');
+        const title = (await name.textContent())!;
+        expect(seen.has(title), `${title} again`).toBe(false);
+        seen.add(title);
+        // Every test track's name gets the width a real one needs (≥ 18 characters shown), with ♪ on its line.
+        await expect.poll(async () => (await nameLayout(page))?.width ?? 0, title).toBeGreaterThanOrEqual(180);
+        expect((await nameLayout(page))?.noteOnNameLine, title).toBe(true);
+        // Its own row: below ◀ MENU and the title, above the content, inside the 16 px gutters.
+        await expect(async () => {
+          const [t, m, h, c] = [await tag.boundingBox(), await menu.boundingBox(), await heading.boundingBox(), await main.boundingBox()];
+          expect(t!.y).toBeGreaterThanOrEqual(m!.y + m!.height);
+          expect(t!.y).toBeGreaterThanOrEqual(h!.y + h!.height);
+          expect(c!.y, 'the content starts below the tag (pushed down, not covered)').toBeGreaterThanOrEqual(t!.y + t!.height);
+          expect(t!.x).toBeGreaterThanOrEqual(15);
+          expect(t!.x + t!.width).toBeLessThanOrEqual(305);
+        }).toPass();
+        await apart(tag, menu);
+        await apart(tag, heading);
+        await apart(tag, main);
+        if (i < 2) {
+          await page.getByRole('button', { name: 'Skip track' }).tap();
+          await expect(name).not.toHaveText(title);
+        }
+      }
+      expect(await main.evaluate((m) => m.scrollWidth <= m.clientWidth)).toBe(true);
+    });
+  }
+});
+
 test.describe('phone home and game', () => {
   test('portrait home: the NOW PLAYING tag uses the free top row for the track name, clear of the menu', async ({ browser }) => {
     const page = await (await browser.newContext(iphone)).newPage();

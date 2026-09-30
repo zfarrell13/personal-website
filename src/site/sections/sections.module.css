@@ -3,7 +3,8 @@
 
 /* ── Chrome (SectionScreen) ──────────────────────────────────────────────────────────────────────
    The page body doesn't scroll (globals.css), so the screen is a fixed column: bar, scrolling body, hint strip.
-   The NOW PLAYING tag (fixed, z 900) sits in the hint strip on desktop and beside ◀ MENU on phones. */
+   The NOW PLAYING tag (fixed, z 900) sits in the hint strip on desktop and beside ◀ MENU on phones (on a row of
+   its own under the bar below 360 px wide). */
 .screen {
   position: fixed; inset: 0;
   display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
@@ -55,6 +56,11 @@
   .back { min-height: 44px; display: inline-flex; align-items: center; }
   .heading { grid-column: 1 / -1; }
   .body { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+}
+/* The row the NOW PLAYING tag (fixed, 52 px tall on phones) takes under the bar on a narrow phone; see music.module.css. */
+.npRow { display: none; }
+@media (pointer: coarse) and (orientation: portrait) and (max-width: 359px) {
+  .npRow { display: block; grid-column: 1 / -1; height: 52px; }
 }
 /* Phone held landscape: one row (◀ MENU · title · room for the tag) so the content keeps the height. */
 @media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {

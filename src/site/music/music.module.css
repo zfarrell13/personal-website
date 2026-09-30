@@ -14,7 +14,7 @@
 @media (hover: hover) { .prompt:hover { outline: 2px solid transparent; box-shadow: 0 0 0 3px #ffe16b, 0 0 18px #ffe16b; } }
 @keyframes blink { 50% { opacity: 0.55; } }
 .coarse { display: none; }
-.note { display: none; }
+.note { display: none; font-style: normal; }
 /* Live region stays mounted across tracks; only the keyed .track inside remounts (and pops). */
 .live { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; }
 .track { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: pop 600ms ease-out; }
@@ -53,6 +53,12 @@
   .control { min-width: 44px; height: 44px; }
   .fine { display: none; }
   .coarse { display: inline; }
+}
+/* Section screens under 360 px (portrait): no room beside ◀ MENU for a readable name, so the tag takes the
+   full-width row SectionScreen reserves under its bar (--np-row-top, measured; 52 px tall, as the tag is here). */
+@media (pointer: coarse) and (orientation: portrait) and (max-width: 359px) {
+  :global(html[data-screen='section']) .tag { top: var(--np-row-top, 113px); left: 16px; right: 16px; max-width: none; }
+  :global(html[data-screen='section']) .tag:not(.prompt) { padding: 2px 2px 2px 8px; gap: 2px; }
 }
 @media (forced-colors: active) {
   .control[aria-pressed='true'] { border-style: double; border-width: 4px; }

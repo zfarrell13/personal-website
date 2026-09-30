@@ -41,13 +41,16 @@ export function NowPlaying() {
         <span key={trackKey} className={styles.track} data-testid="now-playing-track">
           {track ? (
             <>
-              {/* Phones show ♪ instead of the label (room for the name); screen readers always get the label. */}
-              <span className={styles.note} aria-hidden="true">
-                {'♪ '}
-              </span>
               <span className={`${styles.label} ${styles.playing}`}>NOW PLAYING</span>
               <span className={styles.sep}>{' · '}</span>
-              <span className={styles.title}>{`${track.artist} — ${track.title}`}</span>
+              <span className={styles.title}>
+                {/* Phones show ♪ instead of the label (room for the name); screen readers always get the label.
+                    Inside the name, with a no-break space, so it never wraps onto a line of its own. */}
+                <span className={styles.note} aria-hidden="true">
+                  {'♪\u00A0'}
+                </span>
+                {`${track.artist} — ${track.title}`}
+              </span>
             </>
           ) : (
             <span className={styles.label}>MUSIC OFF</span>
