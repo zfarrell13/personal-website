@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DoubleSide, Mesh, MeshBasicMaterial, Raycaster, Vector3 } from 'three';
-import { cameraGoal } from '../camera/CameraRig';
+import { DoubleSide, Mesh, MeshBasicMaterial, PerspectiveCamera, Raycaster, Vector3 } from 'three';
+import { CameraRig } from '../camera/CameraRig';
+import type { SurferState } from '../physics/Surfer';
 import { SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
 import { buildWaveGeometry, columnsX } from './waveGeometry';
@@ -56,13 +57,21 @@ describe.each(CASES)('open barrel from the tube camera (%s mesh %i × %i, lip an
     return ray.intersectObject(mesh)[0]?.distance ?? Infinity;
   };
 
-  /** The tube-camera goal for a rider on the face at column x, at `frac` of the crest height. */
+  /**
+   * The tube camera's actual pose (the rig's, settled: the goal moved in / lifted into the barrel's air
+   * as it finds its spot) for a rider held on the face at column x, at `frac` of the crest height.
+   */
   const tubePose = (x: number, frac: number) => {
     let t = 0;
     while (shape.profile(x, t).y < frac * shape.crestY(x)) t += 0.001;
     const p = shape.profile(x, t);
     const normal = shape.normal(x, t);
-    return cameraGoal({ p, normal, heading: new Vector3(1, 0, 0), mode: 'riding', launchKind: null }, 'left', 'tube', shape, { pos: new Vector3(), look: new Vector3() });
+    const s = { p, normal, heading: new Vector3(1, 0, 0), mode: 'riding', launchKind: null, inTube: true } as unknown as SurferState;
+    const rig = new CameraRig(new PerspectiveCamera(), SURF_CONFIG.camera, shape);
+    rig.snap(s, 'left');
+    for (let i = 0; i < 60; i++) rig.update(s, p, 'left', false, 1 / 60);
+    expect(rig.shot).toBe('tube');
+    return { pos: rig.pos.clone(), look: rig.look.clone() };
   };
 
   // Rider heights up to 0.55 of the crest (the tube counts up to tubeHeightFrac 0.6).

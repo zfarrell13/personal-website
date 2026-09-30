@@ -147,6 +147,8 @@ export const SURF_CONFIG = {
     stiffness: 4,
     lookStiffness: 6,
     fov: 62,
+    /** The tube view's wider lens (vertical degrees): the rider fills under half the frame and the eye stays in view. */
+    tubeFov: 85,
     /** Chase (a close bird's-eye view from behind): this far behind the rider along their travel direction (m) … */
     chaseBack: 3.5,
     /** … this high above them (m; floored above the local crest) … */

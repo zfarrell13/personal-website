@@ -8,7 +8,7 @@ import { Surfer } from '../physics/Surfer';
 import { buildWaveGeometry, columnsX, type OceanLayout } from '../render/waveGeometry';
 import { frameToView } from '../wave/mirror';
 import { WaveShape } from '../wave/WaveShape';
-import { CAMERA_FAR, CAMERA_OFFSETS, cameraGoal, CameraRig, shakeAmplitude, shakeOffset } from './CameraRig';
+import { CAMERA_FAR, CAMERA_OFFSETS, cameraGoal, CameraRig, shakeAmplitude, shakeOffset, TUBE_HOLD_MIN_DISTANCE } from './CameraRig';
 
 function world() {
   const cfg = structuredClone(SURF_CONFIG);
@@ -569,9 +569,11 @@ describe('the tube camera through a carve in the barrel', () => {
       return new Vector3(r * Math.cos(i * 2.39996), z, r * Math.sin(i * 2.39996));
     });
     let tubeAt = -1;
-    const r = { tubeFrames: 0, wet: 0, nearest: Infinity, seen: 0, minDist: Infinity };
+    const r = { tubeFrames: 0, wet: 0, nearest: Infinity, seen: 0, minDist: Infinity, heldMinDist: Infinity, framed: [] as number[], eyeClear: 0, fov: 0 };
     const chest = new Vector3();
     const toChest = new Vector3();
+    const lat = new Vector3();
+    const q = new Vector3();
     for (let f = 0; f < 20 * 60; f++) {
       for (let k = 0; k < 2; k++) {
         let input: SurferInput;
@@ -590,7 +592,23 @@ describe('the tube camera through a carve in the barrel', () => {
       r.tubeFrames++;
       cam.updateMatrixWorld();
       if (wetAt(cam.position, mesh, wave, ray)) r.wet++;
-      r.minDist = Math.min(r.minDist, cam.position.distanceTo(s.p));
+      if (rig.holding) r.heldMinDist = Math.min(r.heldMinDist, cam.position.distanceTo(s.p));
+      else {
+        r.minDist = Math.min(r.minDist, cam.position.distanceTo(s.p));
+        // The rider's screen box (feet, head, board nose and tail, arms out) and the eye — straight down
+        // the line from the camera, 5.5° up — beside it, in frame.
+        lat.crossVectors(s.heading, s.normal).normalize();
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (const [n, h, l] of [[0, 0, 0], [1.6, 0, 0], [0, 0.9, 0], [0, -0.9, 0], [1.1, 0, 0.7], [1.1, 0, -0.7]]) {
+          q.copy(s.p).addScaledVector(s.normal, n).addScaledVector(s.heading, h).addScaledVector(lat, l).project(cam);
+          x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y);
+        }
+        r.framed.push((Math.min(1, y1) - Math.max(-1, y0)) / 2);
+        q.set(15, 15 * Math.tan((5.5 * Math.PI) / 180), 0).add(cam.position).project(cam);
+        const inFrame = Math.abs(q.x) < 0.9 && Math.abs(q.y) < 0.9;
+        if (inFrame && !(q.x > x0 && q.x < x1 && q.y > y0 && q.y < y1)) r.eyeClear++;
+        r.fov = cam.fov;
+      }
       chest.copy(s.p).addScaledVector(s.normal, 0.9);
       toChest.subVectors(chest, cam.position);
       const dist = toChest.length();
@@ -620,17 +638,35 @@ describe('the tube camera through a carve in the barrel', () => {
     expect(r.wet).toBe(0);
     expect(r.nearest).toBeGreaterThan(0.1);
     expect(r.seen / r.tubeFrames).toBeGreaterThanOrEqual(0.9);
-    // Never crowding the rider (the pocket view on the flats framed only their head).
+    // Never crowding the rider (the pocket view on the flats framed only their head) — bar the locked-off
+    // hold as the barrel closes on them, which the rider slides back toward until the swallow's cut.
     expect(r.minDist).toBeGreaterThanOrEqual(1.5);
+    expect(r.heldMinDist).toBeGreaterThanOrEqual(TUBE_HOLD_MIN_DISTANCE - 0.11); // less the shake
+    // Framed so the barrel reads: the tube lens, the rider (board and arms included) under half the frame
+    // height in a typical frame, and the eye open in frame beside them rather than behind their back.
+    expect(r.fov).toBe(SURF_CONFIG.camera.tubeFov);
+    const framed = r.framed.sort((a, b) => a - b);
+    expect(framed[Math.floor(0.5 * (framed.length - 1))]!).toBeLessThanOrEqual(0.48);
+    expect(r.eyeClear / framed.length).toBeGreaterThanOrEqual(0.9);
   }, 30_000);
 
   /**
    * A stall held into the barrel until swallowed, or a stall into it and then carves: the tube view is
-   * on within tubeCutIn of the rider entering the tube, and from frame to frame the tube camera never
-   * jumps (relative to the rider) or whips round — up to the last frame before the swallow.
+   * on by the time the rider enters the tube, and from frame to frame the tube camera never jumps
+   * (relative to the rider) or whips round — up to the last frame before the swallow. Once the tube view
+   * is on, while the rider is in the tube every frame is either the tube view seeing them or the
+   * underwater (swallow) cut: never a flash of another shot (the chase, from above the lip, which hides them).
    */
   function smoothRun(stallAt: number, carvePeriod: number) {
     const { cfg, wave, surfer, s } = world();
+    const mesh = new Mesh(buildWaveGeometry(wave, columnsX(cfg.mesh.columns, cfg.wave.xMin, cfg.wave.xMax), cfg.mesh.rows), new MeshBasicMaterial({ side: DoubleSide }));
+    mesh.updateMatrixWorld();
+    const ray = new Raycaster();
+    const chest = new Vector3();
+    const toChest = new Vector3();
+    let offShot = 0;
+    let hidden = 0;
+    let prevShot = 'chase';
     const cam = new PerspectiveCamera(cfg.camera.fov, 16 / 9, 0.1, 650);
     const rig = new CameraRig(cam, cfg.camera, wave);
     rig.snap(s, 'left');
@@ -657,12 +693,25 @@ describe('the tube camera through a carve in the barrel', () => {
         }
         surfer.step(input, 1 / 120);
       }
-      rig.update(s, s.p, 'left', false, 1 / 60, s.time);
+      // As in the game: the underwater cut from the frame the rider is swallowed.
+      rig.update(s, s.p, 'left', s.mode === 'wipeout', 1 / 60, s.time);
+      cam.updateMatrixWorld();
+      if (s.inTube && prevShot === 'tube') {
+        if (rig.shot === 'tube') {
+          chest.copy(s.p).addScaledVector(s.normal, 0.9);
+          toChest.subVectors(chest, cam.position);
+          const dist = toChest.length();
+          ray.set(cam.position, toChest.normalize());
+          ray.far = dist - 0.2;
+          const ndc = chest.clone().project(cam);
+          if (ray.intersectObject(mesh, false).length > 0 || ndc.z > 1 || Math.abs(ndc.x) > 0.95 || Math.abs(ndc.y) > 0.95) hidden++;
+        } else if (rig.shot !== 'underwater') offShot++;
+      }
+      prevShot = rig.shot;
       if (s.mode !== 'riding' && s.mode !== 'airborne') break;
       if (s.inTube && firstIn < 0) firstIn = s.time;
       const tube = rig.shot === 'tube';
       if (tube && firstTube < 0) firstTube = s.time;
-      cam.updateMatrixWorld();
       cam.getWorldDirection(dir);
       off.subVectors(cam.position, s.p);
       if (tube && wasTube) {
@@ -673,7 +722,7 @@ describe('the tube camera through a carve in the barrel', () => {
       prevOff.copy(off);
       prevDir.copy(dir);
     }
-    return { firstIn, firstTube, maxJump, maxTurn, tubeCutIn: cfg.camera.tubeCutIn };
+    return { firstIn, firstTube, maxJump, maxTurn, offShot, hidden, end: s.mode, shot: rig.shot };
   }
 
   it.each([
@@ -684,13 +733,19 @@ describe('the tube camera through a carve in the barrel', () => {
     [6, 0.5],
     [5, 0.35],
     [4, 0.8],
-  ])('stall from %s s (carving every %s s once in): the tube view is on by the time the rider is tubed, and never jumps or whips round up to the swallow', (stallAt, period) => {
+  ])('stall from %s s (carving every %s s once in): the tube view is on by the time the rider is tubed, never jumps or whips round, and holds on the rider up to the swallow’s underwater cut', (stallAt, period) => {
     const r = smoothRun(stallAt, period);
     expect(r.firstIn).toBeGreaterThan(0);
     expect(r.firstTube).toBeGreaterThan(0);
     // A stall into the barrel passes through the pocket first: the tube view is already on when the
-    // rider is tubed (at the latest tubeCutIn after it — the cut-in delay — never later).
-    expect(r.firstTube).toBeLessThanOrEqual(Math.min(r.firstIn, r.firstIn + r.tubeCutIn));
+    // rider is tubed — no cut-in delay after it.
+    expect(r.firstTube).toBeLessThanOrEqual(r.firstIn);
+    // Swallowed, on the underwater cut; and from tube to swallow nothing but the tube view seeing the
+    // rider (or that cut, a moment early).
+    expect(r.end).toBe('wipeout');
+    expect(r.shot).toBe('underwater');
+    expect(r.offShot).toBe(0);
+    expect(r.hidden).toBe(0);
     expect(r.maxJump).toBeLessThan(0.3);
     expect(r.maxTurn).toBeLessThan(5);
   }, 30_000);

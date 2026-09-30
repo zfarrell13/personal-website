@@ -62,6 +62,10 @@ export class SurfGame {
   readonly actions = new ActionState<SurfAction>(SURF_BINDINGS);
   private readonly retro: RetroRenderer;
   private readonly scene = new Scene();
+  /** The scene is drawn underwater (the wipeout, or the rig's early swallow cut). */
+  private viewUnderwater = false;
+  /** The camera lens the particle sizes were last scaled for. */
+  private scaledFov = SURF_CONFIG.camera.fov;
   private readonly camera = new PerspectiveCamera(SURF_CONFIG.camera.fov, 1, 0.1, CAMERA_FAR);
   /** The wave frame, mirrored for a LEFT via scale.x. */
   private readonly frame = new Group();
@@ -270,6 +274,7 @@ export class SurfGame {
     this.character?.reset();
     this.rig.snap(this.surfer.state, this.side);
     this.env.setUnderwater(false);
+    this.viewUnderwater = false;
     this.particles.clear();
     this.particles.setBubbles(false);
     this.travel = 0;
@@ -394,6 +399,18 @@ export class SurfGame {
     // Sim dt: a pause freezes the rider's pose springs too.
     this.character?.update(this.surfer, alpha, this.frameSimDt);
     this.rig.update(s, this.renderP, this.side, underwater, dt, this.waterTime);
+    // The rig cuts underwater a moment before the swallow when the closing barrel leaves it no tube
+    // pose: the scene (fog, sky) goes under with it.
+    const viewUnderwater = underwater || this.rig.shot === 'underwater';
+    if (viewUnderwater !== this.viewUnderwater) {
+      this.viewUnderwater = viewUnderwater;
+      this.env.setUnderwater(viewUnderwater);
+    }
+    // The tube view's wider lens: particle sizes follow the projection.
+    if (this.camera.fov !== this.scaledFov) {
+      this.scaledFov = this.camera.fov;
+      this.particles.setScale(this.camera, this.retro.internalResolution.height);
+    }
     if (this.gizmo && window.__surfCam) this.applyDebugCamera(window.__surfCam);
     this.env.update(Number.isFinite(now) ? now / 1000 : 0, this.travel, sideSign(this.side));
     this.particles.tubeView = this.rig.shot === 'tube';
