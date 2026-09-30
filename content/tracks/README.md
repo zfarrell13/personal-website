@@ -21,5 +21,5 @@ Drop WAV/AIFF masters and square artwork here, then list them in `tracks.json`:
 - `key` uses Camelot notation (1A–12B). `memoryCues` are beat numbers counted from the first downbeat.
 - `surf: true` adds the track to the surf game soundtrack.
 - Run `npm run tracks` (also runs automatically before `npm run dev` / `npm run build`).
-- Audio masters are git-ignored; only this JSON and artwork are committed.
+- Audio masters and artwork are git-ignored (commercial releases); only this JSON is committed.
 - While this list is empty, synthesized placeholder tracks are used.

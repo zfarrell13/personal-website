@@ -64,16 +64,27 @@
   box-shadow: 0 0 24px rgba(255, 255, 255, 0.35);
 }
 .toggle:focus-visible { outline: 3px solid #ffe16b; outline-offset: 4px; }
-.sun, .moon {
+.wave, .note {
   position: absolute;
   top: 50%;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
+  z-index: 1;
+  width: 38px;
+  height: 38px;
   transform: translateY(-50%);
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity 300ms, filter 300ms;
 }
-.sun { left: 18px; background: radial-gradient(circle, #fff6b0, #ffb300); box-shadow: 0 0 16px #ffcf40; }
-.moon { right: 18px; background: transparent; box-shadow: inset -10px -4px 0 0 #e8e4ff; }
+.wave { left: 17px; stroke: #1b6fd1; }
+.note { right: 17px; stroke: #e8e4ff; }
+.note circle { fill: #e8e4ff; stroke: none; }
+/* The active mode's icon sits on the knob; the other one is dimmed. */
+.toggle[aria-checked='true'] .wave, .toggle[aria-checked='false'] .note { opacity: 0.45; }
+.toggle[aria-checked='false'] .wave { filter: drop-shadow(0 0 6px #7fd3ff); }
+.toggle[aria-checked='true'] .note { stroke: #3a1d7a; filter: drop-shadow(0 0 6px #c9a8ff); }
+.toggle[aria-checked='true'] .note circle { fill: #3a1d7a; }
 .knob {
   position: absolute;
   top: 7px;

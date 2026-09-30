@@ -1,1 +1,40 @@
-{ "tracks": [] }
+{
+  "tracks": [
+    {
+      "id": "on-and-on-sudley-remix",
+      "title": "on & on (Sudley Remix)",
+      "artist": "Piri, Tommy Villiers, Sudley",
+      "file": "on-and-on-sudley-remix.mp3",
+      "artwork": "on-and-on-sudley-remix.jpg",
+      "bpm": 174,
+      "key": "5A",
+      "firstBeatSec": 0.142,
+      "memoryCues": [128, 384, 512],
+      "surf": true
+    },
+    {
+      "id": "one-day-at-a-time",
+      "title": "One Day At A Time feat. Lalin St. Juste",
+      "artist": "Nu:Tone",
+      "file": "one-day-at-a-time.mp3",
+      "artwork": "one-day-at-a-time.jpg",
+      "bpm": 174,
+      "key": "2B",
+      "firstBeatSec": 0.118,
+      "memoryCues": [192, 384, 448],
+      "surf": true
+    },
+    {
+      "id": "i-can-be-your-future",
+      "title": "I Can Be Your Future",
+      "artist": "Mozey, Shady Novelle",
+      "file": "i-can-be-your-future.mp3",
+      "artwork": "i-can-be-your-future.jpg",
+      "bpm": 175,
+      "key": "9A",
+      "firstBeatSec": 0.344,
+      "memoryCues": [64, 320, 384],
+      "surf": true
+    }
+  ]
+}
