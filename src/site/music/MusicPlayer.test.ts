@@ -129,12 +129,14 @@ describe('MusicPlayer', () => {
   it('is idempotent: one element, one context; the first track plays', async () => {
     const { player, audios, contexts, loadTracks } = setup();
     expect(player.context).toBeNull();
+    expect(player.audioElement).toBeNull();
     await Promise.all([player.start(), player.start()]);
     await player.start();
     expect(audios).toHaveLength(1);
     expect(contexts).toHaveLength(1);
     expect(loadTracks).toHaveBeenCalledTimes(1);
     expect(player.context).toBe(contexts[0]);
+    expect(player.audioElement).toBe(audios[0]);
     expect(contexts[0]!.resume).toHaveBeenCalled();
     const s = player.getState();
     expect(s.playing).toBe(true);

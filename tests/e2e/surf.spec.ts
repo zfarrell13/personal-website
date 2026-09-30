@@ -137,6 +137,24 @@ test.describe('surf game', () => {
     await expect(drop).toBeFocused();
   });
 
+  test('with no input the curl catches the rider in a few seconds (never under 2 s)', async ({ page }) => {
+    await dropIn(page);
+    const t0 = Date.now();
+    await page.waitForFunction(() => window.__surf?.mode === 'wipeout', undefined, { timeout: 15_000 });
+    expect(Date.now() - t0).toBeGreaterThan(2000);
+    await page.waitForFunction(() => window.__surf?.phase === 'results', undefined, { timeout: 15_000 });
+    await expect(page.getByText(/SWALLOWED BY THE BARREL/)).toBeVisible();
+  });
+
+  test('rides on the chase camera, and stalling into the curl cuts to the tube view', async ({ page }) => {
+    await dropIn(page);
+    await expect.poll(() => page.evaluate(() => window.__surf?.shot)).toBe('chase');
+    expect(await page.evaluate(() => window.__surf?.peel)).toBe(8);
+    await page.keyboard.down('ArrowDown');
+    await page.waitForFunction(() => window.__surf?.shot === 'tube', undefined, { timeout: 15_000 });
+    await page.keyboard.up('ArrowDown');
+  });
+
   test('stays inside the draw-call and triangle budget', async ({ page }) => {
     await dropIn(page);
     const f0 = await page.evaluate(() => window.__surf!.frames);

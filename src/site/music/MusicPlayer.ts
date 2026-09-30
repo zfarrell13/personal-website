@@ -69,6 +69,11 @@ export class MusicPlayer {
     return this.ctx;
   }
 
+  /** e2e / debug only: the one audio element the player owns (created by start(); never in the document). */
+  get audioElement(): HTMLAudioElement | null {
+    return this.audio;
+  }
+
   /**
    * Fetch the manifest ahead of the first gesture (idempotent; call on mount). With the tracks already in hand,
    * start() calls play() synchronously inside the gesture, which WebKit requires to unlock the element.

@@ -150,3 +150,102 @@ test.describe('title menu', () => {
     expect(errors()).toEqual([]);
   });
 });
+
+/** The site player's debug handle (see getMusicPlayer). */
+type MusicHandle = {
+  getState: () => { track: { id: string } | null; playing: boolean; trackKey: number };
+  audioElement: HTMLAudioElement | null;
+};
+
+test.describe('full flows', () => {
+  test('menu → CAREER MODE → Esc → FREE SURF → DROP IN → pause → quit → ◀ MENU → menu', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await page.goto('/');
+    await expect(page.getByRole('link', { name: 'FREE SURF' })).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await page.waitForURL('**/career');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('CAREER MODE');
+    await page.keyboard.press('Escape');
+    await page.waitForURL((u) => u.pathname === '/');
+    await page.getByRole('link', { name: 'FREE SURF' }).click();
+    await page.waitForURL('**/surf');
+    await page.getByRole('button', { name: 'DROP IN' }).click();
+    await page.waitForFunction(() => window.__surf?.phase === 'playing');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => window.__surf?.phase === 'paused');
+    await page.getByRole('button', { name: /QUIT/ }).click();
+    await page.waitForFunction(() => window.__surf?.phase === 'title');
+    await page.getByRole('button', { name: '◀ MENU' }).click();
+    await page.waitForURL((u) => u.pathname === '/');
+    await expect(page.getByRole('link', { name: 'FREE SURF' })).toHaveAttribute('data-selected', 'true');
+    expect(errors()).toEqual([]);
+  });
+
+  test('the music plays on across / → /career → /surf: same track, advancing, one audio element', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    // Every media element anything plays, for the whole visit.
+    await page.addInitScript(() => {
+      const played = new Set<HTMLMediaElement>();
+      (window as unknown as { __played: Set<HTMLMediaElement> }).__played = played;
+      const play = HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+        played.add(this);
+        return play.call(this);
+      };
+    });
+    await page.goto('/?tracks=test');
+    await page.getByRole('heading', { level: 1 }).click(); // any gesture starts the music
+    await page.waitForFunction(() => {
+      const m = (window as unknown as { __zfMusic?: MusicHandle }).__zfMusic;
+      return m?.getState().playing === true && (m.audioElement?.currentTime ?? 0) > 0;
+    });
+    const at = () =>
+      page.evaluate(() => {
+        const m = (window as unknown as { __zfMusic: MusicHandle }).__zfMusic;
+        return { id: m.getState().track?.id, key: m.getState().trackKey, time: m.audioElement!.currentTime, playing: m.getState().playing };
+      });
+    const home = await at();
+    expect(home.id).toMatch(/^test-/);
+
+    // Client-side: the menu's own link to CAREER MODE, then the router to /surf.
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await page.waitForURL('**/career');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('CAREER MODE');
+    await page.waitForTimeout(300);
+    const career = await at();
+    await softNavigate(page, '/surf');
+    await expect(page.getByRole('button', { name: 'DROP IN' })).toBeVisible();
+    await page.waitForTimeout(300);
+    const surf = await at();
+
+    for (const s of [career, surf]) expect({ id: s.id, key: s.key, playing: s.playing }).toEqual({ id: home.id, key: home.key, playing: true });
+    expect(career.time).toBeGreaterThan(home.time);
+    expect(surf.time).toBeGreaterThan(career.time);
+    // One element, owned by the player (never in the document), and nothing else ever played.
+    const elements = await page.evaluate(() => {
+      const w = window as unknown as { __played: Set<HTMLMediaElement>; __zfMusic: MusicHandle };
+      const played = [...w.__played];
+      return { played: played.length, isPlayers: played[0] === w.__zfMusic.audioElement, inDocument: document.querySelectorAll('audio, video').length };
+    });
+    expect(elements).toEqual({ played: 1, isPlayers: true, inDocument: 0 });
+    expect(errors()).toEqual([]);
+  });
+
+  test('the DJ routes are gone', async ({ request }) => {
+    for (const path of ['/dj', '/dev/dj-engine']) expect((await request.get(path)).status(), path).toBe(404);
+  });
+
+  for (const path of ['/', '/surf', '/profile', '/career', '/trophies', '/credits']) {
+    test(`${path} loads without console errors`, async ({ page }) => {
+      const errors = trackConsoleErrors(page);
+      await page.goto(path);
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+      await page.waitForFunction(() => (window.__surf?.frames ?? 0) > 10);
+      expect(errors()).toEqual([]);
+    });
+  }
+});
