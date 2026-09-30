@@ -4,7 +4,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import type { SurfStore } from './state/store';
 
 // A stand-in SurfGame: no WebGL. load() shows the title, like the real one.
-const fake = vi.hoisted(() => ({ games: [] as Array<{ store: SurfStore; setAttract: ReturnType<typeof vi.fn>; setFrozen: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }> }));
+const fake = vi.hoisted(() => ({ games: [] as Array<{ store: SurfStore; opts: { attract?: boolean }; setAttract: ReturnType<typeof vi.fn>; setFrozen: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }> }));
 vi.mock('./game/SurfGame', async () => {
   const { vi } = await import('vitest');
   class SurfGame {
@@ -20,6 +20,7 @@ vi.mock('./game/SurfGame', async () => {
     constructor(
       _canvas: HTMLCanvasElement,
       readonly store: SurfStore,
+      readonly opts: { attract?: boolean } = {},
     ) {
       fake.games.push(this);
     }
@@ -41,6 +42,7 @@ describe('SurfApp modes', () => {
   it('attract shows no menus or HUD; the canvas is hidden from AT and from the pointer', async () => {
     await act(async () => void render(<SurfApp mode="attract" />));
     const game = fake.games[0]!;
+    expect(game.opts.attract).toBe(true); // born in attract: no play-mode moment
     expect(game.setAttract).toHaveBeenLastCalledWith(true);
     expect(titleMenu()).toBeNull();
     act(() => game.store.setState({ phase: 'playing' }));
@@ -72,6 +74,7 @@ describe('SurfApp modes', () => {
 
   it('play mode shows the title menu and the HUD as before', async () => {
     await act(async () => void render(<SurfApp mode="play" />));
+    expect(fake.games[0]!.opts.attract).toBe(false);
     expect(titleMenu()).not.toBeNull();
     act(() => fake.games[0]!.store.setState({ phase: 'playing' }));
     expect(screen.getByTestId('score')).not.toBeNull();

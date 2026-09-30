@@ -672,8 +672,8 @@ describe('SurfGame', () => {
     const press = Object.assign(new Event('keydown', { cancelable: true }), { code: 'Space', repeat: false });
     win.dispatchEvent(press);
     expect(press.defaultPrevented).toBe(false); // the page keeps its keys
-    frame();
-    frame();
+    frame(1000 / 30);
+    frame(1000 / 30);
     expect(tick).not.toHaveBeenCalled();
     expect(retro.render.mock.calls.length).toBe(renders + 2);
     game.start('left');
@@ -686,6 +686,48 @@ describe('SurfGame', () => {
     expect(again.defaultPrevented).toBe(true); // play mode: the game has its keys back
     game.start('left');
     expect(store.getState().phase).toBe('playing');
+    game.dispose();
+  });
+
+  it('attract mode releases the site music when it quits a run: full level, no tube muffle', async () => {
+    const { game } = await playing();
+    frame();
+    defaultMusic.setDuck.mockClear();
+    defaultMusic.setMuffleHz.mockClear();
+    game.setAttract(true);
+    expect(defaultMusic.setDuck).toHaveBeenLastCalledWith(1);
+    expect(defaultMusic.setMuffleHz).toHaveBeenLastCalledWith(20000);
+    game.dispose();
+  });
+
+  it('created in attract mode, the game never takes the keys until play', async () => {
+    const game = new SurfGame(canvas, createSurfStore(), { attract: true });
+    await game.load();
+    const press = Object.assign(new Event('keydown', { cancelable: true }), { code: 'Space', repeat: false });
+    win.dispatchEvent(press);
+    expect(press.defaultPrevented).toBe(false);
+    game.setAttract(false);
+    const again = Object.assign(new Event('keydown', { cancelable: true }), { code: 'Space', repeat: false });
+    win.dispatchEvent(again);
+    expect(again.defaultPrevented).toBe(true);
+    game.dispose();
+  });
+
+  it('attract mode draws at ~30 fps (every other 60 Hz frame); play mode draws every frame', async () => {
+    const game = new SurfGame(canvas, createSurfStore(), { attract: true });
+    await game.load();
+    clock = performance.now();
+    frame();
+    const retro = retroInstances[0]!;
+    const drawn = retro.render.mock.calls.length;
+    for (let i = 0; i < 10; i++) frame(1000 / 60);
+    expect(retro.render.mock.calls.length).toBe(drawn + 5);
+    for (let i = 0; i < 12; i++) frame(1000 / 120);
+    expect(retro.render.mock.calls.length).toBe(drawn + 8); // 120 Hz: every 4th
+    game.setAttract(false);
+    const before = retro.render.mock.calls.length;
+    for (let i = 0; i < 10; i++) frame(1000 / 60);
+    expect(retro.render.mock.calls.length).toBe(before + 10);
     game.dispose();
   });
 

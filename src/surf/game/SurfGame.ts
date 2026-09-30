@@ -41,6 +41,8 @@ export interface SurfGameOptions {
   look?: SurferLook;
   /** The site-wide soundtrack the game muffles (tube) and ducks (pause). Default getMusicPlayer(); tests inject a spy. */
   music?: Pick<MusicPlayer, 'setMuffleHz' | 'setDuck' | 'start'>;
+  /** Start in attract mode (see setAttract): the key listeners are never attached until play. */
+  attract?: boolean;
 }
 
 /** Music level under the pause menu. */
@@ -53,6 +55,8 @@ const END_DELAY = { wipeout: 1.6, kickedOut: 1.0 } as const;
 const MAX_FRAME = 0.25;
 /** Particles integrate at most this much time per frame (s). */
 const MAX_PARTICLE_DT = 0.1;
+/** Attract mode draws at most ~30 fps: a frame is skipped until this much time (ms) has passed. */
+const ATTRACT_MIN_FRAME_MS = 1000 / 30 - 4;
 
 /**
  * Owns the loop: fixed 120 Hz simulation (surfer, scoring) with render
@@ -137,6 +141,7 @@ export class SurfGame {
   ) {
     this.look = opts.look ?? SURFER_LOOK;
     this.music = opts.music ?? getMusicPlayer();
+    this.attract = opts.attract ?? false;
     this.writer = new ThrottledWriter(store, 15);
     const coarse = window.matchMedia?.('(pointer: coarse)').matches === true;
     if (coarse) {
@@ -170,7 +175,7 @@ export class SurfGame {
       this.bus.onAny((e) => this.audio?.onEvent(e)),
       () => this.detachKeys?.(),
     );
-    this.detachKeys = this.actions.attach(window);
+    if (!this.attract) this.detachKeys = this.actions.attach(window);
     if (typeof document !== 'undefined') {
       // A hidden tab stops requestAnimationFrame; pause so the ride doesn't resume mid-air. Resume is manual.
       const onVisibility = () => {
@@ -364,6 +369,8 @@ export class SurfGame {
     // Frozen in attract: this frame is drawn, and no next one is asked for (wake() restarts it).
     this.looping = !(this.attract && this.frozen);
     if (this.looping) this.raf = requestAnimationFrame(this.loop);
+    // Attract (a dimmed backdrop) is capped at ~30 fps: skipped frames leave the clock alone, so dt accumulates.
+    if (this.attract && !this.frozen && this.last !== null && Number.isFinite(now) && now - this.last < ATTRACT_MIN_FRAME_MS) return;
     let dt = 0;
     if (Number.isFinite(now)) {
       if (this.last !== null) {

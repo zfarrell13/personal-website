@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { checkSupport } from './support';
 
 const fakeWindow = (webgl2: boolean, worklet: boolean) =>
@@ -13,6 +13,13 @@ describe('checkSupport', () => {
   });
   it('detects missing features', () => {
     expect(checkSupport(fakeWindow(false, false))).toEqual({ webgl2: false, audioWorklet: false });
+  });
+  it('releases the probe context (WEBGL_lose_context)', () => {
+    const loseContext = vi.fn();
+    const gl = { getExtension: (n: string) => (n === 'WEBGL_lose_context' ? { loseContext } : null) };
+    const w = { document: { createElement: () => ({ getContext: () => gl }) } } as unknown as Window;
+    expect(checkSupport(w).webgl2).toBe(true);
+    expect(loseContext).toHaveBeenCalledTimes(1);
   });
   it('treats a throwing getContext as unsupported', () => {
     const w = { document: { createElement: () => ({ getContext: () => { throw new Error('x'); } }) } } as unknown as Window;

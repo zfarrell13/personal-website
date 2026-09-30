@@ -41,7 +41,7 @@ export function Stage() {
   useEffect(() => setWebgl2(checkSupport(window).webgl2), []);
   if (!webgl2) return null;
   return (
-    <div className={styles.stage} aria-hidden={mode === 'attract' || undefined}>
+    <div className={styles.stage} data-mode={mode} aria-hidden={mode === 'attract' || undefined}>
       <SurfApp mode={mode} reducedMotion={reducedMotion} />
     </div>
   );

@@ -33,11 +33,17 @@ export default function SurfApp({ mode = 'play', reducedMotion = false }: SurfAp
   const run = useStore(store, (s) => s.run);
   const guide = useStore(store, (s) => s.guide);
 
+  // The mode at creation, so an attract stage is born in attract mode (never a play-mode moment with the keys).
+  const modeRef = useRef(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  });
+
   useEffect(() => {
     const dbg = new URLSearchParams(window.location.search).has('debug');
     setDebug(dbg);
     store.setState({ guide: loadGuide(browserStorage()) });
-    const g = new SurfGame(canvasRef.current!, store, { debug: dbg });
+    const g = new SurfGame(canvasRef.current!, store, { debug: dbg, attract: modeRef.current === 'attract' });
     setGame(g);
     g.load().catch((e: unknown) => console.error('Surf failed to load', e));
     return () => {
