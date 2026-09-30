@@ -12,12 +12,14 @@ const PAD: Btn[] = [
   { action: 'carveRight', label: '▶', area: '2 / 3' },
   { action: 'stall', label: '▼', area: '3 / 2' },
 ];
+// Two columns hugging the right edge (grabs above, OLLIE under the thumb in the corner): a three-wide pad
+// reached into the middle of the screen, over the rider's board in the tube view.
 const ACTIONS: Btn[] = [
-  { action: 'grabW', label: 'METHOD' },
-  { action: 'grabA', label: 'RAIL' },
-  { action: 'ollie', label: 'OLLIE' },
-  { action: 'grabS', label: 'STALE' },
-  { action: 'grabD', label: 'INDY' },
+  { action: 'grabW', label: 'METHOD', area: '1 / 1' },
+  { action: 'grabA', label: 'RAIL', area: '1 / 2' },
+  { action: 'grabS', label: 'STALE', area: '2 / 1' },
+  { action: 'grabD', label: 'INDY', area: '2 / 2' },
+  { action: 'ollie', label: 'OLLIE', area: '3 / 2' },
 ];
 
 function TouchButton({ btn, actions }: { btn: Btn; actions: Pick<ActionState<SurfAction>, 'press' | 'release'> }) {

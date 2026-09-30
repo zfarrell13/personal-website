@@ -26,6 +26,14 @@ export function TitleScreen() {
     menuMove();
   };
 
+  // Tells the NOW PLAYING tag the whole top row is free here (globals.css --np-max): phone portrait has room for the name.
+  useEffect(() => {
+    document.documentElement.dataset.screen = 'home';
+    return () => {
+      delete document.documentElement.dataset.screen;
+    };
+  }, []);
+
   // Follow the selection with focus (this also focuses FREE SURF on mount).
   useEffect(() => {
     const el = links.current[index];

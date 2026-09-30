@@ -264,3 +264,30 @@ test.describe('phone portrait widths', () => {
     await check();
   });
 });
+
+test.describe('phone home and game', () => {
+  test('portrait home: the NOW PLAYING tag uses the free top row for the track name, clear of the menu', async ({ browser }) => {
+    const page = await (await browser.newContext(iphone)).newPage();
+    await page.goto('/');
+    await page.getByRole('button', { name: /FOR MUSIC/ }).tap();
+    const name = page.getByTestId('now-playing-track');
+    await expect(name).toBeVisible();
+    const shown = await name.evaluate((t) => [...t.querySelectorAll('span')].find((s) => s.textContent?.includes(' — '))?.getBoundingClientRect().width ?? 0);
+    expect(shown).toBeGreaterThan(150);
+    await apart(page.getByTestId('now-playing'), page.getByRole('heading', { level: 1 }));
+    await apart(page.getByTestId('now-playing'), page.getByRole('navigation', { name: 'Main menu' }));
+    await page.context().close();
+  });
+
+  test('landscape game: the OLLIE / grab pad hugs the right edge (clear of the rider in the middle)', async ({ browser }) => {
+    const page = await (await browser.newContext(iphoneLandscape)).newPage();
+    await page.goto('/surf');
+    await page.getByRole('button', { name: 'DROP IN' }).tap();
+    await page.waitForFunction(() => window.__surf?.phase === 'playing');
+    const vw = page.viewportSize()!.width;
+    for (const label of ['METHOD', 'RAIL', 'STALE', 'INDY', 'OLLIE']) {
+      expect((await page.getByRole('button', { name: label }).boundingBox())!.x, label).toBeGreaterThan(vw * 0.78);
+    }
+    await page.context().close();
+  });
+});

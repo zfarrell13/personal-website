@@ -22,4 +22,6 @@ button { font: inherit; color: inherit; }
    half the width. */
 @media (pointer: coarse) and (orientation: portrait) {
   html[data-screen='section'] { --np-max: calc(100vw - var(--np-menu-end, 136px) - 12px - 16px); }
+  /* The title menu (TitleScreen) has nothing else in the top row. */
+  html[data-screen='home'] { --np-max: calc(100vw - 32px); }
 }
