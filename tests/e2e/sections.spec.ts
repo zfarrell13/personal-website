@@ -223,6 +223,7 @@ test.describe('phone taps', () => {
     await expect(dialog).toHaveCount(0);
     await expect(card).toBeFocused(); // focus came back to the card, without a keyboard ring
     await card.hover(); // and :hover parks on it, as the opening tap left it
+    expect((await ring(card)).hovered).toBe(true); // the premise: the card really is :hover
     await expect.poll(async () => (await ring(card.locator('img'))).shadow).toBe('none');
   });
 
@@ -254,7 +255,7 @@ test.describe('phone portrait widths', () => {
       for (const width of [320, 360, 375, 390, 414, 430]) {
         await page.setViewportSize({ width, height: 740 });
         await expect.poll(async () => (await tag.boundingBox())!.x + (await tag.boundingBox())!.width).toBeLessThanOrEqual(width - 15);
-        await apart(tag, menu);
+        await expect(async () => apart(tag, menu)).toPass(); // the MENU measurement may land a frame later
       }
     };
     await check();
