@@ -76,6 +76,14 @@ describe('site content', () => {
     expect(unmarked).toEqual([]);
   });
 
+  it('links only to https:, mailto: or a root-relative path on this site', () => {
+    const hrefs = strings(site).filter(([path]) => /(^|\.)href$/.test(path));
+    expect(hrefs.length).toBeGreaterThan(0);
+    // Root-relative means "/x", not "//host" (protocol-relative, i.e. off-site over whatever scheme the page uses).
+    const bad = hrefs.filter(([, href]) => !/^https:\/\/[^/\s]/.test(href) && !/^mailto:[^@\s]+@[^@\s]+$/.test(href) && !/^\/(?!\/)/.test(href));
+    expect(bad).toEqual([]);
+  });
+
   it('points file paths at public/', () => {
     const paths = [site.profile.photo, site.career.resumePdf, ...site.trophies.map((t) => t.image)];
     for (const p of paths) expect(() => readFileSync(`public${p}`)).not.toThrow();
