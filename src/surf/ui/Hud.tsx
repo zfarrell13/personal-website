@@ -12,6 +12,9 @@ export function Hud({ store }: { store: SurfStore }) {
   const speed = useStore(store, (s) => s.speedKmh);
   const ticker = useStore(store, (s) => s.ticker);
   const fast = useStore(store, (s) => s.fastSection);
+  const pumpPrompt = useStore(store, (s) => s.pumpPrompt);
+  const pumpCount = useStore(store, (s) => s.pumpCount);
+  const paused = useStore(store, (s) => s.phase === 'paused');
   return (
     <div className={styles.layer} aria-live="off">
       <div className={styles.hudTop}>
@@ -26,6 +29,13 @@ export function Hud({ store }: { store: SurfStore }) {
       {fast ? (
         <div className={styles.fast} data-testid="fast-section">
           ⚡ FAST SECTION
+        </div>
+      ) : null}
+      {pumpPrompt ? (
+        // Keyed on the pump count: each pump re-mounts it, so the pop replays and the 1 s beat restarts on the pump.
+        <div key={pumpCount} className={styles.coach} data-testid="coach-pump" data-paused={paused ? 'true' : 'false'}>
+          <span className={styles.coachCall}>▲ PUMP!</span> <span className={styles.coachKeys}>Press ↑</span>
+          <span className={styles.coachTouch}>Tap ▲</span>
         </div>
       ) : null}
       <div className={styles.ticker}>

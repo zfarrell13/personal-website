@@ -32,6 +32,33 @@ describe('TitleMenu', () => {
   });
 });
 
+describe('TitleMenu — GUIDE option', () => {
+  it('shows ON by default; mouse clicks and the G key toggle it', () => {
+    const onGuide = vi.fn();
+    const { rerender } = render(<TitleMenu initialSide="right" onStart={vi.fn()} guide onGuide={onGuide} />);
+    const on = screen.getByRole('button', { name: 'GUIDE ON' });
+    const off = screen.getByRole('button', { name: 'GUIDE OFF' });
+    expect(on.getAttribute('aria-pressed')).toBe('true');
+    expect(off.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(off);
+    expect(onGuide).toHaveBeenLastCalledWith(false);
+    key('g');
+    expect(onGuide).toHaveBeenLastCalledWith(false);
+    rerender(<TitleMenu initialSide="right" onStart={vi.fn()} guide={false} onGuide={onGuide} />);
+    expect(screen.getByRole('button', { name: 'GUIDE OFF' }).getAttribute('aria-pressed')).toBe('true');
+    key('G');
+    expect(onGuide).toHaveBeenLastCalledWith(true);
+  });
+
+  it('Enter on a focused GUIDE button does not drop in', () => {
+    const onStart = vi.fn();
+    render(<TitleMenu initialSide="right" onStart={onStart} guide onGuide={vi.fn()} />);
+    screen.getByRole('button', { name: 'GUIDE OFF' }).focus();
+    key('Enter');
+    expect(onStart).not.toHaveBeenCalled();
+  });
+});
+
 describe('Results', () => {
   it('takes 3-letter initials for a qualifying score, saves, then Enter goes again', () => {
     const onAgain = vi.fn();
@@ -71,6 +98,22 @@ describe('Hud', () => {
     expect(screen.getByTestId('combo').textContent).toBe('800 × 2');
     expect(screen.getByText('TUBE 1.3s')).toBeTruthy();
     expect(screen.getByText('Air 360 +700')).toBeTruthy();
+  });
+  it('pops ▲ PUMP! (keyboard and touch wording) while the coach prompts, re-popping on each pump', () => {
+    const store = createSurfStore();
+    render(<Hud store={store} />);
+    expect(screen.queryByTestId('coach-pump')).toBeNull();
+    act(() => store.setState({ pumpPrompt: true, pumpCount: 3 }));
+    const el = screen.getByTestId('coach-pump');
+    expect(el.textContent).toContain('▲ PUMP! Press ↑');
+    expect(el.textContent).toContain('Tap ▲');
+    expect(el.getAttribute('data-paused')).toBe('false');
+    act(() => store.setState({ pumpCount: 4 }));
+    expect(screen.getByTestId('coach-pump')).not.toBe(el);
+    act(() => store.setState({ phase: 'paused' }));
+    expect(screen.getByTestId('coach-pump').getAttribute('data-paused')).toBe('true');
+    act(() => store.setState({ pumpPrompt: false }));
+    expect(screen.queryByTestId('coach-pump')).toBeNull();
   });
   it('flashes ⚡ FAST SECTION while a fast section is on', () => {
     const store = createSurfStore();

@@ -30,6 +30,7 @@ import { impactDistance } from '../wave/impact';
 import { sideSign } from '../wave/mirror';
 import { PeelController } from '../wave/PeelController';
 import { WaveShape } from '../wave/WaveShape';
+import { Coach } from './coach';
 import type { SurfDebugCamera, SurfDebugHook } from './debugHook';
 import './debugHook';
 import { FixedStepper } from './FixedStepper';
@@ -56,6 +57,8 @@ export class SurfGame {
   /** Peel speed over the run (base Vp + seeded fast sections). */
   readonly peel = new PeelController(SURF_CONFIG.wave, SURF_CONFIG.sections);
   readonly scoring: Scoring;
+  /** In-game coach: the "▲ PUMP!" prompt when the rider is losing ground to the curl. */
+  readonly coach = new Coach();
   readonly actions = new ActionState<SurfAction>(SURF_BINDINGS);
   private readonly retro: RetroRenderer;
   private readonly scene = new Scene();
@@ -72,7 +75,7 @@ export class SurfGame {
   private readonly renderP = new Vector3();
   private readonly debugLook = new Vector3();
   /** The one debug-hook object, mutated each frame (no per-frame allocation). */
-  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase' };
+  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase', coach: this.coach.state };
   private readonly look: SurferLook;
   private character: Character | null = null;
   private audio: SurfAudio | null = null;
@@ -143,6 +146,7 @@ export class SurfGame {
     this.cleanups.push(
       this.scoring.attach(this.bus),
       this.bus.on('landed', () => this.character?.onLanded()),
+      this.bus.on('pump', (e) => this.coach.onPump(e.time)),
       this.bus.onAny((e) => this.audio?.onEvent(e)),
       this.actions.attach(window),
     );
@@ -196,11 +200,12 @@ export class SurfGame {
     this.resetView();
     this.scoring.reset();
     this.ticker = [];
+    this.coach.reset(this.store.getState().guide);
     this.stepper.reset();
     this.actions.reset();
     this.startAudio();
     this.writer.flush(performance.now());
-    this.store.setState({ side, run: null, underwater: false, fastSection: false, score: 0, pot: 0, multiplier: 0, tubeTime: 0, speedKmh: 0, ticker: [] });
+    this.store.setState({ side, run: null, underwater: false, fastSection: false, score: 0, pot: 0, multiplier: 0, tubeTime: 0, speedKmh: 0, ticker: [], pumpPrompt: false, pumpCount: 0 });
     this.setPhase('playing');
   }
 
@@ -224,7 +229,8 @@ export class SurfGame {
     // The title shows a fresh wave: no underwater camera or tumbling rider left from a wipeout.
     this.resetView();
     this.writer.flush(performance.now());
-    this.store.setState({ run: null, underwater: false, fastSection: false });
+    this.coach.reset(false);
+    this.store.setState({ run: null, underwater: false, fastSection: false, pumpPrompt: false });
     this.setPhase('title');
   }
 
@@ -336,6 +342,7 @@ export class SurfGame {
     const section = this.peel.update(s.time + dt);
     this.surfer.setPeelSpeed(this.peel.speed);
     this.surfer.step(this.input, dt);
+    this.coach.update(s);
     // Only a live ride (riding / airborne) announces a section or makes one: none after a wipeout / kick-out.
     const live = s.mode === 'riding' || s.mode === 'airborne';
     if (section === 'start' && live) this.bus.emit({ type: 'fastSection', time: s.time, boost: this.peel.boost });
@@ -363,6 +370,7 @@ export class SurfGame {
       pot: 0,
       multiplier: 0,
       tubeTime: 0,
+      pumpPrompt: false,
       run: {
         score: this.scoring.score,
         side: this.side,
@@ -413,6 +421,8 @@ export class SurfGame {
         tubeTime: s.mode === 'riding' || s.mode === 'airborne' ? s.tubeTime : 0,
         speedKmh: Math.round(speed * 3.6),
         fastSection: this.peel.active && (s.mode === 'riding' || s.mode === 'airborne'),
+        pumpPrompt: this.coach.state.show,
+        pumpCount: this.coach.state.pumps,
       });
     }
     if (Number.isFinite(now)) this.writer.tick(now);

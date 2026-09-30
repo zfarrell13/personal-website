@@ -3,8 +3,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { LoadingScreen } from '@/retro/ui/LoadingScreen';
 import ModeSwitch from '@/shared/ModeSwitch';
+import { browserStorage } from '@/shared/mode';
 import type { Side } from './config';
 import { SurfGame } from './game/SurfGame';
+import { loadGuide, saveGuide } from './state/guidePref';
 import { createSurfStore } from './state/store';
 import { DebugPanel } from './ui/DebugPanel';
 import { Hud } from './ui/Hud';
@@ -22,10 +24,12 @@ export default function SurfApp() {
   const phase = useStore(store, (s) => s.phase);
   const side = useStore(store, (s) => s.side);
   const run = useStore(store, (s) => s.run);
+  const guide = useStore(store, (s) => s.guide);
 
   useEffect(() => {
     const dbg = new URLSearchParams(window.location.search).has('debug');
     setDebug(dbg);
+    store.setState({ guide: loadGuide(browserStorage()) });
     const g = new SurfGame(canvasRef.current!, store, { debug: dbg });
     setGame(g);
     g.load().catch((e: unknown) => console.error('Surf failed to load', e));
@@ -40,12 +44,19 @@ export default function SurfApp() {
   const toTitle = useCallback(() => game?.quitToTitle(), [game]);
   const resume = useCallback(() => game?.resume(), [game]);
   const pause = useCallback(() => game?.pause(), [game]);
+  const setGuide = useCallback(
+    (on: boolean) => {
+      store.setState({ guide: on });
+      saveGuide(browserStorage(), on);
+    },
+    [store],
+  );
 
   return (
     <div className={styles.root}>
       <canvas ref={canvasRef} className="retro-canvas" data-testid="surf-canvas" />
       {phase === 'loading' ? <LoadingScreen label="Paddling out" /> : null}
-      {game && phase === 'title' ? <TitleMenu initialSide={side} onStart={start} /> : null}
+      {game && phase === 'title' ? <TitleMenu initialSide={side} onStart={start} guide={guide} onGuide={setGuide} /> : null}
       {phase === 'playing' || phase === 'paused' ? <Hud store={store} /> : null}
       {game && phase === 'paused' ? <PauseMenu onResume={resume} onQuit={toTitle} /> : null}
       {game && phase === 'results' && run ? <Results run={run} onAgain={again} onTitle={toTitle} /> : null}

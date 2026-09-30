@@ -1,5 +1,6 @@
 import type { SurferMode } from '../physics/Surfer';
 import type { Phase } from '../state/store';
+import type { CoachState } from './coach';
 
 /** Read-only snapshot for Playwright and the debug panel. */
 export interface SurfDebugHook {
@@ -18,6 +19,8 @@ export interface SurfDebugHook {
   seed: number;
   /** Camera shot: 'chase' | 'tube' | 'underwater'. */
   shot: string;
+  /** The in-game coach (live object): whether the ▲ PUMP prompt is up, pumps landed, beat phase. */
+  coach: CoachState;
 }
 
 /** ?debug only: a free camera for screenshots, in wave-frame coordinates (set from the console or Playwright). */

@@ -525,6 +525,36 @@ describe('SurfGame', () => {
     }
   });
 
+  it('coach: a no-input ride prompts ▲ PUMP on the HUD and hook, counts pumps, and clears on results; GUIDE off never prompts', async () => {
+    const { game, store } = await playing();
+    for (let i = 0; i < 60 * 4 && !store.getState().pumpPrompt; i++) frame();
+    expect(store.getState().pumpPrompt).toBe(true);
+    expect(win.__surf).toMatchObject({ coach: { show: true } });
+    // An ↑ pump reaches the coach through the event bus and the HUD.
+    key('keydown', 'ArrowUp');
+    frame();
+    key('keyup', 'ArrowUp');
+    for (let i = 0; i < 4; i++) frame();
+    expect(store.getState().pumpCount).toBe(1);
+    // Pause freezes the coach with the sim.
+    game.pause();
+    const phase = game.coach.state.beatPhase;
+    for (let i = 0; i < 20; i++) frame();
+    expect(game.coach.state.beatPhase).toBe(phase);
+    game.resume();
+    for (let i = 0; i < 60 * 12 && store.getState().phase !== 'results'; i++) frame();
+    expect(store.getState()).toMatchObject({ phase: 'results', pumpPrompt: false });
+
+    store.setState({ guide: false });
+    game.start('right');
+    for (let i = 0; i < 60 * 12 && store.getState().phase === 'playing'; i++) {
+      frame();
+      expect(store.getState().pumpPrompt).toBe(false);
+    }
+    expect(store.getState().phase).toBe('results');
+    game.dispose();
+  });
+
   it('dispose during load does not attach the character or leave the title phase', async () => {
     const store = createSurfStore();
     const game = new SurfGame(canvas, store);

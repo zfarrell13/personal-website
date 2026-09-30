@@ -41,6 +41,12 @@ export interface SurfHudState {
   underwater: boolean;
   /** A fast section is on: the HUD shows ⚡ FAST SECTION. */
   fastSection: boolean;
+  /** GUIDE option (title menu): the in-game coach may prompt. */
+  guide: boolean;
+  /** The coach's "▲ PUMP!" prompt is up. */
+  pumpPrompt: boolean;
+  /** Pumps landed this run: the prompt re-pops (and its beat restarts) on each. */
+  pumpCount: number;
 }
 
 export type SurfStore = StoreApi<SurfHudState>;
@@ -58,6 +64,9 @@ export const INITIAL_HUD: SurfHudState = {
   run: null,
   underwater: false,
   fastSection: false,
+  guide: true,
+  pumpPrompt: false,
+  pumpCount: 0,
 };
 
 /** Vanilla (React-free) store; the engine writes, HUD components read via `useStore`. */

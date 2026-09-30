@@ -64,6 +64,40 @@ test.describe('surf game', () => {
     await page.waitForFunction(() => window.__surf?.phase === 'playing');
   });
 
+  test('coach: with no input the ▲ PUMP prompt pops up before the curl catches the rider', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await dropIn(page);
+    const prompt = page.getByTestId('coach-pump');
+    await expect(prompt).toBeVisible({ timeout: 30_000 });
+    await expect(prompt).toContainText('▲ PUMP! Press ↑');
+    const hook = await page.evaluate(() => ({ show: window.__surf!.coach.show, mode: window.__surf!.mode }));
+    expect(hook).toEqual({ show: true, mode: 'riding' });
+    expect(errors()).toEqual([]);
+  });
+
+  test('coach: GUIDE OFF in the title menu (persisted) means no prompt for the whole ride', async ({ page }) => {
+    await page.goto('/surf');
+    const off = page.getByRole('button', { name: 'GUIDE OFF' });
+    await expect(page.getByRole('button', { name: 'GUIDE ON' })).toHaveAttribute('aria-pressed', 'true');
+    await off.click();
+    await expect(off).toHaveAttribute('aria-pressed', 'true');
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'GUIDE OFF' })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'DROP IN' }).click();
+    await page.waitForFunction(() => window.__surf?.phase === 'playing');
+    // Ride with no input until the curl catches the rider, watching every frame for the prompt.
+    const everShown = await page.evaluate(async () => {
+      let shown = false;
+      while (window.__surf?.phase === 'playing') {
+        shown ||= window.__surf.coach.show || document.querySelector('[data-testid="coach-pump"]') !== null;
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+      return shown;
+    });
+    expect(everShown).toBe(false);
+    await expect(page.getByText(/SWALLOWED BY THE BARREL/)).toBeVisible();
+  });
+
   test('stays inside the draw-call and triangle budget', async ({ page }) => {
     await dropIn(page);
     const f0 = await page.evaluate(() => window.__surf!.frames);
