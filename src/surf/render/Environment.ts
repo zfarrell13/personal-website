@@ -31,7 +31,7 @@ import { retroMaterial } from '@/retro/retroMaterial';
 import { FOG_CONFIG } from '../config';
 import { smoothstep } from '../math/scalar';
 import { REEF_TILES, scrollWrap } from './scroll';
-import { createSkyMaterial } from './sky';
+import { createSkyMaterial, seaReflection } from './sky';
 import { makeRadialTexture } from './textures';
 import { OCEAN_EXTENT } from './waveGeometry';
 
@@ -174,15 +174,19 @@ export class Environment {
     // Islands with palms, merged into one mesh (one draw call).
     const parts: BufferGeometry[] = [];
     const islands: Array<[number, number, number, number]> = [
-      [-260, -430, 110, 38],
-      [60, -520, 150, 52],
-      [340, -460, 80, 26],
+      // Close enough (≈ 250–400 m) to read as hazy silhouettes through the fog.
+      [-260, -340, 110, 38],
+      [60, -400, 150, 52],
+      [340, -360, 80, 26],
     ];
     islands.forEach(([x, z, r, h], k) => {
       const cone = new ConeGeometry(r, h, 9, 2).translate(x, h / 2 - 2, z);
       const pos = cone.getAttribute('position');
       for (let i = 0; i < pos.count; i++) {
-        if (pos.getY(i) > 0 && pos.getY(i) < h - 3) pos.setXYZ(i, pos.getX(i) + (hash(i, k) - 0.5) * r * 0.25, pos.getY(i) * (0.7 + hash(k, i) * 0.4), pos.getZ(i));
+        // Jitter keyed by position, not vertex index: the cone's duplicated seam vertices move together (no crack).
+        const [px, py, pz] = [pos.getX(i), pos.getY(i), pos.getZ(i)];
+        const key = Math.round(px * 10) * 31 + Math.round(pz * 10) + Math.round(py * 10) * 7;
+        if (py > 0 && py < h - 3) pos.setXYZ(i, px + (hash(key, k) - 0.5) * r * 0.25, py * (0.7 + hash(k, key) * 0.4), pz);
       }
       parts.push(paint(cone, (_x, y, _z, c) => c.set(y < 3 ? '#e6d3a0' : y < h * 0.6 ? '#2f7a3a' : '#4d5b3a')));
       for (let p = 0; p < 3; p++) {
@@ -236,6 +240,8 @@ export class Environment {
     this.sun.visible = !on;
     this.scene.fog = on ? this.underwaterFog : this.fog;
     this.scene.background = on ? UNDERWATER_COLOR : this.background;
+    // From below, grazing water would mirror the (hidden) sky as a bright rim.
+    seaReflection.uReflect.value = on ? 0 : 1;
     if (on) for (const f of this.flares) f.visible = false;
   }
 
@@ -279,6 +285,7 @@ export class Environment {
   }
 
   dispose(): void {
+    seaReflection.uReflect.value = 1;
     for (const f of this.flares) this.camera.remove(f);
     this.scene.remove(this.sky, this.sunLight, this.hemi, this.sun, this.camera);
     if (this.scene.fog === this.fog || this.scene.fog === this.underwaterFog) this.scene.fog = null;

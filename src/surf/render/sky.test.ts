@@ -3,7 +3,7 @@ import { Color, Mesh, PerspectiveCamera, Scene, ShaderMaterial, SphereGeometry, 
 import { CAMERA_FAR } from '../camera/CameraRig';
 import { FOG_CONFIG } from '../config';
 import { Environment, SKY_RADIUS } from './Environment';
-import { SKY, skyColor, skyUniforms } from './sky';
+import { SKY, seaReflection, skyColor, skyUniforms } from './sky';
 import { injectWaveShader, makeFoamTexture } from './waveMaterial';
 
 const fogColor = new Color(FOG_CONFIG.color);
@@ -61,6 +61,8 @@ describe('sky dome, fog and water reflection agree', () => {
     injectWaveShader(shader as never, { uTime: { value: 0 }, uPeel: { value: 7 }, uFoamTex: { value: makeFoamTexture() }, uSSS: { value: new Vector3() } });
     expect(shader.uniforms.uHaze).toBe(skyUniforms.uHaze);
     expect(shader.uniforms.uHaze).toBe(mat.uniforms.uHaze);
+    expect(shader.uniforms.uReflect).toBe(seaReflection.uReflect);
+    expect(shader.fragmentShader).toContain('* uReflect');
     expect(shader.fragmentShader).toContain('skyGradient(dot(reflect(-V, N), up))');
     env.dispose();
   });

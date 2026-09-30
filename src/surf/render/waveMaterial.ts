@@ -1,6 +1,6 @@
 import { DataTexture, DoubleSide, MeshLambertMaterial, RepeatWrapping, RGBAFormat, Vector3, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
 import { retroMaterial, retroTexture } from '@/retro/retroMaterial';
-import { SKY_GLSL, skyUniforms } from './sky';
+import { SKY_GLSL, seaReflection, skyUniforms } from './sky';
 
 export interface WaveUniforms {
   uTime: { value: number };
@@ -11,10 +11,15 @@ export interface WaveUniforms {
 
 /**
  * Sky reflection (applied to the lit colour, before fog): the water mirrors the sky gradient with
- * Schlick's Fresnel, so it runs from its own colour underfoot to the sky's haze (= the fog colour)
- * at grazing angles near the horizon, and turns opaque as it does. A low-contrast swell modulates
- * the reflection; each wave fades out where it would alias (its phase changes too fast per pixel).
- * Foam doesn't reflect; the translucent face keeps most of its colour.
+ * Schlick's Fresnel and turns opaque at grazing angles and with distance. The reflection is partial
+ * on near water and on the wave body (so the sea and the wave keep their teal) and rises to full on
+ * grazing open sea and where the fog takes over, so the far sea runs into the haze (= the fog
+ * colour) with no line. Every factor grows toward the horizon, so the rows below it only brighten
+ * toward it (no band). A low-contrast, cross-hatched swell (diagonal crests, so it never lines up
+ * into horizontal bands) modulates the reflection on near water only; it fades by distance, and all
+ * at once where its phase would change too fast per pixel (low cameras), before it could alias.
+ * Foam doesn't reflect, the translucent face keeps most of its colour, and `uReflect` = 0 turns the
+ * reflection off (underwater cut).
  */
 const SKY_REFLECTION_GLSL = /* glsl */ `
   {
@@ -22,22 +27,34 @@ const SKY_REFLECTION_GLSL = /* glsl */ `
     vec3 N = normalize(normal);
     float ndv = clamp(abs(dot(N, V)), 0.0, 1.0);
     float fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
-    float p1 = dot(vSea, vec2(0.03, 0.19)) + uTime * 0.9;
-    float p2 = dot(vSea, vec2(-0.1, 0.12)) - uTime * 0.7;
-    float swell = 0.6 * sin(p1) * (1.0 - smoothstep(0.1, 0.8, fwidth(p1))) + 0.4 * sin(p2) * (1.0 - smoothstep(0.1, 0.8, fwidth(p2)));
-    fres = clamp(fres * (1.0 + 0.2 * swell), 0.0, 1.0) * (1.0 - clamp(vFoam, 0.0, 1.0)) * (1.0 - 0.6 * vFace);
+    float p1 = dot(vSea, vec2(0.16, 0.2)) + uTime * 0.9;
+    float p2 = dot(vSea, vec2(-0.19, 0.15)) - uTime * 0.7;
+    float swellAmp = (1.0 - smoothstep(10.0, 45.0, length(vViewPosition))) * (1.0 - smoothstep(0.3, 1.2, max(fwidth(p1), fwidth(p2))));
+    float swell = (0.6 * sin(p1) + 0.4 * sin(p2)) * swellAmp;
+    float farSea = 1.0;
+    #ifdef USE_FOG
+      farSea = smoothstep(0.5 * fogNear, fogFar, vFogDepth);
+    #endif
+    float body = smoothstep(0.15, 1.0, vHeight);
+    // Full strength near the horizon on the open sea (grazing), or wherever the fog takes over.
+    float grazing = smoothstep(0.5, 0.97, fres) * (1.0 - body);
+    float strength = mix(0.45 * (1.0 - 0.7 * body), 1.0, max(farSea, grazing));
+    float clean = 1.0 - clamp(vFoam, 0.0, 1.0);
+    // Grazing and distant water is opaque (little light gets back out), however much sky it shows:
+    // the reef shows through near the rider but doesn't smear across the mid-distance.
+    diffuseColor.a = mix(diffuseColor.a, 1.0, max(fres, smoothstep(8.0, 35.0, length(vViewPosition))) * clean);
+    float refl = clamp(fres * (1.0 + 0.25 * swell), 0.0, 1.0) * strength * clean * (1.0 - 0.6 * vFace) * uReflect;
     vec3 up = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
     vec3 sky = skyGradient(dot(reflect(-V, N), up));
-    outgoingLight = mix(outgoingLight, sky, fres);
-    diffuseColor.a = mix(diffuseColor.a, 1.0, fres);
+    outgoingLight = mix(outgoingLight, sky, refl);
   }
 `;
 
 /** Inject ripple, foam scrolling, fake subsurface and sky reflection into a Lambert shader. Pure string surgery (unit-tested). */
 export function injectWaveShader(shader: Pick<WebGLProgramParametersWithUniforms, 'uniforms' | 'vertexShader' | 'fragmentShader'>, u: WaveUniforms): void {
-  Object.assign(shader.uniforms, u, skyUniforms);
+  Object.assign(shader.uniforms, u, skyUniforms, seaReflection);
   shader.vertexShader =
-    'uniform float uTime;\nuniform float uPeel;\nattribute float aFoam;\nattribute float aFace;\nvarying float vFoam;\nvarying float vFace;\nvarying vec2 vFoamUv;\nvarying vec2 vSea;\n' +
+    'uniform float uTime;\nuniform float uPeel;\nattribute float aFoam;\nattribute float aFace;\nvarying float vFoam;\nvarying float vFace;\nvarying vec2 vFoamUv;\nvarying vec2 vSea;\nvarying float vHeight;\n' +
     shader.vertexShader.replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
@@ -45,10 +62,11 @@ export function injectWaveShader(shader: Pick<WebGLProgramParametersWithUniforms
   vFoam = aFoam;
   vFace = aFace;
   vSea = position.xz;
+  vHeight = position.y;
   vFoamUv = vec2((position.x + uTime * uPeel) / 7.0, uv.y * 9.0 + position.z * 0.05);`,
     );
   shader.fragmentShader =
-    'uniform sampler2D uFoamTex;\nuniform vec3 uSSS;\nuniform float uTime;\nvarying float vFoam;\nvarying float vFace;\nvarying vec2 vFoamUv;\nvarying vec2 vSea;\n' +
+    'uniform sampler2D uFoamTex;\nuniform vec3 uSSS;\nuniform float uTime;\nuniform float uReflect;\nvarying float vFoam;\nvarying float vFace;\nvarying vec2 vFoamUv;\nvarying vec2 vSea;\nvarying float vHeight;\n' +
     SKY_GLSL +
     shader.fragmentShader
       .replace(

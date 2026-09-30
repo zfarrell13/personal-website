@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { DEFAULT_RETRO } from '../../src/retro/RetroRenderer';
+import { FOG_CONFIG } from '../../src/surf/config';
 import { trackConsoleErrors } from './helpers';
 
 async function dropIn(page: Page) {
@@ -85,13 +87,13 @@ test.describe('surf game', () => {
     expect(Math.max(...samples.map((s) => s.triangles))).toBeLessThan(150_000);
   });
 
-  test('the horizon is seamless: no luminance step where the sea meets the sky', async ({ page }) => {
+  test('the horizon is seamless: sea fades into the fog-coloured haze with no step, band or dip', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/surf?debug');
     await page.getByRole('button', { name: 'DROP IN' }).click();
     await page.waitForFunction(() => window.__surf?.phase === 'playing');
     await page.getByTestId('debug-panel').evaluate((el) => ((el as HTMLElement).style.display = 'none'));
-    // Low free camera behind the wave looking straight out to sea: the horizon crosses mid-frame.
+    // Low, level free camera behind the wave looking straight out to sea: the horizon is at mid-frame (row ≈ 360).
     await page.evaluate(() => {
       window.__surfCam = { pos: [40, 3, -15], look: [40, 2.6, -300] };
     });
@@ -99,9 +101,8 @@ test.describe('surf game', () => {
     const f0 = await page.evaluate(() => window.__surf!.frames);
     await page.waitForFunction((f) => (window.__surf?.frames ?? 0) > f + 20, f0);
     const png = (await page.screenshot()).toString('base64');
-    // Mean luminance of each row over the middle of the frame (clear of the HUD), smoothed over the
-    // 4-row dither period; the largest change across 4 rows is the hardest edge in the gradient.
-    const step = await page.evaluate(async (b64) => {
+    // Mean colour of each row over the middle of the frame (clear of the HUD), rows 150–600.
+    const rows = await page.evaluate(async (b64) => {
       const img = new Image();
       img.src = `data:image/png;base64,${b64}`;
       await img.decode();
@@ -111,22 +112,58 @@ test.describe('surf game', () => {
       const ctx = c.getContext('2d')!;
       ctx.drawImage(img, 0, 0);
       const { data, width } = ctx.getImageData(0, 0, img.width, img.height);
-      const rows: number[] = [];
+      const out: [number, number, number][] = [];
       for (let y = 150; y < 600; y++) {
-        let s = 0;
-        for (let x = 100; x < 900; x++) {
-          const i = (y * width + x) * 4;
-          s += 0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!;
-        }
-        rows.push(s / 800);
+        const m: [number, number, number] = [0, 0, 0];
+        for (let x = 100; x < 900; x++) for (let k = 0; k < 3; k++) m[k] += data[(y * width + x) * 4 + k]! / 800;
+        out.push(m);
       }
-      const smooth = rows.map((_, i) => (rows[Math.max(0, i - 2)]! + rows[Math.max(0, i - 1)]! + rows[i]! + rows[Math.min(rows.length - 1, i + 1)]!) / 4);
-      let max = 0;
-      for (let i = 4; i < smooth.length; i++) max = Math.max(max, Math.abs(smooth[i]! - smooth[i - 4]!));
-      return max;
+      return out;
     }, png);
-    // The old hard horizon (dark sea straight into a pale band) stepped ≈ 40 here; a soft haze is ≈ 10.
+    const Y0 = 150;
+    const lum = rows.map(([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b);
+    // Smoothed over the 4-row Bayer dither period.
+    const sm = lum.map((_, i) => (lum[Math.max(0, i - 2)]! + lum[Math.max(0, i - 1)]! + lum[i]! + lum[Math.min(lum.length - 1, i + 1)]!) / 4);
+
+    // Sanity (a blank or wrong frame fails): real contrast; sky-blue at the top; the brightest row near
+    // mid-frame is the haze, which is the fog colour as the retro output pass shows it.
+    expect(Math.max(...sm) - Math.min(...sm)).toBeGreaterThan(60);
+    const [tr, tg, tb] = rows[0]!;
+    expect(tb).toBeGreaterThan(tr + 60);
+    let h = 340 - Y0;
+    for (let i = 340 - Y0; i <= 380 - Y0; i++) if (sm[i]! > sm[h]!) h = i;
+    const fog = FOG_CONFIG.color.match(/[0-9a-f]{2}/gi)!.map((x) => {
+      const c = parseInt(x, 16) / 255;
+      const linear = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      return 255 * linear ** (1 / (2.2 * DEFAULT_RETRO.gammaLift));
+    });
+    rows[h]!.forEach((v, k) => expect(Math.abs(v - fog[k]!)).toBeLessThan(20));
+
+    // Below the horizon the sea only darkens toward the camera …
+    let min = sm[h]!;
+    let rise = 0;
+    for (let i = h + 1; i < sm.length; i++) {
+      rise = Math.max(rise, sm[i]! - min);
+      min = Math.min(min, sm[i]!);
+    }
+    expect(rise).toBeLessThan(2);
+    // … gradually (the old hard horizon stepped ≈ 40 across 4 rows) …
+    let step = 0;
+    for (let i = h + 4; i < sm.length; i++) step = Math.max(step, sm[i - 4]! - sm[i]!);
     expect(step).toBeLessThan(20);
+    // … and without a band: a plateau where the darkening stalls and then resumes (slope over 6 rows
+    // dropping below 35 % of the slopes on both sides of it).
+    const S = 6;
+    const slope: number[] = [];
+    for (let i = h; i + S < sm.length; i++) slope.push(sm[i]! - sm[i + S]!);
+    const before = slope.map((_, j) => Math.max(...slope.slice(0, j + 1)));
+    const after = slope.map((_, j) => Math.max(...slope.slice(j)));
+    let band = 0;
+    for (let j = 1; j < slope.length - 1; j++) {
+      const around = Math.min(before[j - 1]!, after[j + 1]!);
+      if (around > 4 && slope[j]! < 0.35 * around) band = Math.max(band, around - slope[j]!);
+    }
+    expect(band).toBeLessThan(3);
   });
 
   test('?debug shows the live tuning panel', async ({ page }) => {

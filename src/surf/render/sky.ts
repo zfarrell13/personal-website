@@ -9,8 +9,8 @@ import { smoothstep } from '../math/scalar';
  */
 export const SKY = {
   haze: new Color(FOG_CONFIG.color),
-  low: new Color('#86bdf6'),
-  zenith: new Color('#2f6fe0'),
+  low: new Color('#62bdf0'),
+  zenith: new Color('#2b76df'),
   /** Warm glow around the low sun (added; fades out toward the horizon so the haze stays the fog colour). */
   sunGlow: new Color('#ffcf94'),
 };
@@ -20,7 +20,11 @@ const ZENITH_FROM = 0.25;
 /** The sun glow is gone at the horizon and full this high. */
 const GLOW_FADE = 0.15;
 
-/** CPU twin of `skyGradient` in SKY_GLSL (same formula, same colours). */
+/**
+ * CPU twin of `skyGradient` in SKY_GLSL below: same formula, same constants, same colours. Change
+ * one, change both (sky.test pins the horizon identity on this side; the GLSL gets the same
+ * uniform objects and the constants are interpolated from HAZE_TOP / ZENITH_FROM).
+ */
 export function skyColor(e: number, out = new Color()): Color {
   const h = Math.max(e, 0);
   return out.copy(SKY.haze).lerp(SKY.low, smoothstep(0, HAZE_TOP, h)).lerp(SKY.zenith, smoothstep(ZENITH_FROM, 1, h));
@@ -33,6 +37,10 @@ export const skyUniforms = {
   uZenith: { value: SKY.zenith },
 };
 
+/** How much the water reflects the sky (waveMaterial): 1 above water, 0 in the underwater cut (Environment). */
+export const seaReflection = { uReflect: { value: 1 } };
+
+/** GPU twin of `skyColor` above — keep the two formulas identical. */
 export const SKY_GLSL = /* glsl */ `
 uniform vec3 uHaze;
 uniform vec3 uSkyLow;

@@ -206,4 +206,4 @@ export const bumpConfig = (): void => {
 };
 
 /** Scene fog — single source shared by Environment and SurfGame. */
-export const FOG_CONFIG = { color: '#b4d6f2', near: 60, far: 520 } as const;
+export const FOG_CONFIG = { color: '#a6dcec', near: 110, far: 560 } as const;

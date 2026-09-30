@@ -4,9 +4,22 @@ import { CAMERA_FAR } from '../camera/CameraRig';
 import { FOG_CONFIG, SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
 import { Environment } from './Environment';
+import { seaReflection } from './sky';
 import { buildWaveGeometry, columnsX } from './waveGeometry';
 
 describe('Environment underwater cut', () => {
+  it('turns the water\'s sky reflection off underwater (no bright rim from below) and back on', () => {
+    const env = new Environment(new Scene(), new PerspectiveCamera(60, 1, 0.1, 650));
+    expect(seaReflection.uReflect.value).toBe(1);
+    env.setUnderwater(true);
+    expect(seaReflection.uReflect.value).toBe(0);
+    env.setUnderwater(false);
+    expect(seaReflection.uReflect.value).toBe(1);
+    env.setUnderwater(true);
+    env.dispose();
+    expect(seaReflection.uReflect.value).toBe(1);
+  });
+
   it('swaps to the underwater fog/background, hides the sky and sun, and restores them', () => {
     const scene = new Scene();
     const camera = new PerspectiveCamera(60, 1, 0.1, 650);
@@ -80,10 +93,9 @@ describe('horizon: the ocean never ends in view', () => {
     expect(fog99).toBeLessThan(CAMERA_FAR);
   });
 
-  it.each([
-    ['desktop', SURF_CONFIG.mesh.columns, SURF_CONFIG.mesh.rows],
-    ['phone', 112, 44],
-  ] as const)('the ocean (%s mesh) and the sea floor extend past full fog in every direction', (_n, columns, rows) => {
+  // Mesh density doesn't move the ocean's outer edge, so one (desktop) mesh covers the phone too.
+  it('the ocean and the sea floor extend past full fog in every direction', () => {
+    const { columns, rows } = SURF_CONFIG.mesh;
     const ocean = buildWaveGeometry(new WaveShape(params), columnsX(columns, params.xMin, params.xMax), rows);
     ocean.computeBoundingBox();
     expect(nearestEdge(ocean.boundingBox!) * cosCorner).toBeGreaterThan(fog99);
