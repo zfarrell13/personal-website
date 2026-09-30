@@ -2,19 +2,34 @@ import { BufferAttribute, BufferGeometry, Color, Vector3 } from 'three';
 import { clamp, smoothstep } from '../math/scalar';
 import type { WaveShape } from '../wave/WaveShape';
 
-/** Flat sea strip in front of the trough (m toward shore). */
-export const FRONT_SKIRT = 60;
-/** Back-of-wave rows: [z offset in H, y as a fraction of crest height]. */
+/** The open sea: colour and opacity of flat water. The wave's trough, the flats and the far sea all use it. */
+export const SEA = { color: new Color('#0b4f5c'), alpha: 0.62 };
+/** Half-size of the ocean surface (m): well past the fog and the camera far plane, so no edge is ever seen. */
+export const OCEAN_EXTENT = 700;
+/** Flat rows toward shore, metres beyond the trough (t = 0); the outermost row sits at +OCEAN_EXTENT. */
+const FRONT_FLATS = [48, 24, 10, 4];
+/** How much of the trough's whitewater reaches each front flat row (it spreads out and fades). */
+const FRONT_FOAM = [0, 0.05, 0.2, 0.5];
+/** Back of the wave from the top of the lip: [z offset in H, y as a fraction of the top]. Close to SWELL's own back. */
 const BACK_PROFILE: ReadonlyArray<readonly [number, number]> = [
-  [0, 1],
-  [-0.6, 0.75],
-  [-1.4, 0.35],
-  [-3, 0],
-  [-40, 0],
+  [-0.35, 0.93],
+  [-0.8, 0.78],
+  [-1.4, 0.55],
+  [-2.1, 0.28],
+  [-2.8, 0.08],
+  [-3.5, 0],
 ];
+/** Flat rows seaward of the back (m beyond its foot); the outermost row sits at −OCEAN_EXTENT. */
+const BACK_FLATS = [8, 25];
+/** Samples along the lip top, from the tip back over the crest. */
+const LIP_SAMPLES = 9;
+/** Lip thickness (m) at its thickest; it thins to nothing at the tip. */
+const LIP_THICKNESS = 0.35;
+/** Columns past the ridden x range where the wave eases down to flat sea (m beyond xMin / xMax). */
+const EASE_BEHIND = [45, 25, 12, 5];
+const EASE_AHEAD = [6, 16, 32, 55];
 
 export const WAVE_COLORS = {
-  trough: new Color('#0b4f5c'),
   face: new Color('#1f9e8f'),
   light: new Color('#86e3c3'),
   crest: new Color('#e6fff6'),
@@ -53,34 +68,73 @@ export function columnsX(n: number, xMin: number, xMax: number): Float32Array {
 export function foamAt(shape: WaveShape, x: number, t: number, tc: number): number {
   const D = shape.params.tubeDepth;
   let foam = smoothstep(0, 2, -x - D);
-  if (t > tc) foam = Math.max(foam, 0.35 * shape.hollowness(x));
+  // The lip underside is clean water; spray only along its thin edge.
+  if (t > tc) foam = Math.max(foam, 0.35 * shape.hollowness(x) * smoothstep(0.75, 1, (t - tc) / Math.max(1e-6, 1 - tc)));
   foam = Math.max(foam, 0.25 * smoothstep(tc - 0.03, tc, t) * (1 - smoothstep(tc, tc + 0.02, t)));
   return clamp(foam, 0, 1);
 }
 
-/** Vertex color + alpha for the wave: teal trough → green face → white crest/foam. */
-export function waveVertexColor(y: number, crestY: number, t: number, tc: number, foam: number, out: Color): number {
+/**
+ * Vertex colour + alpha for the water: sea colour and opacity at sea level, green on the face, light
+ * near the top, a thin bright crest band, white foam. `lipS` ∈ [0, 1] runs along the lip underside
+ * from the crest to the tip: the thin edge is lighter and slightly translucent.
+ */
+export function waveVertexColor(y: number, crestY: number, t: number, tc: number, foam: number, out: Color, lipS = 0): number {
   const h = clamp(y / Math.max(crestY, 0.01), 0, 1);
-  out.copy(WAVE_COLORS.trough).lerp(WAVE_COLORS.face, smoothstep(0, 0.5, h));
+  out.copy(SEA.color).lerp(WAVE_COLORS.face, smoothstep(0, 0.5, h));
   out.lerp(WAVE_COLORS.light, smoothstep(0.5, 0.95, h));
-  out.lerp(WAVE_COLORS.crest, 0.8 * smoothstep(tc - 0.03, tc + 0.02, t));
+  out.lerp(WAVE_COLORS.crest, 0.7 * smoothstep(tc - 0.03, tc, t) * (1 - smoothstep(tc, tc + 0.05, t)));
+  if (lipS > 0) out.lerp(WAVE_COLORS.light, 0.5 * lipS);
   out.lerp(WAVE_COLORS.foam, foam);
-  return t < 0.05 ? 0.78 : 1;
+  const alpha = (SEA.alpha + (1 - SEA.alpha) * smoothstep(0, 0.12, h)) * (1 - 0.2 * smoothstep(0.7, 1, lipS));
+  return alpha + (1 - alpha) * foam; // whitewater is opaque
 }
 
-export interface WaveGeometryInfo {
+/** Row/column layout of the ocean grid (stored on `geometry.userData`). */
+export interface OceanLayout {
   columns: number;
   rows: number;
+  /** x of every column (the ridden columns plus the eased ends and the far sea). */
+  xs: Float32Array;
+  /** Profile parameter t of each vertex on the wave profile rows (NaN elsewhere). */
+  t: Float32Array;
+  /** Index of the first column of the ridden range (`xs` passed in). */
+  firstSimColumn: number;
+  /** First row of the profile (t = 0 … the drawn tip), the lip top (tip → over the crest) and the back (→ its foot at sea level). */
+  profileRow: number;
+  profileSamples: number;
+  lipRow: number;
+  lipSamples: number;
+  backRow: number;
+  backSamples: number;
+}
+
+/** Eases the wave to flat water beyond the ridden range: 1 inside [xMin, xMax], 0 at the outer eased columns. */
+function endEase(x: number, xMin: number, xMax: number): number {
+  if (x < xMin) return smoothstep(xMin - EASE_BEHIND[0]!, xMin, x);
+  if (x > xMax) return 1 - smoothstep(xMax, xMax + EASE_AHEAD[EASE_AHEAD.length - 1]!, x);
+  return 1;
 }
 
 /**
- * Builds the front surface: `rows` samples of t ∈ [0, 1] plus one flat skirt
- * row toward shore, for each column x. Winding faces the normal (Sx × St).
- * Attributes: position, normal, color (RGBA), uv (x, t), aFoam, aFace.
+ * The whole ocean as ONE surface (one material, one draw call): for each column x, a strip from
+ * the far sea toward shore, over the flats into the trough, up the face (the physics profile),
+ * along the underside of the lip to its tip, back over the lip top (the lip has thickness), down
+ * the back of the wave and out to the far sea behind. Columns continue past the ridden range,
+ * easing the wave down to flat sea, out to the far sea at ±OCEAN_EXTENT. Flat water everywhere is
+ * exactly sea level, faces up and has the sea colour and opacity — there is no seam to see.
+ * Winding faces the normal (Sx × St). Attributes: position, normal, color (RGBA), uv (x, t), aFoam, aFace.
  */
 export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: number, geo = new BufferGeometry()): BufferGeometry {
-  const cols = xs.length;
-  const R = rows + 1;
+  const { xMin, xMax, tubeDepth: D, height: H } = shape.params;
+  const colX = [-OCEAN_EXTENT, ...EASE_BEHIND.map((d) => xMin - d), ...xs, ...EASE_AHEAD.map((d) => xMax + d), OCEAN_EXTENT];
+  const firstSim = 1 + EASE_BEHIND.length;
+  const F = 1 + FRONT_FLATS.length;
+  const P = rows;
+  const K = LIP_SAMPLES;
+  const B = BACK_PROFILE.length;
+  const R = F + P + K + B + BACK_FLATS.length + 1;
+  const cols = colX.length;
   const count = cols * R;
   const pos = new Float32Array(count * 3);
   const nor = new Float32Array(count * 3);
@@ -88,33 +142,116 @@ export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: numb
   const uv = new Float32Array(count * 2);
   const foamA = new Float32Array(count);
   const faceA = new Float32Array(count);
+  const tA = new Float32Array(count).fill(NaN);
   const p = new Vector3();
   const n = new Vector3();
   const c = new Color();
-  for (let i = 0; i < cols; i++) {
-    const x = xs[i]!;
-    const tc = shape.crestT(x);
-    const cy = shape.crestY(x);
-    for (let r = 0; r < R; r++) {
-      const v = i * R + r;
-      const t = r === 0 ? 0 : (r - 1) / (rows - 1);
-      shape.profile(x, t, p);
-      if (r === 0) {
-        p.z += FRONT_SKIRT;
-        n.set(0, 1, 0);
-      } else {
-        shape.normal(x, t, n);
-      }
-      const foam = r === 0 ? 0 : foamAt(shape, x, t, tc);
-      const alpha = waveVertexColor(p.y, cy, t, tc, foam, c);
-      pos.set([p.x, p.y, p.z], v * 3);
+  const up = new Vector3(0, 1, 0);
+  const crest = new Vector3();
+  const tip = new Vector3();
+  const put = (v: number, x: number, y: number, z: number, foam: number, face: number, uvy: number, alpha: number) => {
+    pos[v * 3] = x;
+    pos[v * 3 + 1] = y;
+    pos[v * 3 + 2] = z;
+    col[v * 4] = c.r;
+    col[v * 4 + 1] = c.g;
+    col[v * 4 + 2] = c.b;
+    col[v * 4 + 3] = alpha;
+    uv[v * 2] = x;
+    uv[v * 2 + 1] = uvy;
+    foamA[v] = foam;
+    faceA[v] = face;
+  };
+  const sea = (v: number, x: number, z: number, foam = 0) => {
+    c.copy(SEA.color).lerp(WAVE_COLORS.foam, foam);
+    put(v, x, 0, z, foam, 0, 0, SEA.alpha + (1 - SEA.alpha) * foam);
+    nor.set([0, 1, 0], v * 3);
+  };
+
+  for (let i = 1; i < cols - 1; i++) {
+    const x = colX[i]!;
+    const xc = clamp(x, xMin, xMax);
+    const e = endEase(x, xMin, xMax);
+    const tc = shape.crestT(xc);
+    const cy = shape.crestY(xc) * e;
+    const hollow = shape.hollowness(xc);
+    shape.profile(xc, tc, crest);
+    shape.profile(xc, 1, tip);
+    // The lip is drawn (and has a top) only while its tip is thrown out in front of the crest.
+    const lipOut = smoothstep(0.05 * H, 0.5 * H, tip.z - crest.z);
+    // The lip thickens as it pitches: a feathering crest is thin, the barrel's lip a real slab.
+    const slab = LIP_THICKNESS * lipOut * smoothstep(0.25, 0.8, hollow);
+    const tEnd = tc + (1 - tc) * lipOut;
+    const base = i * R;
+    const z0 = shape.profile(xc, 0, p).z;
+    const troughFoam = foamAt(shape, xc, 0, tc) * e;
+
+    // Flats toward shore.
+    sea(base, x, OCEAN_EXTENT);
+    FRONT_FLATS.forEach((dz, k) => sea(base + 1 + k, x, z0 + dz, troughFoam * FRONT_FOAM[k]!));
+
+    // The face and the lip underside: the physics profile.
+    for (let r = 0; r < P; r++) {
+      const v = base + F + r;
+      const t = (tEnd * r) / (P - 1);
+      shape.profile(xc, t, p);
+      p.y *= e;
+      shape.normal(xc, t, n);
+      n.lerp(up, 1 - e * smoothstep(0, 0.08, t)).normalize();
+      const lipS = t > tc ? (t - tc) / (1 - tc) : 0;
+      const foam = foamAt(shape, xc, t, tc) * e;
+      const alpha = waveVertexColor(p.y, cy, t, tc, foam, c, lipS);
+      const face = smoothstep(0.15, 0.6, clamp(p.y / Math.max(cy, 0.01), 0, 1)) * (1 - foam) * (t <= tc ? 1 : 0.4 + 0.5 * lipS);
+      put(v, x, p.y, p.z, foam, face, t, alpha);
       nor.set([n.x, n.y, n.z], v * 3);
-      col.set([c.r, c.g, c.b, r === 0 ? 0.72 : alpha], v * 4);
-      uv.set([x, t], v * 2);
-      foamA[v] = foam;
-      faceA[v] = smoothstep(0.15, 0.6, clamp(p.y / Math.max(cy, 0.01), 0, 1)) * (1 - foam) * (t <= tc ? 1 : 0.4);
+      tA[v] = t;
     }
+
+    // The lip top: from the drawn tip back over the crest, a slab LIP_THICKNESS thick at most.
+    for (let k = 0; k < K; k++) {
+      const v = base + F + P + k;
+      const t = tEnd - ((tEnd - tc) * k) / (K - 1);
+      const s = (t - tc) / Math.max(1e-6, tEnd - tc);
+      const thick = slab * (0.3 + 0.7 * smoothstep(0, 0.35, s)) * (1 - s) ** 0.6;
+      shape.profile(xc, t, p);
+      shape.normal(xc, t, n);
+      p.addScaledVector(n, -thick);
+      p.y *= e;
+      // Coloured like the face at the same height (no crest band), a little whitewater on top.
+      const foam = 0.15 * hollow * lipOut * e;
+      const alpha = waveVertexColor(p.y, cy, -1, tc, foam, c) * (1 - 0.2 * smoothstep(0.7, 1, s) * lipOut);
+      put(v, x, p.y, p.z, foam, 0, t, alpha);
+    }
+
+    // Down the back of the wave to sea level, then flats out to the far sea.
+    const top = base + F + P + K - 1;
+    const sy = pos[top * 3 + 1]!;
+    const sz = pos[top * 3 + 2]!;
+    const whitewater = smoothstep(0, 2, -xc - D) * e;
+    BACK_PROFILE.forEach(([dz, fy], j) => {
+      const y = sy * fy;
+      const h = clamp(y / Math.max(cy, 0.01), 0, 1);
+      const foam = whitewater * smoothstep(0, 0.4, h);
+      c.copy(SEA.color)
+        .lerp(WAVE_COLORS.back, smoothstep(0, 0.6, h))
+        .lerp(WAVE_COLORS.foam, foam);
+      const alpha = SEA.alpha + (1 - SEA.alpha) * smoothstep(0, 0.12, h);
+      put(base + F + P + K + j, x, y, sz + dz * H, foam, 0, 1 + 0.1 * (j + 1), alpha + (1 - alpha) * foam);
+    });
+    const foot = sz + BACK_PROFILE[B - 1]![0] * H;
+    BACK_FLATS.forEach((dz, k) => sea(base + F + P + K + B + k, x, foot - dz));
+    sea(base + R - 1, x, -OCEAN_EXTENT);
   }
+
+  // The far sea at both ends: flat copies of the neighbouring (already flat) column.
+  for (const [i, from] of [
+    [0, 1],
+    [cols - 1, cols - 2],
+  ] as const) {
+    for (let r = 0; r < R; r++) sea(i * R + r, colX[i]!, pos[(from * R + r) * 3 + 2]!);
+  }
+
+  columnNormals(pos, nor, cols, R, F, F + P);
   geo.setAttribute('position', new BufferAttribute(pos, 3));
   geo.setAttribute('normal', new BufferAttribute(nor, 3));
   geo.setAttribute('color', new BufferAttribute(col, 4));
@@ -123,34 +260,49 @@ export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: numb
   geo.setAttribute('aFace', new BufferAttribute(faceA, 1));
   geo.setIndex(gridIndex(cols, R));
   geo.computeBoundingSphere();
+  const layout: OceanLayout = {
+    columns: cols,
+    rows: R,
+    xs: Float32Array.from(colX),
+    t: tA,
+    firstSimColumn: firstSim,
+    profileRow: F,
+    profileSamples: P,
+    lipRow: F + P,
+    lipSamples: K,
+    backRow: F + P + K,
+    backSamples: B,
+  };
+  geo.userData = layout;
   return geo;
 }
 
-/** Back of the wave (render-only): from the crest down to flat sea behind. */
-export function buildBackGeometry(shape: WaveShape, xs: Float32Array, geo = new BufferGeometry()): BufferGeometry {
-  const cols = xs.length;
-  const R = BACK_PROFILE.length;
-  const H = shape.params.height;
-  const pos = new Float32Array(cols * R * 3);
-  const col = new Float32Array(cols * R * 3);
-  const p = new Vector3();
+/**
+ * Normals for every row outside the profile rows [p0, p1) (those carry the physics normal):
+ * perpendicular to the column's polyline in the z-y plane, same orientation as the profile
+ * (up on the flats, up/out on the lip top and the back). Sea-level vertices face straight up.
+ */
+function columnNormals(pos: Float32Array, nor: Float32Array, cols: number, R: number, p0: number, p1: number): void {
+  const at = (v: number, k: number) => pos[v * 3 + k]!;
   for (let i = 0; i < cols; i++) {
-    const x = xs[i]!;
-    shape.profile(x, shape.crestT(x), p);
     for (let r = 0; r < R; r++) {
-      const [dz, fy] = BACK_PROFILE[r]!;
+      if (r >= p0 && r < p1) continue;
       const v = i * R + r;
-      pos.set([x, p.y * fy - (r === 0 ? 0.02 : 0), p.z + dz * H], v * 3);
-      const k = 0.7 + 0.3 * fy;
-      col.set([WAVE_COLORS.back.r * k, WAVE_COLORS.back.g * k, WAVE_COLORS.back.b * k], v * 3);
+      if (Math.abs(at(v, 1)) < 1e-9) {
+        nor.set([0, 1, 0], v * 3);
+        continue;
+      }
+      // Nearest distinct neighbours along the column (collapsed lip rows share one point).
+      let a = r;
+      let b = r;
+      while (a > 0 && Math.hypot(at(i * R + a, 1) - at(v, 1), at(i * R + a, 2) - at(v, 2)) < 1e-4) a--;
+      while (b < R - 1 && Math.hypot(at(i * R + b, 1) - at(v, 1), at(i * R + b, 2) - at(v, 2)) < 1e-4) b++;
+      const dy = at(i * R + b, 1) - at(i * R + a, 1);
+      const dz = at(i * R + b, 2) - at(i * R + a, 2);
+      const len = Math.hypot(dy, dz) || 1;
+      nor.set([0, -dz / len, dy / len], v * 3);
     }
   }
-  geo.setAttribute('position', new BufferAttribute(pos, 3));
-  geo.setAttribute('color', new BufferAttribute(col, 3));
-  geo.setIndex(gridIndex(cols, R));
-  geo.computeVertexNormals();
-  geo.computeBoundingSphere();
-  return geo;
 }
 
 /** Two CCW triangles per quad for a (cols × rows) grid laid out column-major. */

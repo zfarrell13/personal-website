@@ -387,15 +387,16 @@ describe('SurfGame', () => {
         const built = vi.spyOn(WaveMesh.prototype, 'rebuild');
         const game = new SurfGame(canvas, createSurfStore());
         const mesh = built.mock.contexts[0] as WaveMesh;
-        const count = mesh.front.geometry.getAttribute('position').count;
+        const count = mesh.ocean.geometry.getAttribute('position').count;
         built.mockRestore();
         game.dispose();
         return count;
       };
-      expect(vertices(true)).toBe(112 * 45);
+      // The ocean grid adds 10 columns (eased ends + far sea) and 23 rows (flats, lip top, back) to columns × rows.
+      expect(vertices(true)).toBe((112 + 10) * (44 + 23));
       expect(SURF_CONFIG.mesh).toEqual({ columns: 112, rows: 44 });
-      expect(vertices(false)).toBe(160 * 65);
-      expect(vertices(null)).toBe(160 * 65);
+      expect(vertices(false)).toBe((160 + 10) * (64 + 23));
+      expect(vertices(null)).toBe((160 + 10) * (64 + 23));
     } finally {
       Object.assign(SURF_CONFIG.mesh, saved);
       delete (win as unknown as { matchMedia?: unknown }).matchMedia;

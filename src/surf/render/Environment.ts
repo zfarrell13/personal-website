@@ -29,6 +29,7 @@ import {
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { retroMaterial } from '@/retro/retroMaterial';
 import { FOG_CONFIG } from '../config';
+import { smoothstep } from '../math/scalar';
 import { REEF_TILES, scrollWrap } from './scroll';
 import { makeRadialTexture } from './textures';
 
@@ -36,6 +37,9 @@ export const FOG_COLOR = new Color(FOG_CONFIG.color);
 /** Wipeout cut: thick blue fog, no sky or sun. */
 export const UNDERWATER_COLOR = new Color('#0b3b66');
 const SUN_DIR = new Vector3(-0.62, 0.13, -0.77).normalize();
+/** Opaque sea floor under the translucent water, below the reef (reef tops at ≈ −2.4 m). */
+const SEA_FLOOR_Y = -4.3;
+const SEA_FLOOR_COLOR = new Color('#0a3a44');
 
 function paint(geo: BufferGeometry, fn: (x: number, y: number, z: number, out: Color) => void): BufferGeometry {
   const g = geo.index ? geo.toNonIndexed() : geo;
@@ -134,26 +138,27 @@ export class Environment {
     });
     scene.add(camera);
 
-    // Far sea (under/around the wave; the wave mesh covers the near field).
-    // Opacity 0.45 (ruling) so the reef shows through; the wave skirt is 0.72.
-    const sea = new Mesh(
-      new PlaneGeometry(1400, 1400, 1, 1).rotateX(-Math.PI / 2),
-      retroMaterial(new MeshLambertMaterial({ color: '#0e5a66', transparent: true, opacity: 0.45, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 }), { snap: false }),
-    );
-    sea.position.y = -0.08;
-    this.frameStuff.add(sea);
+    // The water surface is all the wave mesh (one ocean). Under it: an opaque sea floor, so the
+    // translucent water always has something below it (the reef shows through near shore).
+    const floor = new Mesh(new PlaneGeometry(1400, 1400, 1, 1).rotateX(-Math.PI / 2), retroMaterial(new MeshLambertMaterial({ color: SEA_FLOOR_COLOR }), { snap: false }));
+    floor.name = 'seaFloor';
+    floor.position.y = SEA_FLOOR_Y - 0.05;
+    this.frameStuff.add(floor);
 
     // Reef floor: two seamless tiles (periodic noise over the tile span).
     const TILE = REEF_TILES.tile;
+    // Its seaward and shoreward edges sink and fade into the sea floor (no hard edge under the water).
+    const reefEdge = (z: number) => smoothstep(70, 45, Math.abs(z));
     const reefGeo = paint(new PlaneGeometry(TILE, 140, 40, 24).rotateX(-Math.PI / 2), (x, _y, z, c) => {
       const n = 0.5 + 0.25 * Math.sin((x / TILE) * Math.PI * 2 * 3 + z * 0.1) + 0.25 * Math.sin((x / TILE) * Math.PI * 2 * 7 + z * 0.23);
-      c.set(n > 0.62 ? '#b86a5c' : n > 0.4 ? '#d9c28f' : '#3c6e63');
+      c.set(n > 0.62 ? '#b86a5c' : n > 0.4 ? '#d9c28f' : '#3c6e63').lerp(SEA_FLOOR_COLOR, 1 - reefEdge(z));
     });
     const reefPos = reefGeo.getAttribute('position');
     for (let i = 0; i < reefPos.count; i++) {
       const x = reefPos.getX(i);
       const z = reefPos.getZ(i);
-      reefPos.setY(i, -3.2 + 0.8 * Math.sin((x / TILE) * Math.PI * 2 * 5) * Math.cos(z * 0.15));
+      const y = -3.2 + 0.8 * Math.sin((x / TILE) * Math.PI * 2 * 5) * Math.cos(z * 0.15);
+      reefPos.setY(i, SEA_FLOOR_Y + (y - SEA_FLOOR_Y) * reefEdge(z));
     }
     reefGeo.computeVertexNormals();
     const reefMat = retroMaterial(new MeshLambertMaterial({ vertexColors: true }));
@@ -214,7 +219,7 @@ export class Environment {
     this.gulls.frustumCulled = false;
     this.frameStuff.add(this.gulls);
 
-    for (const obj of [this.sky, sea, islandMesh, pier, this.gulls]) {
+    for (const obj of [this.sky, floor, islandMesh, pier, this.gulls]) {
       const mesh = obj as unknown as { geometry?: { dispose(): void }; material?: { dispose(): void } };
       if (mesh.geometry) this.disposables.push(mesh.geometry);
       if (mesh.material) this.disposables.push(mesh.material);

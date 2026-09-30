@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PerspectiveCamera, Scene } from 'three';
+import { Mesh, PerspectiveCamera, Scene, type Material } from 'three';
 import { Environment } from './Environment';
 
 describe('Environment underwater cut', () => {
@@ -28,5 +28,21 @@ describe('Environment underwater cut', () => {
     env.setUnderwater(true);
     env.dispose();
     expect(scene.fog).toBeNull();
+  });
+});
+
+describe('Environment water', () => {
+  it('draws no water surface of its own (the wave mesh is the one ocean) and an opaque sea floor under it', () => {
+    const scene = new Scene();
+    const env = new Environment(scene, new PerspectiveCamera(60, 1, 0.1, 650));
+    const meshes: Mesh[] = [];
+    env.frameStuff.traverse((o) => {
+      if (o instanceof Mesh) meshes.push(o);
+    });
+    expect(meshes.filter((m) => (m.material as Material).transparent)).toEqual([]);
+    const floor = meshes.find((m) => m.name === 'seaFloor');
+    expect(floor).toBeDefined();
+    expect(floor!.position.y).toBeLessThan(-4);
+    env.dispose();
   });
 });

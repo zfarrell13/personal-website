@@ -28,7 +28,7 @@ export const SWELL: Section = [
   [-1.8, 0.4],
 ];
 
-/** x = 0 (h = 1): the lip has just started to pitch; tip hangs at 0.7 H. */
+/** x = 0 (h = 1): the lip has just started to pitch; the tip hangs at 0.88 H, well out — the open eye of the barrel. */
 export const BARREL_OPEN: Section = [
   [3.0, 0.0],
   [1.6, 0.05],
@@ -36,9 +36,22 @@ export const BARREL_OPEN: Section = [
   [0.35, 0.7],
   [0.25, 1.0],
   [0.55, 1.15],
-  [1.05, 1.02],
-  [1.45, 0.7],
+  [1.1, 1.06],
+  [1.55, 0.88],
 ];
+
+/**
+ * Lip points (indices 6, 7) of the feathering crest on the way from the swell to the barrel:
+ * a short lip just thrown past the crest. Ahead of the curl the lip recedes to this — up and
+ * back toward the crest — instead of sweeping the tip down across the face (which hung a
+ * curtain of water over the barrel's exit). Indices 0–5 keep the plain SWELL ↔ BARREL_OPEN blend.
+ */
+export const FEATHER_LIP: Section = [
+  [0.29, 1.01],
+  [0.49, 0.92],
+];
+/** Hollowness at which the lip is FEATHER_LIP (it grows from the swell's back below, pitches toward BARREL_OPEN above). */
+export const FEATHER_AT = 0.25;
 
 /** x = −D: the lip has landed in the trough in front of the face. */
 export const BARREL_CLOSED: Section = [

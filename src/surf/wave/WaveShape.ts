@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import type { WaveParams } from '../config';
 import { clamp, smoothstep } from '../math/scalar';
-import { BARREL_CLOSED, BARREL_OPEN, MOUND, SECTION_POINTS, SWELL, type Section } from './sections';
+import { BARREL_CLOSED, BARREL_OPEN, FEATHER_AT, FEATHER_LIP, MOUND, SECTION_POINTS, SWELL, type Section } from './sections';
 
 /** Surface parameters: x along the wave (m), t ∈ [0, 1] across the profile. */
 export interface WaveParam {
@@ -21,6 +21,24 @@ function blendInto(out: Float64Array, a: Section, b: Section, w: number): void {
     const pb = b[i]!;
     out[i * 2] = pa[0] + (pb[0] - pa[0]) * w;
     out[i * 2 + 1] = pa[1] + (pb[1] - pa[1]) * w;
+  }
+}
+
+/**
+ * Replaces the lip points (6, 7) of a SWELL ↔ BARREL_OPEN blend: swell back → FEATHER_LIP → open lip,
+ * so the tip rises and recedes toward the crest as hollowness fades instead of folding onto the face.
+ */
+function pitchLip(out: Float64Array, h: number): void {
+  for (let k = 0; k < FEATHER_LIP.length; k++) {
+    const i = SECTION_POINTS - FEATHER_LIP.length + k;
+    const f = FEATHER_LIP[k]!;
+    const feathering = h < FEATHER_AT;
+    const a = feathering ? SWELL[i]! : f;
+    const b = feathering ? f : BARREL_OPEN[i]!;
+    // Pitching (feather → open) is steep in hollowness (5th power): the lip only throws far out close to the curl, so the eye stays open.
+    const w = feathering ? h / FEATHER_AT : ((h - FEATHER_AT) / (1 - FEATHER_AT)) ** 5;
+    out[i * 2] = a[0] + (b[0] - a[0]) * w;
+    out[i * 2 + 1] = a[1] + (b[1] - a[1]) * w;
   }
 }
 
@@ -87,8 +105,11 @@ export class WaveShape {
       this.secC = p.collapseLength;
       out = this.pts;
     }
-    if (x >= 0) blendInto(out, SWELL, BARREL_OPEN, this.hollowness(x));
-    else if (x >= -p.tubeDepth) blendInto(out, BARREL_OPEN, BARREL_CLOSED, smoothstep(0, p.tubeDepth, -x));
+    if (x >= 0) {
+      const h = this.hollowness(x);
+      blendInto(out, SWELL, BARREL_OPEN, h);
+      pitchLip(out, h);
+    } else if (x >= -p.tubeDepth) blendInto(out, BARREL_OPEN, BARREL_CLOSED, smoothstep(0, p.tubeDepth, -x));
     else blendInto(out, BARREL_CLOSED, MOUND, smoothstep(0, p.collapseLength, -x - p.tubeDepth));
     return out;
   }

@@ -20,8 +20,15 @@ export interface SurfDebugHook {
   shot: string;
 }
 
+/** ?debug only: a free camera for screenshots, in wave-frame coordinates (set from the console or Playwright). */
+export interface SurfDebugCamera {
+  pos: [number, number, number];
+  look: [number, number, number];
+}
+
 declare global {
   interface Window {
     __surf?: SurfDebugHook;
+    __surfCam?: SurfDebugCamera;
   }
 }

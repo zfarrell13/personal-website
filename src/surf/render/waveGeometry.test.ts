@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Color, Vector3 } from 'three';
-import { SURF_CONFIG } from '../config';
+import { FOG_CONFIG, SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
-import { buildBackGeometry, buildWaveGeometry, columnsX, FRONT_SKIRT, waveVertexColor } from './waveGeometry';
+import { buildWaveGeometry, columnsX, SEA, waveVertexColor, type OceanLayout } from './waveGeometry';
 import { injectWaveShader, makeFoamTexture } from './waveMaterial';
 
 const shape = () => new WaveShape(structuredClone(SURF_CONFIG.wave));
@@ -22,57 +22,142 @@ describe('columnsX', () => {
   });
 });
 
-describe('buildWaveGeometry', () => {
-  it('samples the same profile the physics uses, plus a flat skirt row', () => {
+describe('buildWaveGeometry (the whole ocean: wave + flat sea in one surface)', () => {
+  const layout = (geo: { userData: unknown }) => geo.userData as OceanLayout;
+  const vec = (
+    attr: {
+      getX(i: number): number;
+      getY(i: number): number;
+      getZ(i: number): number;
+    },
+    i: number,
+  ) => new Vector3(attr.getX(i), attr.getY(i), attr.getZ(i));
+
+  it('samples the same profile the physics uses on the face', () => {
     const w = shape();
     const xs = columnsX(20, -30, 90);
     const geo = buildWaveGeometry(w, xs, 16);
+    const L = layout(geo);
     const pos = geo.getAttribute('position');
-    expect(pos.count).toBe(20 * 17);
-    const R = 17;
-    const i = 7;
-    const expected = w.profile(xs[i]!, 5 / 15);
-    const v = i * R + 6; // row 6 = t 5/15
-    expect(new Vector3(pos.getX(v), pos.getY(v), pos.getZ(v)).distanceTo(expected)).toBeLessThan(1e-4);
-    expect(pos.getZ(i * R)).toBeCloseTo(w.profile(xs[i]!, 0).z + FRONT_SKIRT, 3);
-    expect(geo.getIndex()!.count).toBe(19 * 16 * 6);
+    expect(pos.count).toBe(L.columns * L.rows);
+    expect(geo.getIndex()!.count).toBe((L.columns - 1) * (L.rows - 1) * 6);
     expect(geo.getAttribute('color').itemSize).toBe(4);
+    const i = L.firstSimColumn + 7;
+    const x = L.xs[i]!;
+    expect(x).toBe(xs[7]);
+    for (const r of [0, 3, 6]) {
+      const t = L.t[i * L.rows + L.profileRow + r]!;
+      expect(t).toBeLessThanOrEqual(w.crestT(x) + 1e-9);
+      expect(vec(pos, i * L.rows + L.profileRow + r).distanceTo(w.profile(x, t))).toBeLessThan(1e-4);
+    }
+  });
+
+  it('reaches past the fog in every direction, so no sea edge is ever visible', () => {
+    const geo = buildWaveGeometry(shape(), columnsX(40, -30, 90), 16);
+    geo.computeBoundingBox();
+    const box = geo.boundingBox!;
+    for (const v of [-box.min.x, box.max.x, -box.min.z, box.max.z]) expect(v).toBeGreaterThan(FOG_CONFIG.far + 100);
+  });
+
+  it('meets the sea seamlessly: the outer edge and every flat vertex are plain sea (same height, normal, colour, opacity, no foam)', () => {
+    const w = shape();
+    const geo = buildWaveGeometry(w, columnsX(60, -30, 90), 24);
+    const L = layout(geo);
+    const pos = geo.getAttribute('position');
+    const nor = geo.getAttribute('normal');
+    const col = geo.getAttribute('color');
+    const foam = geo.getAttribute('aFoam');
+    const isSea = (v: number) => {
+      expect(pos.getY(v)).toBeCloseTo(0, 6);
+      expect(vec(nor, v).distanceTo(new Vector3(0, 1, 0))).toBeLessThan(1e-6);
+      expect(col.getX(v)).toBeCloseTo(SEA.color.r, 4);
+      expect(col.getY(v)).toBeCloseTo(SEA.color.g, 4);
+      expect(col.getZ(v)).toBeCloseTo(SEA.color.b, 4);
+      expect(col.getW(v)).toBeCloseTo(SEA.alpha, 4);
+      expect(foam.getX(v)).toBe(0);
+    };
+    for (let i = 0; i < L.columns; i++) {
+      isSea(i * L.rows);
+      isSea(i * L.rows + L.rows - 1);
+    }
+    for (let r = 0; r < L.rows; r++) {
+      isSea(r);
+      isSea((L.columns - 1) * L.rows + r);
+    }
+  });
+
+  it('has no height step or shading jump where the wave runs into the flats (front, back and both ends)', () => {
+    const w = shape();
+    const geo = buildWaveGeometry(w, columnsX(60, -30, 90), 24);
+    const L = layout(geo);
+    const pos = geo.getAttribute('position');
+    const nor = geo.getAttribute('normal');
+    const col = geo.getAttribute('color');
+    const D = w.params.tubeDepth;
+    for (let i = 0; i < L.columns; i++) {
+      // Walking a column from the far sea into the trough, and down the back out to the far sea: no steps.
+      for (let r = 1; r < L.rows; r++) {
+        if (r > L.profileRow + 2 && r <= L.backRow) continue;
+        const a = i * L.rows + r - 1;
+        const b = a + 1;
+        const run = Math.hypot(pos.getX(b) - pos.getX(a), pos.getZ(b) - pos.getZ(a));
+        if (pos.getY(a) < 1e-6 && pos.getY(b) < 1e-6) continue;
+        // no vertical wall between two samples that are far apart (a step)
+        expect(Math.abs(pos.getY(b) - pos.getY(a)), `col ${i} row ${r}`).toBeLessThan(Math.max(0.5, 2 * run));
+      }
+      // Where the flat sea ends (first/last sample off the flat), the water still faces up and is sea-coloured.
+      const x = L.xs[i]!;
+      if (x < -D) continue; // whitewater spreads over the flats behind the lip (its foam fades out across them)
+      for (const v of [i * L.rows + L.profileRow, i * L.rows + L.backRow + L.backSamples - 1]) {
+        expect(nor.getY(v), `col ${i}`).toBeGreaterThan(Math.cos((4 * Math.PI) / 180));
+        expect(Math.abs(col.getX(v) - SEA.color.r) + Math.abs(col.getY(v) - SEA.color.g) + Math.abs(col.getZ(v) - SEA.color.b)).toBeLessThan(0.05);
+        expect(col.getW(v)).toBeCloseTo(SEA.alpha, 2);
+      }
+    }
+    // Past both ends of the ridden range the wave eases down to flat water.
+    for (const i of [1, L.columns - 2]) {
+      for (let r = 0; r < L.rows; r++) expect(Math.abs(pos.getY(i * L.rows + r))).toBeLessThan(0.01);
+    }
+  });
+
+  it('gives the lip thickness over the barrel, thinning to the tip', () => {
+    const w = shape();
+    const geo = buildWaveGeometry(w, columnsX(160, -30, 90), 64);
+    const L = layout(geo);
+    const pos = geo.getAttribute('position');
+    const i = L.xs.findIndex((x) => x >= -2);
+    const under = (r: number) => vec(pos, i * L.rows + L.profileRow + r);
+    const top = (k: number) => vec(pos, i * L.rows + L.lipRow + k);
+    const tip = under(L.profileSamples - 1);
+    // the lip top starts at the tip and ends over the crest
+    expect(top(0).distanceTo(tip)).toBeLessThan(0.05);
+    const tc = w.crestT(L.xs[i]!);
+    const crest = w.profile(L.xs[i]!, tc);
+    const over = top(L.lipSamples - 1);
+    expect(over.y - crest.y).toBeGreaterThan(0.05);
+    // mid-lip: a real slab of water between the tube ceiling and the lip top
+    const mid = top(Math.floor(L.lipSamples / 2));
+    let nearest = Infinity;
+    for (let r = 0; r < L.profileSamples; r++) nearest = Math.min(nearest, under(r).distanceTo(mid));
+    expect(nearest).toBeGreaterThan(0.15);
   });
 
   it('winds face triangles so their geometric normal points up and toward shore', () => {
     const w = shape();
-    const xs = columnsX(30, -30, 90);
-    const rows = 24;
-    const geo = buildWaveGeometry(w, xs, rows);
+    const geo = buildWaveGeometry(w, columnsX(30, -30, 90), 24);
+    const L = layout(geo);
     const pos = geo.getAttribute('position');
     const nor = geo.getAttribute('normal');
     const idx = geo.getIndex()!;
-    const a = new Vector3();
-    const b = new Vector3();
-    const c = new Vector3();
-    const n = new Vector3();
-    const i = xs.findIndex((x) => x >= 20); // shoulder column, well clear of the curl
-    const r = 8; // quad row 8 of 24 => t ~ 0.3, mid-face (row 0 is the skirt)
-    const tri = (i * rows + r) * 6;
-    const [ia, ib, ic] = [idx.getX(tri), idx.getX(tri + 1), idx.getX(tri + 2)];
-    a.fromBufferAttribute(pos, ia);
-    b.fromBufferAttribute(pos, ib);
-    c.fromBufferAttribute(pos, ic);
-    expect(a.y).toBeGreaterThan(0.2); // genuinely on the face, not the flat skirt
-    const faceN = b.sub(a).cross(c.sub(a)).normalize();
-    expect(faceN.z).toBeGreaterThan(0.2); // toward shore
-    expect(faceN.y).toBeGreaterThan(0.2); // up
-    n.fromBufferAttribute(nor, ia);
-    expect(faceN.dot(n)).toBeGreaterThan(0.9); // agrees with the shading normal
-  });
-
-  it('builds a back surface from the crest down to sea level', () => {
-    const w = shape();
-    const xs = columnsX(10, -30, 90);
-    const geo = buildBackGeometry(w, xs);
-    const pos = geo.getAttribute('position');
-    expect(pos.getY(4)).toBeCloseTo(0, 5);
-    expect(pos.getY(0)).toBeGreaterThan(0.3);
+    const i = L.xs.findIndex((x) => x >= 20); // shoulder column, well clear of the curl
+    const r = L.profileRow + 8; // mid-face
+    const tri = (i * (L.rows - 1) + r) * 6;
+    const [a, b, c] = [idx.getX(tri), idx.getX(tri + 1), idx.getX(tri + 2)].map((k) => vec(pos, k));
+    expect(a!.y).toBeGreaterThan(0.2);
+    const faceN = b!.clone().sub(a!).cross(c!.clone().sub(a!)).normalize();
+    expect(faceN.z).toBeGreaterThan(0.2);
+    expect(faceN.y).toBeGreaterThan(0.2);
+    expect(faceN.dot(vec(nor, idx.getX(tri)))).toBeGreaterThan(0.9);
   });
 });
 

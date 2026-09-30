@@ -79,6 +79,27 @@ describe('WaveShape.profile', () => {
     }
   });
 
+  it('ahead of the curl the lip recedes up and out: it never folds back against the face (open eye)', () => {
+    const w = shape();
+    const tip = new Vector3();
+    const face = new Vector3();
+    let lastY = -Infinity;
+    for (let x = 0; x <= 8; x += 0.25) {
+      w.profile(x, 1, tip);
+      let lo = 0;
+      let hi = w.crestT(x);
+      for (let k = 0; k < 40; k++) {
+        const mid = (lo + hi) / 2;
+        if (w.profile(x, mid, face).y < tip.y) lo = mid;
+        else hi = mid;
+      }
+      w.profile(x, lo, face);
+      expect(tip.z - face.z, `x ${x}`).toBeGreaterThan(0.4);
+      expect(tip.y, `x ${x}`).toBeGreaterThanOrEqual(lastY - 1e-9);
+      lastY = tip.y;
+    }
+  });
+
   it('lands the lip in the trough at x = -D', () => {
     const w = shape();
     expect(w.profile(-D, 1).y).toBeLessThan(0.1 * H);
@@ -129,7 +150,10 @@ describe('WaveShape queries', () => {
   });
 });
 
-/** Reference values captured from the closure-based implementation (task 17 hot-path refactor must not move the surface). */
+/**
+ * Reference surface (hot-path refactors must not move it). Captured from the closure-based implementation (task 17);
+ * re-captured in surf-rework task 5a for the intentional lip change (open barrel eye: higher BARREL_OPEN tip, feathering lip ahead of the curl).
+ */
 const GOLDEN_PROFILE: ReadonlyArray<readonly [number, number, number, number]> = [
   [-12, 0, 0, 7.2],
   [-12, 0.13, 0.177356928522, 5.43491304],
@@ -144,23 +168,23 @@ const GOLDEN_PROFILE: ReadonlyArray<readonly [number, number, number, number]> =
   [-2.5, 0, 0, 7.2],
   [-2.5, 0.13, 0.09131304, 4.08873912],
   [-2.5, 0.5, 2.0775, 0.63],
-  [-2.5, 0.77, 2.660733456, 2.09747103],
-  [-2.5, 1, 0.9, 4.26],
+  [-2.5, 0.77, 2.67040374, 2.11651746],
+  [-2.5, 1, 1.116, 4.38],
   [0, 0, 0, 7.2],
   [0, 0.13, 0.09131304, 4.08873912],
   [0, 0.5, 2.0775, 0.6075],
-  [0, 0.77, 2.708234052, 1.76430516],
-  [0, 1, 1.68, 3.48],
+  [0, 0.77, 2.72757462, 1.80239802],
+  [0, 1, 2.112, 3.72],
   [3, 0, 0, 7.2],
   [3, 0.13, 0.09167106037, 4.106004319467],
   [3, 0.5, 2.072722222222, 0.618775555556],
-  [3, 0.77, 2.702982106763, 1.7279798264],
-  [3, 1, 1.670826666667, 3.380622222222],
+  [3, 0.77, 2.720249533528, 1.730138806606],
+  [3, 1, 2.119881703265, 3.511134863486],
   [20, 0, 0, 7.2],
   [20, 0.13, 0.103031191638, 4.653836087901],
   [20, 0.5, 1.921121399177, 0.976553497942],
-  [20, 0.77, 2.536335758272, 0.575362285926],
-  [20, 1, 1.37975308642, 0.227325102881],
+  [20, 0.77, 2.579316778413, 0.59542134336],
+  [20, 1, 2.206343759244, 1.219890380038],
   [60, 0, 0, 7.2],
   [60, 0.13, 0.1008380464, 5.44385652],
   [60, 0.5, 1.437666666667, 1.4925],
@@ -170,10 +194,10 @@ const GOLDEN_PROFILE: ReadonlyArray<readonly [number, number, number, number]> =
 const GOLDEN_CREST: ReadonlyArray<readonly [number, number, number]> = [
   [-12, 0.699021374653, 1.096941015239],
   [-5, 0.699021374653, 2.769396933091],
-  [-2.5, 0.70601448367, 2.762233001613],
-  [0, 0.718185548302, 2.760326488654],
-  [3, 0.717993381034, 2.755709935245],
-  [20, 0.712877051004, 2.609930827344],
+  [-2.5, 0.708192555229, 2.761142527449],
+  [0, 0.72581121525, 2.76285715531],
+  [3, 0.724988451375, 2.757970977246],
+  [20, 0.727082810903, 2.613731114235],
   [60, 0.707622640668, 2.027837960246],
 ];
 

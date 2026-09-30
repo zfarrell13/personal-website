@@ -29,7 +29,7 @@ import { pushTicker, ThrottledWriter, type Phase, type SurfStore, type TickerIte
 import { sideSign } from '../wave/mirror';
 import { PeelController } from '../wave/PeelController';
 import { WaveShape } from '../wave/WaveShape';
-import type { SurfDebugHook } from './debugHook';
+import type { SurfDebugCamera, SurfDebugHook } from './debugHook';
 import './debugHook';
 import { FixedStepper } from './FixedStepper';
 
@@ -69,6 +69,7 @@ export class SurfGame {
   private readonly writer: ThrottledWriter;
   private readonly input: SurferInput = { ...NO_INPUT };
   private readonly renderP = new Vector3();
+  private readonly debugLook = new Vector3();
   /** The one debug-hook object, mutated each frame (no per-frame allocation). */
   private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase' };
   private readonly look: SurferLook;
@@ -378,6 +379,7 @@ export class SurfGame {
     // Sim dt: a pause freezes the rider's pose springs too.
     this.character?.update(this.surfer, alpha, this.frameSimDt);
     this.rig.update(s, this.renderP, this.side, underwater, dt, this.waterTime);
+    if (this.gizmo && window.__surfCam) this.applyDebugCamera(window.__surfCam);
     this.env.update(Number.isFinite(now) ? now / 1000 : 0, this.travel, sideSign(this.side));
     this.particles.update(Math.min(MAX_PARTICLE_DT, this.frameSimDt), this.phase === 'playing');
     this.waveMesh.update(this.waterTime);
@@ -421,6 +423,13 @@ export class SurfGame {
     hook.seed = this.seed;
     hook.shot = this.rig.shot;
     window.__surf = hook;
+  }
+
+  /** ?debug free camera: wave-frame coordinates, mirrored with the frame like everything else. */
+  private applyDebugCamera(cam: SurfDebugCamera): void {
+    this.frame.updateMatrixWorld();
+    this.camera.position.fromArray(cam.pos).applyMatrix4(this.frame.matrixWorld);
+    this.camera.lookAt(this.debugLook.fromArray(cam.look).applyMatrix4(this.frame.matrixWorld));
   }
 
   private buildGizmo(): void {
