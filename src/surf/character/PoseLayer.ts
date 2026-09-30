@@ -46,7 +46,7 @@ function mixIn(w: PoseWeights, name: PoseName, k: number): void {
  * dismount / drop airs are mode 'airborne' with launchKind null and keep the
  * riding / floater pose.
  */
-export function poseWeights(s: SurferState, sinceLand: number, out: PoseWeights = {}): PoseWeights {
+export function poseWeights(s: SurferState, sinceLand: number, out: PoseWeights = {}, backside = false): PoseWeights {
   const w = out;
   // A reused `out` may hold last frame's weights: zero them so no stale pose leaks through.
   for (let i = 0; i < POSE_NAMES.length; i++) if (w[POSE_NAMES[i]!] !== undefined) w[POSE_NAMES[i]!] = 0;
@@ -67,8 +67,9 @@ export function poseWeights(s: SurferState, sinceLand: number, out: PoseWeights 
   const speed = s.v.length();
   const lean = clamp((Math.abs(s.turnRate) / 2.5) * clamp(speed / 8, 0.3, 1.2), 0, 1);
   // carve > 0 = toward the lip (the wave), whichever way the rider is travelling, so it (not the
-  // sign of turnRate, which also flips with travel direction) decides toe vs heel side.
-  const toeSide = s.carve > 0 !== s.stanceFlipped;
+  // sign of turnRate, which also flips with travel direction) decides toe vs heel side. A backside
+  // rider (back to the wave) leans onto the heels to turn toward the lip.
+  const toeSide = s.carve > 0 !== s.stanceFlipped !== backside;
   w.stance = 1 - lean;
   if (lean > 0) w[toeSide ? 'carveToe' : 'carveHeel'] = lean;
   if (s.inTube) mixIn(w, 'crouch', 0.85);

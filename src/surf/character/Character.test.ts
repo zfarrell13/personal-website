@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Vector3 } from 'three';
+import { Group, Vector3 } from 'three';
 import { SURF_CONFIG, SURFER_LOOK } from '../config';
 import { DEG } from '../math/scalar';
 import { EventBus, type SurfEvent } from '../physics/events';
 import { NO_INPUT } from '../physics/input';
 import { Surfer } from '../physics/Surfer';
+import { sideSign } from '../wave/mirror';
 import { WaveShape } from '../wave/WaveShape';
 import { Character, loadSurferRig, MAX_BOARD_TURN_RATE } from './Character';
 import { buildProceduralRig } from './rig';
@@ -92,6 +93,32 @@ describe('Character', () => {
     ];
     ch.dispose();
     for (const sp of spies) expect(sp).toHaveBeenCalled();
+  });
+});
+
+describe('Character stance', () => {
+  // Rendered as in the game: the character inside the frame group, which mirrors x on a RIGHT.
+  it.each(['left', 'right'] as const)('rides regular (left foot forward) on a %s', (side) => {
+    const { surfer, ch } = setup();
+    const frame = new Group();
+    frame.scale.x = sideSign(side);
+    frame.add(ch.root);
+    ch.setSide(side);
+    for (let i = 0; i < 120; i++) {
+      surfer.step(NO_INPUT, 1 / 120);
+      ch.update(surfer, 1, 1 / 120);
+    }
+    frame.updateMatrixWorld(true);
+    const nose = new Vector3(0, 0, 1).transformDirection(ch.board.matrixWorld);
+    // Under a net mirror (negative determinant) the bone named RightFoot is the rider's actual left foot.
+    const mirrored = ch.rig.model.matrixWorld.determinant() < 0;
+    const b = ch.rig.bones;
+    const left = (mirrored ? b.RightFoot : b.LeftFoot).getWorldPosition(new Vector3());
+    const right = (mirrored ? b.LeftFoot : b.RightFoot).getWorldPosition(new Vector3());
+    expect(left.sub(right).dot(nose)).toBeGreaterThan(0.3);
+    // Regular = backside on a left (chest to the beach, +z), frontside on a right (chest to the wave).
+    const chest = new Vector3(1, 0, 0).transformDirection(ch.rig.model.matrixWorld);
+    expect(Math.sign(chest.z)).toBe(side === 'left' ? 1 : -1);
   });
 });
 

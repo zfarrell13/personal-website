@@ -56,6 +56,10 @@ describe('poseWeights', () => {
     expect(poseWeights(s, 10).carveToe).toBeGreaterThan(0.5);
     s.stanceFlipped = true;
     expect(poseWeights(s, 10).carveHeel).toBeGreaterThan(0.5);
+    // Backside (back to the wave), a turn toward the lip is on the heels.
+    s.stanceFlipped = false;
+    expect(poseWeights(s, 10, {}, true).carveHeel).toBeGreaterThan(0.5);
+    expect(poseWeights(s, 10, {}, true).carveToe ?? 0).toBe(0);
   });
   it('uses grab, tube and wipeout poses', () => {
     const s = make();

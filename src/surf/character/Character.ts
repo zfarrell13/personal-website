@@ -1,6 +1,6 @@
 import { Group, Matrix4, Quaternion, Vector3, type Material, type Mesh, type Object3D, type Texture } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import type { SurferLook } from '../config';
+import type { Side, SurferLook } from '../config';
 import { clamp, DEG } from '../math/scalar';
 import type { Surfer } from '../physics/Surfer';
 import { BOARD, boardRocker, buildBoard, makeDeckTexture } from './board';
@@ -58,10 +58,19 @@ const DECK_Y = BOARD.thickness + boardRocker(0.5);
  * oriented board-forward (+z = nose) with up = surface normal. tilt: stall
  * pitch and rail bank. The rider stands sideways (+x of the model = board's
  * left = facing the wave), lowered by the pose layer's knee-bend drop.
+ *
+ * Stance: the rider always surfs REGULAR (left foot forward). The model as posed is goofy
+ * (right foot at the nose, chest toward the board's left), and the frame group mirrors x on a
+ * RIGHT, which turns it into regular frontside there. On a LEFT (canonical frame) the body alone
+ * is mirrored (`stanceMirror`, board untouched) so the rider is regular backside.
  */
 export class Character {
   readonly root = new Group();
   private readonly tilt = new Group();
+  /** Mirrors the body (not the board) across the model's x so the rider rides regular on a LEFT. */
+  private readonly stanceMirror = new Group();
+  /** True when the body is mirrored (a LEFT): the rider faces away from the wave (backside). */
+  private backside = false;
   readonly board: Mesh;
   readonly pose: PoseLayer;
   private readonly pos = new Vector3();
@@ -87,11 +96,18 @@ export class Character {
   ) {
     const deck = typeof document !== 'undefined' ? makeDeckTexture(look) : null;
     this.board = buildBoard(look, deck);
-    this.tilt.add(this.board, this.rig.model);
+    this.stanceMirror.add(this.rig.model);
+    this.tilt.add(this.board, this.stanceMirror);
     this.root.add(this.tilt);
     this.pose = new PoseLayer(rig);
     this.pose.snap({ stance: 1 });
     this.plantFeet();
+  }
+
+  /** Which way the wave breaks: keeps the rider regular (left foot forward) on both. */
+  setSide(side: Side): void {
+    this.backside = side === 'left';
+    this.stanceMirror.scale.x = this.backside ? -1 : 1;
   }
 
   onLanded(): void {
@@ -143,7 +159,7 @@ export class Character {
     }
 
     const speed = s.v.length();
-    this.pose.update(poseWeights(s, this.sinceLand, this.weights), dt, clamp(0.6 + speed / 20, 0.6, 1.3));
+    this.pose.update(poseWeights(s, this.sinceLand, this.weights, this.backside), dt, clamp(0.6 + speed / 20, 0.6, 1.3));
     this.plantFeet();
   }
 
