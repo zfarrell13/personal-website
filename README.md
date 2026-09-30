@@ -49,7 +49,7 @@ Placeholder text starts with `SAMPLE`. Replace it, and the files under `public/s
 The soundtrack is the tracks in `content/tracks/tracks.json` that have `"surf": true`. They play as one shuffled playlist that never restarts on navigation. See `content/tracks/README.md` for the format.
 
 - The audio masters and artwork are git-ignored (commercial releases). Only `tracks.json` is committed.
-- `npm run dev` and `npm run build` encode them into `public/tracks/` first. If any listed file is missing, as in a fresh clone or a CI build, the synthesized placeholder tracks are used instead, with a warning.
+- `npm run dev` and `npm run build` encode them into `public/tracks/` first. If any listed file is missing, as in a fresh clone, the synthesized placeholder tracks are used instead, with a warning. In CI or on Vercel a missing file fails the build instead (see Deploying).
 - The music starts on the first click, tap or key press, because browsers block autoplay. The NOW PLAYING tag on every page shows the track and has SKIP and MUTE buttons. The mute choice is remembered.
 - `?tracks=test` on any page selects the synthetic test tracks (the e2e suite uses them).
 
@@ -57,7 +57,10 @@ The soundtrack is the tracks in `content/tracks/tracks.json` that have `"surf": 
 
 - **`NEXT_PUBLIC_SITE_URL`** (optional) sets the site's public origin (for example `https://zachfarrell.com`) as the `metadataBase`, so link previews get absolute `og:image` / `twitter:image` URLs on your own domain. Set it **at build time**: the pages are prerendered, so setting it only at runtime has no effect. Without it, Next falls back on its own: on Vercel, the project's production URL (or the preview URL on a preview deployment); in `npm run dev`, `http://localhost:3000`. A self-hosted build without it gets `localhost` URLs (and a build warning), so set it there.
 - The share card (`/opengraph-image`) is prerendered at build time from `assets/fonts/RussoOne-Regular.ttf`.
-- Put the real track files in `content/tracks/` on the build machine. Otherwise the placeholder tracks ship.
+- **The track files must be on the build machine.** The audio is git-ignored, so a build from a git checkout doesn't have it. When `CI` or `VERCEL` is set (Vercel sets both), `npm run build` stops with `✖ … track file(s) missing …` rather than ship the placeholder tracks under the real songs' credits. Either:
+  - build where the files are, and upload the result: `vercel build --prod && vercel deploy --prebuilt --prod`, from a checkout with the files in `content/tracks/`; or
+  - set `ALLOW_PLACEHOLDER_TRACKS=1` to build with the placeholders on purpose (a preview, or a CI job that only runs the tests; `npm run dev` runs the same check, so a CI e2e job needs it too).
+- The encoded tracks are served as static files under `/tracks/`, so anyone can download them.
 
 ## Layout
 
