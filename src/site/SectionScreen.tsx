@@ -30,13 +30,27 @@ function items(root: HTMLElement): HTMLElement[] {
 export function SectionScreen({ title, children }: { title: string; children: React.ReactNode }) {
   useBackToMenu();
   const mainRef = useRef<HTMLElement>(null);
+  const backRef = useRef<HTMLAnchorElement>(null);
 
   useEffect(() => {
     mainRef.current?.focus({ preventScroll: true });
-    // Tells the NOW PLAYING tag it may use the room beside ◀ MENU (globals.css --np-max).
-    document.documentElement.dataset.screen = 'section';
+    // Tells the NOW PLAYING tag it may use the room beside ◀ MENU (globals.css --np-max), and where MENU ends:
+    // measured, since its width follows the font (and a fallback font or a larger text setting widens it).
+    const root = document.documentElement;
+    root.dataset.screen = 'section';
+    const back = backRef.current;
+    const measure = () => {
+      if (back) root.style.setProperty('--np-menu-end', `${Math.ceil(back.getBoundingClientRect().right)}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    if (back) observer?.observe(back);
+    window.addEventListener('resize', measure);
     return () => {
-      delete document.documentElement.dataset.screen;
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+      root.style.removeProperty('--np-menu-end');
+      delete root.dataset.screen;
     };
   }, []);
 
@@ -73,7 +87,7 @@ export function SectionScreen({ title, children }: { title: string; children: Re
   return (
     <div className={styles.screen}>
       <header className={styles.bar}>
-        <Link href="/" className={styles.back} onClick={() => menuSelect()}>
+        <Link ref={backRef} href="/" className={styles.back} onClick={() => menuSelect()}>
           <span className={styles.backArrow} aria-hidden="true">
             ◀
           </span>

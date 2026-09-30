@@ -200,3 +200,67 @@ for (const [name, device] of [
     }
   });
 }
+
+test.describe('phone taps', () => {
+  test.use(iphone);
+
+  /** The ring (box-shadow) an element shows, and whether the browser still reports it hovered. */
+  const ring = (el: Locator) => el.evaluate((n) => ({ shadow: getComputedStyle(n).boxShadow, hovered: n.matches(':hover') }));
+
+  test('a tapped season row or trophy card keeps no hover ring (touch leaves :hover stuck)', async ({ page }) => {
+    await page.goto('/career');
+    const row = page.getByRole('button').nth(1);
+    await row.tap();
+    await expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect((await ring(row)).hovered).toBe(true); // the premise: the tapped element is still :hover
+    await expect.poll(async () => (await ring(row)).shadow).toBe('none');
+
+    await page.goto('/trophies');
+    const card = page.getByRole('article').first().getByRole('button');
+    await card.tap();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'CLOSE' }).tap();
+    await expect(dialog).toHaveCount(0);
+    await expect(card).toBeFocused(); // focus came back to the card, without a keyboard ring
+    await card.hover(); // and :hover parks on it, as the opening tap left it
+    await expect.poll(async () => (await ring(card.locator('img'))).shadow).toBe('none');
+  });
+
+  test('a tapped surf title button keeps no hover ring unless it is the active choice', async ({ page }) => {
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.goto('/surf');
+    const off = page.getByRole('button', { name: 'GUIDE OFF' });
+    const on = page.getByRole('button', { name: 'GUIDE ON' });
+    await off.tap();
+    await on.tap();
+    await expect(on).toHaveAttribute('aria-pressed', 'true');
+    // OFF is no longer the choice; park :hover on it, as the tap that picked it would have left it.
+    await off.hover();
+    expect((await ring(off)).hovered).toBe(true);
+    await expect.poll(async () => (await ring(off)).shadow).toBe('none');
+  });
+});
+
+test.describe('phone portrait widths', () => {
+  test.use(iphone);
+
+  test('320–430 px: the NOW PLAYING tag never overlaps ◀ MENU and stays on screen', async ({ page }) => {
+    await page.goto('/credits');
+    await page.getByRole('button', { name: /FOR MUSIC/ }).tap();
+    await expect(page.getByTestId('now-playing-track')).toBeVisible();
+    const tag = page.getByTestId('now-playing');
+    const menu = page.getByRole('link', { name: 'MENU', exact: true });
+    const check = async () => {
+      for (const width of [320, 360, 375, 390, 414, 430]) {
+        await page.setViewportSize({ width, height: 740 });
+        await expect.poll(async () => (await tag.boundingBox())!.x + (await tag.boundingBox())!.width).toBeLessThanOrEqual(width - 15);
+        await apart(tag, menu);
+      }
+    };
+    await check();
+    // A wider ◀ MENU (a fallback font, a user font-size setting): the tag makes room rather than assuming ~120 px.
+    await page.addStyleTag({ content: 'header a[href="/"] { letter-spacing: 0.6em !important; }' });
+    expect((await menu.boundingBox())!.width).toBeGreaterThan(150);
+    await check();
+  });
+});
