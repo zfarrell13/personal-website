@@ -13,8 +13,9 @@ import {
 } from 'three';
 import { RetroRenderer } from '@/retro/RetroRenderer';
 import { ActionState } from '@/shared/input/ActionState';
-import { loadManifest, type TrackEntry } from '@/shared/tracks';
+import { getMusicPlayer, type MusicPlayer } from '@/site/music/MusicPlayer';
 import { SurfAudio } from '../audio/SurfAudio';
+import { barrelDepth, tubeCutoffHz } from '../audio/synth';
 import { CAMERA_FAR, CameraRig } from '../camera/CameraRig';
 import { Character, loadSurferRig } from '../character/Character';
 import { configVersion, SURF_CONFIG, SURFER_LOOK, type Side, type SurferLook } from '../config';
@@ -38,7 +39,14 @@ import { FixedStepper } from './FixedStepper';
 export interface SurfGameOptions {
   debug?: boolean;
   look?: SurferLook;
+  /** The site-wide soundtrack the game muffles (tube) and ducks (pause). Default getMusicPlayer(); tests inject a spy. */
+  music?: Pick<MusicPlayer, 'setMuffleHz' | 'setDuck' | 'start'>;
 }
+
+/** Music level under the pause menu. */
+const PAUSE_DUCK = 0.35;
+/** Low-pass cutoff with no muffle (open water). */
+const OPEN_HZ = 20000;
 
 const END_DELAY = { wipeout: 1.6, kickedOut: 1.0 } as const;
 /** Longest frame (s) fed to the stepper and to ambient animation. */
@@ -83,12 +91,11 @@ export class SurfGame {
   private readonly look: SurferLook;
   private character: Character | null = null;
   private audio: SurfAudio | null = null;
-  private tracks: TrackEntry[] = [];
+  private readonly music: Pick<MusicPlayer, 'setMuffleHz' | 'setDuck' | 'start'>;
   private side: Side = 'right';
   private phase: Phase = 'loading';
   private ticker: TickerItem[] = [];
   private tickerId = 0;
-  private nowPlayingKey = 0;
   /** Frame distance along the reef (floating origin), m. */
   private travel = 0;
   /** Simulation time stepped during the current frame (s). */
@@ -121,6 +128,7 @@ export class SurfGame {
     opts: SurfGameOptions = {},
   ) {
     this.look = opts.look ?? SURFER_LOOK;
+    this.music = opts.music ?? getMusicPlayer();
     this.writer = new ThrottledWriter(store, 15);
     const coarse = window.matchMedia?.('(pointer: coarse)').matches === true;
     if (coarse) {
@@ -173,21 +181,14 @@ export class SurfGame {
     this.raf = requestAnimationFrame(this.loop);
   }
 
-  /** Loads the character model and the track manifest, then shows the title. */
+  /** Loads the character model, then shows the title. */
   async load(): Promise<void> {
-    const [{ rig }, manifest] = await Promise.all([
-      loadSurferRig(this.look),
-      loadManifest().catch((e: unknown) => {
-        console.warn('No track manifest; surfing without music.', e);
-        return { version: 1 as const, tracks: [] };
-      }),
-    ]);
+    const { rig } = await loadSurferRig(this.look);
     const character = new Character(rig, this.look);
     if (this.disposed) {
       character.dispose();
       return;
     }
-    this.tracks = manifest.tracks;
     this.character = character;
     this.frame.add(character.root);
     // The title shows whatever way the frame currently faces (canonical = a LEFT): stay regular there too.
@@ -195,7 +196,7 @@ export class SurfGame {
     this.setPhase('title');
   }
 
-  /** DROP IN (must be called from a user gesture: it starts audio). */
+  /** DROP IN (must be called from a user gesture: it starts the effects audio and the site music). */
   start(side: Side): void {
     if (this.disposed || this.phase === 'loading' || this.phase === 'playing') return;
     this.side = side;
@@ -208,6 +209,7 @@ export class SurfGame {
     this.stepper.reset();
     this.actions.reset();
     this.startAudio();
+    this.music.setDuck(1);
     this.writer.flush(performance.now());
     this.store.setState({ side, run: null, underwater: false, fastSection: false, score: 0, pot: 0, multiplier: 0, tubeTime: 0, speedKmh: 0, ticker: [], pumpPrompt: false, pumpCount: 0 });
     this.setPhase('playing');
@@ -216,6 +218,7 @@ export class SurfGame {
   pause(): void {
     if (this.phase !== 'playing') return;
     this.audio?.pause();
+    this.music.setDuck(PAUSE_DUCK);
     this.setPhase('paused');
   }
 
@@ -224,12 +227,14 @@ export class SurfGame {
     this.stepper.reset();
     this.actions.reset();
     this.audio?.resume();
+    this.music.setDuck(1);
     this.setPhase('playing');
   }
 
   quitToTitle(): void {
     if (this.phase === 'loading' || this.phase === 'title') return;
     this.audio?.pause();
+    this.releaseMusic();
     // The title shows a fresh wave: no underwater camera or tumbling rider left from a wipeout.
     this.resetView();
     this.writer.flush(performance.now());
@@ -256,13 +261,25 @@ export class SurfGame {
   }
 
   private startAudio(): void {
+    // Inside the DROP IN gesture: the site player can unlock and play synchronously (idempotent if it already plays).
     try {
-      this.audio ??= new SurfAudio((t) => this.store.setState({ nowPlaying: { key: ++this.nowPlayingKey, title: t.title, artist: t.artist } }));
+      this.music.start().catch((e: unknown) => console.warn('Music failed to start', e));
+    } catch (e) {
+      console.warn('Music unavailable; surfing without it.', e);
+    }
+    try {
+      this.audio ??= new SurfAudio();
     } catch (e) {
       console.warn('Web Audio unavailable; surfing without sound.', e);
       return;
     }
-    this.audio.start(this.tracks).catch((e: unknown) => console.warn('Audio failed to start', e));
+    this.audio.start().catch((e: unknown) => console.warn('Audio failed to start', e));
+  }
+
+  /** The site music leaves the game as it found it: open (no tube muffle) and at full level. */
+  private releaseMusic(): void {
+    this.music.setMuffleHz(OPEN_HZ);
+    this.music.setDuck(1);
   }
 
   /** Surfer back at the drop-in, camera snapped behind, above water, no end-of-run timer. */
@@ -431,6 +448,8 @@ export class SurfGame {
     if (this.phase === 'playing') {
       const speed = this.surfer.worldSpeed(this.peel.speed);
       this.audio?.update(s, speed, { distance: impactDistance(s.p.x, this.wave.params.tubeDepth), fast: this.peel.level });
+      // The same cutoff SurfAudio puts on its tube low-pass.
+      this.music.setMuffleHz(tubeCutoffHz(barrelDepth(s)));
       this.writer.push({
         score: this.scoring.score,
         pot: this.scoring.pot,
@@ -509,6 +528,7 @@ export class SurfGame {
     this.cleanups.forEach((c) => c());
     this.bus.clear();
     this.audio?.dispose();
+    this.releaseMusic();
     this.character?.dispose();
     this.particles.dispose();
     this.waveMesh.dispose();

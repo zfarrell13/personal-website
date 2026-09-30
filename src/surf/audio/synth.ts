@@ -9,6 +9,15 @@ export function tubeCutoffHz(depth: number): number {
   return 20000 * Math.pow(800 / 20000, d);
 }
 
+/**
+ * How deep in the barrel the rider sounds (0 = open water), for the tube low-pass and the music muffle.
+ * A wipeout in the tube emits no tubeExit, so the mode gates it too.
+ */
+export function barrelDepth(s: { inTube: boolean; tubeDepth: number; mode: string }): number {
+  const inBarrel = s.inTube && (s.mode === 'riding' || s.mode === 'airborne');
+  return inBarrel ? Math.max(0.25, s.tubeDepth) : 0;
+}
+
 /** Board spray noise: band-pass centre and gain follow speed and carve intensity (0–1). */
 export function sprayParams(speed: number, carve: number): { freq: number; gain: number } {
   const c = Math.min(1, Math.max(0, carve));

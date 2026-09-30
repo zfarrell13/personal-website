@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TrackEntry } from '@/shared/tracks';
 import { SurfAudio } from './SurfAudio';
 
 // --- Minimal Web Audio / HTMLAudioElement fakes (node has neither). ---------
@@ -39,123 +38,59 @@ class FakeCtx {
   constructor() {
     ctxs.push(this);
     for (const k of ['Gain', 'DynamicsCompressor', 'BiquadFilter', 'Convolver', 'BufferSource', 'Oscillator', 'StereoPanner', 'MediaElementSource']) {
-      (this as unknown as Record<string, () => unknown>)[`create${k}`] = () => fakeNode();
+      (this as unknown as Record<string, () => unknown>)[`create${k}`] = vi.fn(() => fakeNode());
     }
   }
 }
 
-let playResult: () => Promise<void>;
-const elements: FakeElement[] = [];
+// Any <audio> element (new Audio() or document.createElement) is a failure: music belongs to the site player.
+const audioCtor = vi.fn();
 class FakeElement {
-  src = '';
-  preload = '';
-  play = vi.fn(() => playResult());
-  pause = vi.fn();
-  load = vi.fn();
-  removeAttribute = vi.fn();
-  private readonly handlers = new Map<string, () => void>();
-  addEventListener(type: string, cb: () => void) {
-    this.handlers.set(type, cb);
-  }
-  emit(type: string) {
-    this.handlers.get(type)?.();
-  }
   constructor() {
-    elements.push(this);
+    audioCtor();
   }
 }
-
-const track = (id: string): TrackEntry => ({
-  id,
-  title: id,
-  artist: 'Test',
-  bpm: 120,
-  key: '8A',
-  firstBeatSec: 0,
-  memoryCues: [],
-  surf: true,
-  durationSec: 180,
-  sampleRate: 44100,
-  audioUrl: `/tracks/${id}/audio.m4a`,
-  artworkUrl: null,
-  artworkSmallUrl: null,
-  waveformUrl: '',
-  overviewUrl: '',
-});
-const TRACKS = [track('a'), track('b'), track('c')];
 const flush = () => new Promise((r) => setTimeout(r, 0));
-const domError = (name: string) => Object.assign(new Error(name), { name });
 
 beforeEach(() => {
   ctxs.length = 0;
-  elements.length = 0;
+  audioCtor.mockClear();
   resumeGate = Promise.resolve();
-  playResult = () => Promise.resolve();
   vi.stubGlobal('AudioContext', FakeCtx);
   vi.stubGlobal('Audio', FakeElement);
+  vi.stubGlobal('document', { createElement: vi.fn(() => new FakeElement()) });
 });
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
-describe('SurfAudio music', () => {
-  it('ignores the AbortError a pause/dispose gives an in-flight play(), but still warns on real failures', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    // Some engines reject with a DOMException that is not an Error instance: match on the name.
-    playResult = () => Promise.reject({ name: 'AbortError', message: 'interrupted' });
-    const audio = new SurfAudio(() => undefined);
-    await audio.start(TRACKS);
+describe('SurfAudio', () => {
+  it('plays no music: no audio element is ever created', async () => {
+    const audio = new SurfAudio();
+    await audio.start();
     await flush();
-    expect(elements[0]!.play).toHaveBeenCalledTimes(1);
-    expect(warn).not.toHaveBeenCalled();
-
-    playResult = () => Promise.reject(domError('NotAllowedError'));
-    elements[0]!.emit('ended');
-    await flush();
-    expect(warn).toHaveBeenCalledTimes(1);
+    audio.pause();
+    audio.resume();
+    audio.update({ mode: 'riding', inTube: true, tubeDepth: 1, turnRate: 0, stalling: false } as never, 10, { distance: 5, fast: 0 });
+    audio.onEvent({ type: 'tubeExit', time: 1, duration: 3 } as never);
+    audio.onBank(5000, 4);
     audio.dispose();
+    expect(audioCtor).not.toHaveBeenCalled();
+    expect((ctxs[0] as unknown as { createMediaElementSource: () => unknown }).createMediaElementSource).not.toHaveBeenCalled();
   });
 
-  it('a pause while start() is still resuming the context keeps the music paused until resume()', async () => {
+  it('a pause while start() is still resuming the context leaves it suspended until resume()', async () => {
     resumeGate = new Promise<void>((r) => (openGate = r));
-    const onTrack = vi.fn();
-    const audio = new SurfAudio(onTrack);
-    const started = audio.start(TRACKS);
+    const audio = new SurfAudio();
+    const started = audio.start();
     audio.pause();
     openGate();
     await started;
-    await flush();
     const ctx = ctxs[0]!;
-    const music = elements[0]!;
-    expect(music.src).not.toBe(''); // the track is queued …
-    expect(music.play).not.toHaveBeenCalled(); // … but not playing
-    expect(onTrack).not.toHaveBeenCalled(); // no NOW PLAYING toast for a silent track
     expect(ctx.suspend.mock.invocationCallOrder.at(-1)!).toBeGreaterThan(ctx.resume.mock.invocationCallOrder[0]!);
-
     audio.resume();
-    expect(music.play).toHaveBeenCalledTimes(1);
-    expect(onTrack).toHaveBeenCalledTimes(1);
-    audio.dispose();
-  });
-
-  it('does not start the next track while paused', async () => {
-    const onTrack = vi.fn();
-    const audio = new SurfAudio(onTrack);
-    await audio.start(TRACKS);
-    const music = elements[0]!;
-    expect(music.play).toHaveBeenCalledTimes(1);
-    audio.pause();
-    const before = music.src;
-    music.emit('ended');
-    expect(music.src).not.toBe(before);
-    expect(music.play).toHaveBeenCalledTimes(1);
-    expect(onTrack).toHaveBeenCalledTimes(1);
-    audio.resume();
-    expect(music.play).toHaveBeenCalledTimes(2);
-    expect(onTrack).toHaveBeenCalledTimes(2);
-    audio.resume(); // a second resume does not re-announce
-    expect(onTrack).toHaveBeenCalledTimes(2);
+    expect(ctx.resume.mock.invocationCallOrder.at(-1)!).toBeGreaterThan(ctx.suspend.mock.invocationCallOrder.at(-1)!);
     audio.dispose();
   });
 });

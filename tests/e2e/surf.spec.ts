@@ -1,7 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 import { DEFAULT_RETRO } from '../../src/retro/RetroRenderer';
+import type { MusicPlayer } from '../../src/site/music/MusicPlayer';
 import { FOG_CONFIG } from '../../src/surf/config';
 import { trackConsoleErrors } from './helpers';
+
+/** The site player's debug handle (see getMusicPlayer). */
+const musicPlaying = () => (window as { __zfMusic?: MusicPlayer }).__zfMusic?.getState().playing === true;
 
 async function dropIn(page: Page) {
   await page.goto('/surf');
@@ -52,6 +56,19 @@ test.describe('surf game', () => {
     await expect(page.getByText('PAUSED')).toBeVisible();
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => window.__surf?.phase === 'playing');
+  });
+
+  test('DROP IN plays the site music: the NOW PLAYING tag shows a track and stays through a pause', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await dropIn(page);
+    const track = page.getByTestId('now-playing-track');
+    await expect(track).toContainText('NOW PLAYING');
+    await page.waitForFunction(musicPlaying);
+    await page.keyboard.press('Escape');
+    await expect(page.getByText('PAUSED')).toBeVisible();
+    await expect(track).toContainText('NOW PLAYING');
+    expect(await page.evaluate(musicPlaying)).toBe(true); // ducked, not stopped
+    expect(errors()).toEqual([]);
   });
 
   test('holding stall gets you swallowed and shows the results screen', async ({ page }) => {

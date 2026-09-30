@@ -21,12 +21,6 @@ export interface RunSummary {
   durationSec: number;
 }
 
-export interface NowPlaying {
-  key: number;
-  title: string;
-  artist: string;
-}
-
 export interface SurfHudState {
   phase: Phase;
   side: Side;
@@ -36,7 +30,6 @@ export interface SurfHudState {
   tubeTime: number;
   speedKmh: number;
   ticker: TickerItem[];
-  nowPlaying: NowPlaying | null;
   run: RunSummary | null;
   underwater: boolean;
   /** A fast section is on: the HUD shows ⚡ FAST SECTION. */
@@ -62,7 +55,6 @@ export const INITIAL_HUD: SurfHudState = {
   tubeTime: 0,
   speedKmh: 0,
   ticker: [],
-  nowPlaying: null,
   run: null,
   underwater: false,
   fastSection: false,

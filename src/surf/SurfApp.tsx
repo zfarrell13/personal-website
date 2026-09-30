@@ -9,7 +9,7 @@ import { loadGuide, saveGuide } from './state/guidePref';
 import { createSurfStore } from './state/store';
 import { DebugPanel } from './ui/DebugPanel';
 import { Hud } from './ui/Hud';
-import { NowPlayingToast, PauseMenu, Underwater } from './ui/Overlays';
+import { PauseMenu, Underwater } from './ui/Overlays';
 import { Results } from './ui/Results';
 import { TitleMenu } from './ui/TitleMenu';
 import { TouchControls } from './ui/TouchControls';
@@ -60,7 +60,6 @@ export default function SurfApp() {
       {game && phase === 'paused' ? <PauseMenu onResume={resume} onQuit={toTitle} /> : null}
       {game && phase === 'results' && run ? <Results run={run} onAgain={again} onTitle={toTitle} /> : null}
       <Underwater store={store} />
-      <NowPlayingToast store={store} />
       {game && phase === 'playing' ? <TouchControls actions={game.actions} onPause={pause} /> : null}
       {game && debug ? <DebugPanel game={game} /> : null}
     </div>

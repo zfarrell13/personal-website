@@ -39,6 +39,11 @@ class FakeAudio {
 }
 vi.mock('../audio/SurfAudio', () => ({ SurfAudio: FakeAudio }));
 
+// The site-wide music player (Web Audio + <audio>): a spy, both as the default and when injected.
+const fakeMusic = () => ({ setMuffleHz: vi.fn(), setDuck: vi.fn(), start: vi.fn(() => Promise.resolve()) });
+let defaultMusic = fakeMusic();
+vi.mock('@/site/music/MusicPlayer', () => ({ getMusicPlayer: () => defaultMusic }));
+
 vi.mock('../character/Character', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../character/Character')>();
   const { buildProceduralRig } = await import('../character/rig');
@@ -58,6 +63,7 @@ beforeEach(() => {
   retroInstances.length = 0;
   audioInstances.length = 0;
   audioStartResult = () => Promise.resolve();
+  defaultMusic = fakeMusic();
   cancelRaf.mockClear();
   win = new EventTarget();
   vi.stubGlobal('window', win);
@@ -73,7 +79,6 @@ beforeEach(() => {
       disconnect() {}
     },
   );
-  vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ version: 1, tracks: [] }) }));
 });
 
 afterEach(() => {
@@ -433,6 +438,94 @@ describe('SurfGame', () => {
     expect(warn).toHaveBeenCalled();
     expect(store.getState().side).toBe('left');
     game.dispose();
+  });
+
+  describe('site music', () => {
+    async function withMusic() {
+      const music = fakeMusic();
+      const store = createSurfStore();
+      const game = new SurfGame(canvas, store, { music });
+      await game.load();
+      clock = performance.now();
+      frame();
+      return { game, store, music };
+    }
+
+    it('DROP IN starts the site player (it is a gesture) at full level; the default is getMusicPlayer()', async () => {
+      const { game, music } = await withMusic();
+      expect(music.start).not.toHaveBeenCalled();
+      game.start('right');
+      expect(music.start).toHaveBeenCalledTimes(1);
+      expect(music.setDuck).toHaveBeenLastCalledWith(1);
+      game.dispose();
+
+      const { game: g2 } = await playing();
+      expect(defaultMusic.start).toHaveBeenCalledTimes(1);
+      g2.dispose();
+    });
+
+    it('the tube muffles the music with the same cutoff as the tube low-pass, and leaving opens it again', async () => {
+      const { game, music } = await withMusic();
+      game.start('right');
+      const s = game.surfer.state;
+      let inTube = true;
+      vi.spyOn(game.surfer, 'step').mockImplementation((_i, dt) => {
+        s.mode = 'riding';
+        s.inTube = inTube;
+        s.tubeDepth = 1;
+        s.time += dt;
+      });
+      frame();
+      expect(music.setMuffleHz.mock.lastCall![0]).toBeCloseTo(800, 6); // tubeCutoffHz(1)
+      inTube = false;
+      frame();
+      expect(music.setMuffleHz).toHaveBeenLastCalledWith(20000);
+      // A wipeout inside the barrel opens it too (no tubeExit).
+      inTube = true;
+      frame();
+      expect(music.setMuffleHz.mock.lastCall![0]).toBeLessThan(20000);
+      vi.spyOn(game.surfer, 'step').mockImplementation((_i, dt) => {
+        s.mode = 'wipeout';
+        s.time += dt;
+      });
+      frame();
+      expect(music.setMuffleHz).toHaveBeenLastCalledWith(20000);
+      game.dispose();
+    });
+
+    it('pause ducks the music to 0.35, resume restores it', async () => {
+      const { game, music } = await withMusic();
+      game.start('right');
+      game.pause();
+      expect(music.setDuck).toHaveBeenLastCalledWith(0.35);
+      game.resume();
+      expect(music.setDuck).toHaveBeenLastCalledWith(1);
+      game.dispose();
+    });
+
+    it('quitting to the title and dispose open and un-duck the music', async () => {
+      const { game, music } = await withMusic();
+      game.start('right');
+      const s = game.surfer.state;
+      vi.spyOn(game.surfer, 'step').mockImplementation((_i, dt) => {
+        s.mode = 'riding';
+        s.inTube = true;
+        s.tubeDepth = 1;
+        s.time += dt;
+      });
+      frame();
+      game.pause();
+      music.setMuffleHz.mockClear();
+      music.setDuck.mockClear();
+      game.quitToTitle();
+      expect(music.setMuffleHz).toHaveBeenLastCalledWith(20000);
+      expect(music.setDuck).toHaveBeenLastCalledWith(1);
+      music.setMuffleHz.mockClear();
+      music.setDuck.mockClear();
+      game.dispose();
+      expect(music.setMuffleHz).toHaveBeenLastCalledWith(20000);
+      expect(music.setDuck).toHaveBeenLastCalledWith(1);
+    });
   });
 
   it('dispose stops the loop and releases listeners, audio and the renderer', async () => {

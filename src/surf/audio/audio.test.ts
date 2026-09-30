@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { fillImpulse, hootVoices, rumbleParams, sprayParams, tubeCutoffHz } from './synth';
+import { barrelDepth, fillImpulse, hootVoices, rumbleParams, sprayParams, tubeCutoffHz } from './synth';
 
 describe('synth helpers', () => {
   it('maps tube depth to 20 kHz → 800 Hz', () => {
     expect(tubeCutoffHz(0)).toBeCloseTo(20000);
     expect(tubeCutoffHz(1)).toBeCloseTo(800);
     expect(tubeCutoffHz(0.5)).toBeLessThan(5000);
+  });
+  it('barrel depth: at least 0.25 in the tube while live, 0 out of it or once wiped out', () => {
+    expect(barrelDepth({ inTube: true, tubeDepth: 0.1, mode: 'riding' })).toBe(0.25);
+    expect(barrelDepth({ inTube: true, tubeDepth: 0.8, mode: 'airborne' })).toBe(0.8);
+    expect(barrelDepth({ inTube: false, tubeDepth: 0.8, mode: 'riding' })).toBe(0);
+    expect(barrelDepth({ inTube: true, tubeDepth: 0.8, mode: 'wipeout' })).toBe(0);
   });
   it('makes the crashing rumble louder and brighter near the impact zone and in a fast section', () => {
     const far = rumbleParams(40, 0);

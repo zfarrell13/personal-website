@@ -1,8 +1,6 @@
-import type { TrackEntry } from '@/shared/tracks';
 import type { SurfEvent } from '../physics/events';
 import type { SurferState } from '../physics/Surfer';
-import { Playlist } from '@/site/music/Playlist';
-import { fillImpulse, fillNoise, hootVoices, rumbleParams, sprayParams, tubeCutoffHz, type HootVoice } from './synth';
+import { barrelDepth, fillImpulse, fillNoise, hootVoices, rumbleParams, sprayParams, tubeCutoffHz, type HootVoice } from './synth';
 
 /** What the crashing rumble follows each frame. */
 export interface RumbleInput {
@@ -78,9 +76,8 @@ export async function renderHoots(sampleRate = 44100, variants = 3): Promise<Aud
 }
 
 /**
- * Surf audio graph:
- *   music ─┐
- *   spray ─┴► tubeLP ─► dry ─────────► master ► compressor ► out
+ * Surf audio graph (the music is the site player's: see getMusicPlayer, which SurfGame muffles and ducks):
+ *   spray ──► tubeLP ─► dry ─────────► master ► compressor ► out
  *                    └► reverb ► wet ─┘
  *   ocean (filtered noise with slow swells) ► master
  *   rumble (low-passed noise: the crashing lip, by distance / fast section) ► master
@@ -94,7 +91,6 @@ export class SurfAudio {
   private readonly dry = this.ctx.createGain();
   private readonly wet = this.ctx.createGain();
   private readonly reverb = this.ctx.createConvolver();
-  private readonly musicGain = this.ctx.createGain();
   private readonly sprayBP = this.ctx.createBiquadFilter();
   private readonly sprayGain = this.ctx.createGain();
   private readonly rumbleLP = this.ctx.createBiquadFilter();
@@ -102,16 +98,11 @@ export class SurfAudio {
   private readonly noise: AudioBuffer;
   private readonly sources: AudioScheduledSourceNode[] = [];
   private hoots: AudioBuffer[] = [];
-  private music: HTMLAudioElement | null = null;
-  private playlist: Playlist | null = null;
   private disposed = false;
-  /** Set by pause(), cleared by resume(): a pause during start() or a track change keeps the music silent. */
+  /** Set by pause(), cleared by resume(): a pause during start() keeps the context suspended. */
   private paused = false;
-  /** Track queued while paused: announced (NOW PLAYING) when it actually starts on resume(). */
-  private unannounced: TrackEntry | null = null;
-  private musicFailures = 0;
 
-  constructor(private readonly onTrack: (t: TrackEntry) => void) {
+  constructor() {
     const c = this.ctx;
     this.comp.threshold.value = -14;
     this.comp.ratio.value = 4;
@@ -126,9 +117,6 @@ export class SurfAudio {
     this.wet.gain.value = 0;
     this.tubeLP.connect(this.dry).connect(this.master);
     this.tubeLP.connect(this.reverb).connect(this.wet).connect(this.master);
-
-    this.musicGain.gain.value = 0.8;
-    this.musicGain.connect(this.tubeLP);
 
     this.noise = noiseBuffer(c, 4, 7);
     this.sprayBP.type = 'bandpass';
@@ -175,16 +163,16 @@ export class SurfAudio {
   private started: Promise<void> | null = null;
 
   /** Call from a user gesture (DROP IN). Idempotent: later calls just resume. */
-  start(tracks: readonly TrackEntry[]): Promise<void> {
+  start(): Promise<void> {
     if (this.started) {
       this.resume();
       return this.started;
     }
-    this.started = this.init(tracks);
+    this.started = this.init();
     return this.started;
   }
 
-  private async init(tracks: readonly TrackEntry[]): Promise<void> {
+  private async init(): Promise<void> {
     await this.ctx.resume();
     if (this.disposed) return;
     // pause() may have run while resume() was pending; its suspend() lost that race.
@@ -194,47 +182,10 @@ export class SurfAudio {
         if (!this.disposed) this.hoots = h;
       })
       .catch((e: unknown) => console.warn('Hoot synthesis failed', e));
-    this.playlist = new Playlist(tracks);
-    if (this.playlist.empty || this.disposed) return;
-    this.music = new Audio();
-    this.music.preload = 'auto';
-    this.ctx.createMediaElementSource(this.music).connect(this.musicGain);
-    this.music.addEventListener('ended', () => this.nextTrack());
-    // A missing or undecodable file skips to the next track (at most one full cycle of failures in a row).
-    this.music.addEventListener('error', () => {
-      if (this.disposed) return;
-      if (++this.musicFailures < (this.playlist?.tracks.length ?? 0)) this.nextTrack();
-      else console.warn('No surf track could be played.');
-    });
-    this.music.addEventListener('playing', () => {
-      this.musicFailures = 0;
-    });
-    this.nextTrack();
-  }
-
-  private nextTrack(): void {
-    const t = this.playlist?.next();
-    if (!t || !this.music || this.disposed) return;
-    this.music.src = t.audioUrl;
-    if (this.paused) {
-      this.unannounced = t;
-      return;
-    }
-    this.unannounced = null;
-    this.onTrack(t);
-    this.playMusic();
-  }
-
-  private playMusic(): void {
-    this.music?.play().catch((e: unknown) => {
-      // A pause or dispose interrupting a pending play() rejects with AbortError: expected, not a failure.
-      if ((e as { name?: unknown } | null)?.name !== 'AbortError') console.warn('Music playback blocked', e);
-    });
   }
 
   pause(): void {
     this.paused = true;
-    this.music?.pause();
     if (!this.disposed) void this.ctx.suspend().catch(() => undefined);
   }
 
@@ -242,12 +193,6 @@ export class SurfAudio {
     if (this.disposed) return;
     this.paused = false;
     void this.ctx.resume().catch(() => undefined);
-    if (!this.music?.src) return;
-    if (this.unannounced) {
-      this.onTrack(this.unannounced);
-      this.unannounced = null;
-    }
-    this.playMusic();
   }
 
   update(s: SurferState, speed: number, rumble: RumbleInput): void {
@@ -259,9 +204,7 @@ export class SurfAudio {
     const sp = sprayParams(speed, Math.min(1, Math.abs(s.turnRate) / 2.5) + (s.stalling ? 0.5 : 0));
     this.sprayBP.frequency.setTargetAtTime(sp.freq, now, TAU);
     this.sprayGain.gain.setTargetAtTime(riding ? sp.gain : 0, now, TAU);
-    // A wipeout in the tube emits no tubeExit, so the mode gates the FX too.
-    const inBarrel = s.inTube && (s.mode === 'riding' || s.mode === 'airborne');
-    this.setTubeDepth(inBarrel ? Math.max(0.25, s.tubeDepth) : 0);
+    this.setTubeDepth(barrelDepth(s));
   }
 
   private setTubeDepth(depth: number): void {
@@ -347,11 +290,6 @@ export class SurfAudio {
         // already stopped
       }
     });
-    if (this.music) {
-      this.music.pause();
-      this.music.removeAttribute('src');
-      this.music.load();
-    }
     void this.ctx.close().catch(() => undefined);
   }
 }
