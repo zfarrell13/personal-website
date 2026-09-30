@@ -1,74 +1,98 @@
-# Zach Farrell — Surf by day, DJ by night
+# Zach Farrell — resume site
 
-Two interactive experiences behind a light/dark switch:
+A personal resume site styled as a PS2 game menu. A live breaking wave, which is also a playable surf game, runs behind every page. The soundtrack plays continuously across the whole site.
 
-- **Light mode → Surf** (`/surf`): a PS2-era surf game on an endless peeling reef wave.
-- **Dark mode → DJ booth** (`/dj`): two fully functional CDJ-style decks and a 2-channel club mixer in a reactive low-poly club.
+| Menu item | Route | What it is |
+|---|---|---|
+| FREE SURF (pre-selected) | `/surf` | The surf game (choose LEFT/RIGHT, GUIDE, then DROP IN) |
+| RIDER PROFILE | `/profile` | Player card: photo, name, title, bio, what I'm looking for, skill bars |
+| CAREER MODE | `/career` | The resume: seasons newest first, each expandable; DOWNLOAD RESUME (PDF) |
+| TROPHY ROOM | `/trophies` | Portfolio: project cards, each opening a detail card with PLAY/VIEW and CODE links |
+| CREDITS | `/credits` | Contact, links, resume PDF and music credits, as rolling game credits |
+
+`/` is the title menu. Use ↑↓ to move, Enter or Space to select, and Esc or Backspace to go back to the menu. Mouse and touch work too. Every section is a real route with real HTML, so the pages can be shared, crawled and read without WebGL.
 
 ## Requirements
 
 - Node 22+
-- ffmpeg (`brew install ffmpeg`)
+- ffmpeg (`brew install ffmpeg`), used by the track pipeline before `dev` and `build`
 
 ## Run it
 
     npm install
     npm run dev        # http://localhost:3000
 
-The first `npm run dev` synthesizes placeholder tracks if `content/tracks/tracks.json` is empty.
-
 ## Scripts
 
 | Command | What it does |
 |---|---|
 | `npm run dev` | Dev server (builds tracks first) |
-| `npm run build && npm start` | Production build |
+| `npm run build && npm start` | Production build (builds tracks first) and server |
 | `npm test` | Unit tests (Vitest) |
-| `npm run test:e2e` | Browser smoke tests (Playwright) |
 | `npm run typecheck` | TypeScript |
-| `npm run tracks` | Rebuild audio + waveform data from `content/tracks` |
+| `npm run test:e2e` | Browser tests (Playwright). They start a dev server on port 3100 or reuse one already running. `PW_PORT=3000 npm run test:e2e` runs them against your running dev server. |
+| `npm run tracks` | Rebuild the audio and waveform data from `content/tracks` |
 
-## Adding your tracks
+## Editing the content
 
-See `content/tracks/README.md`.
+All of the site's text lives in one typed file, **`src/content/site.ts`** (types in `src/content/types.ts`):
 
-## DJ booth (`/dj`)
+- `profile`: name, title, location, tagline, bio paragraphs, `lookingFor`, `photo`, and `stats` (skill bars, 0–10).
+- `career.resumePdf` and `career.seasons`: role, company, `start`/`end` (`YYYY-MM`, or `'Present'`), location, `wins` (3–4 each) and `stack`. Seasons can go in any order; the page sorts them newest first.
+- `trophies`: `id`, name, one-liner, image, stack, `links` (labelled `PLAY` / `VIEW` / `CODE`) and the longer `story` shown on the detail card. The surf game is the first trophy.
+- `credits`: `email`, `links` (LinkedIn, GitHub, …) and `music` (the soundtrack credits) shown on CREDITS.
 
-- **TAP TO START** unlocks audio (browser autoplay rules). BROWSE on a deck loads a track; the booth is a CDJ | mixer | CDJ layout modelled on the real hardware (no branding).
-- **Tracks:** the decks play whatever is in `content/tracks/tracks.json` (see "Adding your tracks"); BROWSE lists them with artwork, BPM and key. Loading onto a deck that is playing on air needs a second tap.
-- **Controls:** each deck has PLAY/PAUSE, CUE, hot cues A–H (saved per track in the browser), memory-cue CALL, loops (IN/OUT, 4/8 BEAT, ½X/2X, RELOOP/EXIT), BEAT JUMP, SLIP, QUANTIZE, REVERSE, tempo (±6/10/16/WIDE) with Master Tempo, SYNC/MASTER and a jog wheel (VINYL scratch or CDJ pitch bend). The mixer has TRIM, 3-band isolator EQ, Colour FX, Beat FX, channel faders with curves, crossfader with assign, CUE buttons and MASTER. Drag knobs vertically and faders along their track; on a phone (landscape) swipe between DECK 1 · MIXER · DECK 2.
-- **Tab** or **VIEW** switches between the booth close-up and the club room view. Hold **Shift** for SHIFT (e.g. SHIFT + hot cue clears it) and fine knob control.
-- **Headphones:** SETTINGS → choose a second output device (Chrome/Edge support `setSinkId`), or set the mixer's HEADPHONES switch to SPLIT (cue left / master right on the main output).
-- **Worklets:** `src/dj/engine/worklets/*.worklet.ts` are bundled to `public/worklets/` by `npm run worklets` (automatic before dev/build). While editing engine code run `npm run worklets:watch` in a second terminal.
-- **3D booth model (optional):** see `content/models/README.md`. Without it, procedural gear is used.
-- **Engine test page:** `/dev/dj-engine` runs the audio engine end to end without the UI.
+Placeholder text starts with `SAMPLE`. Replace it, and the files under `public/site/` (photo, resume PDF, trophy images), with your own. `src/content/site.test.ts` checks the file's shape. The page titles, descriptions and the link-preview card (`src/app/opengraph-image.tsx`) are all built from the same file.
+
+## Adding tracks
+
+The soundtrack is the tracks in `content/tracks/tracks.json` that have `"surf": true`. They play as one shuffled playlist that never restarts on navigation. See `content/tracks/README.md` for the format.
+
+- The audio masters and artwork are git-ignored (commercial releases). Only `tracks.json` is committed.
+- `npm run dev` and `npm run build` encode them into `public/tracks/` first. If any listed file is missing, as in a fresh clone or a CI build, the synthesized placeholder tracks are used instead, with a warning.
+- The music starts on the first click, tap or key press, because browsers block autoplay. The NOW PLAYING tag on every page shows the track and has SKIP and MUTE buttons. The mute choice is remembered.
+- `?tracks=test` on any page selects the synthetic test tracks (the e2e suite uses them).
+
+## Deploying
+
+- **Set `NEXT_PUBLIC_SITE_URL`** to the site's public origin (for example `https://zachfarrell.com`) **at build time**. It becomes the `metadataBase`, so link previews get absolute `og:image` / `twitter:image` URLs. The pages are prerendered, so setting it only at runtime has no effect. Without it, the URLs point at `http://localhost:3000`.
+- The share card (`/opengraph-image`) is prerendered at build time from `assets/fonts/RussoOne-Regular.ttf`.
+- Put the real track files in `content/tracks/` on the build machine. Otherwise the placeholder tracks ship.
 
 ## Layout
 
-- `src/app` — routes (portal, `/surf`, `/dj`)
-- `src/retro` — shared PS2 renderer and UI primitives
-- `src/shared` — mode, input actions, track manifest + waveform codec
-- `src/surf`, `src/dj` — the two experiences
-- `scripts` — track pipeline
-- `docs/superpowers` — design specs and implementation plans
-
-## Credits
-
-See `CREDITS.md` (third-party models, samples and libraries).
+- `src/app`: routes (`/`, `/surf`, the four sections, the share card, `/dev/retro`)
+- `src/site`: the site shell (persistent surf stage, title menu, section chrome, menu sounds) and `src/site/music` (the global player and the NOW PLAYING tag)
+- `src/content`: the content file
+- `src/surf`: the surf game
+- `src/retro`: the PS2 renderer and shared UI primitives
+- `src/shared`: input actions, storage, track manifest and waveform codec
+- `scripts`: the track pipeline
+- `docs/superpowers`: design specs and implementation plans
 
 ## Surf game (`/surf`)
 
 | Input | On the face | In the air |
 |---|---|---|
 | ← / → | Carve (screen-relative); held at the lip = snap, **let go at the lip to launch** | Spin |
-| ↑ | Pump (rhythm beats mashing) | — |
-| ↓ | Stall (the curl catches you) | — |
+| ↑ | Pump (works the face, not the flats; rhythm beats mashing) | — |
+| ↓ | Stall (the curl catches you; let go early to pump out of the barrel) | — |
 | Space | Ollie | — |
 | W / A / S / D (hold) | — | Method / Rail / Stalefish / Indy |
-| Esc | Pause | Pause |
+| G (title) | Toggle the GUIDE coach | — |
+| Esc | Pause (on the title: back to the menu) | Pause |
 
-- Mobile (landscape): left thumb pad, right OLLIE + grab buttons.
-- `/surf?debug` — live tuning sliders for `src/surf/config.ts`, fps / draw calls / triangles, wave-frame gizmo.
-- Your avatar: edit `SURFER_LOOK` in `src/surf/config.ts` (hair, skin, outfit colors, board text, or `boardImage` for your own deck art ≤ 256 px).
-- Soundtrack: tracks with `"surf": true` in `content/tracks/tracks.json`.
+- **Phones (landscape):** a four-way pad on the left; on the right, the grabs (METHOD, RAIL, STALE, INDY) in two columns with OLLIE under the thumb in the corner. Pause is at the top centre. Held portrait, the game asks you to rotate.
+- **RIGHT / LEFT** follow the surf convention: a RIGHT peels to your right as you face the beach.
+- **The break chases you.** Sit still and the curl swallows you in about 5 s. Carve down the line and pump on the face to stay ahead. Every 10–20 s a ⚡ FAST SECTION surges the peel by 30–50% for 3–5 s. Make it for a 500-point SECTION MADE.
+- **Barrels:** stall as the curl arrives to get tubed. Pump to get out before it closes.
+- **GUIDE ON** (the default; remembered) shows a ▲ PUMP! coach prompt when you need speed.
+- **Camera:** it rides behind you on the curl side, cuts into the barrel when you are tubed, pulls back in the air, and cuts underwater on a wipeout.
+- **Music:** the site soundtrack keeps playing. It is muffled inside the tube and ducked while paused.
+- `/surf?debug`: live tuning sliders for `src/surf/config.ts`, fps / draw calls / triangles, and a wave-frame gizmo.
+- **Your avatar:** edit `SURFER_LOOK` in `src/surf/config.ts` (hair, skin, outfit colours, board text, or `boardImage` for your own deck art, 256 px or smaller).
 - High scores are stored locally (`localStorage['zf-surf-highscores']`).
+
+## Credits
+
+See `CREDITS.md`.
