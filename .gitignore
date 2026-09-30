@@ -16,5 +16,4 @@ test-results/
 playwright-report/
 .env*
 .worktrees/
-content/models/*.glb
 content/tracks/*.jpg
