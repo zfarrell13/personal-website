@@ -17,3 +17,6 @@ playwright-report/
 .env*
 .worktrees/
 content/tracks/*.jpg
+
+# Personal documents (contain contact details) — never committed
+docs/*.docx

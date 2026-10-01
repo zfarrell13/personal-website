@@ -3,7 +3,7 @@ import { trackConsoleErrors } from './helpers';
 
 const SECTIONS = [
   { path: '/profile', text: 'LOOKING FOR' },
-  { path: '/career', text: 'SAMPLE Company A' },
+  { path: '/career', text: 'Vantaca' },
   { path: '/trophies', text: 'Kelly-style Surf Game' },
   { path: '/credits', text: 'I Can Be Your Future' },
 ] as const;
@@ -85,7 +85,7 @@ test.describe('section screens', () => {
     await expect(second).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(second).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByRole('link', { name: /DOWNLOAD RESUME/ })).toHaveAttribute('href', '/site/resume-sample.pdf');
+    await expect(page.getByRole('link', { name: /DOWNLOAD RESUME/ })).toHaveAttribute('href', '/site/Zach_Farrell_Resume.pdf');
   });
 
   test('RIDER PROFILE has nothing to select, so ↓ scrolls it (and ↑ back)', async ({ page }) => {
