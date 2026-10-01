@@ -377,26 +377,34 @@ shore, weight on the back foot, laid back like a big top turn, the head ending f
 (The first build blended the body toward world up — the rejected direction — and solved it in the
 banked frame, cancelling the rail bank; replaced.)
 
-- Riding (not in the air, on a floater or wiping out), the drawn body lays back past the surface
-  normal, away from world up — about the axis up × normal — by `LEAN_MAX` (35°) × smoothstep
-  (`LEAN_FROM` 0.2, 1, steepness) (`character/lean.ts`; steepness = sin of the face angle): ≈ 0 on
-  gentle faces, continuous from zero, 35° on a near-vertical face. In every heading: along the wave it
-  tips the body off the face; running up the face (a top turn) it is a lay-back over the tail, off the
-  face. It comes on top of the rail bank (applied in the banked board's frame) and eases in.
+- Riding (not in the air, on a floater or wiping out), the drawn body lays back about the axis up ×
+  normal (turning it further from world up), on top of the rail bank, until its line reaches a target
+  past the normal, `LEAN_MAX` (35°) × smoothstep(`LEAN_PAST_FROM` 0.5, `LEAN_PAST_FULL` 0.95,
+  steepness) — never the other way. It is measured from the body's own unleaned, unbanked tilt in the
+  board's frame (re-review fix: one world angle for both stances tipped a backside rider's head toward
+  the face below): a frontside stance, which leans in toward the face, lays back out to the normal on an
+  open face; a backside stance, already out, is left there; in the curling pocket both lay further out,
+  past the normal. On an open face the head is farthest from the water along the normal; only where the
+  face curls over (steep, near the curl) does laying further out keep taking it away. The whole lean
+  fades in by smoothstep(`LEAN_FROM` 0.2, `LEAN_FULL` 0.55, steepness) (≈ 0 on gentle faces,
+  continuous from zero), in every heading (down the line it tips the body off the face; up the face it
+  is a lay-back over the tail), and eases in.
 - Feet planted, soles flat: the part of the lay-back about the line through the ankles turns the whole
   body about that line (the ankles stay put); the rest tips the upper body at the Spine (the legs hang
-  off the Hips); each foot is then put back exactly as it was. Per frame only the board's chain and the
-  body's subtree are updated. `Character.leanScale` (1) scales it (0: none — the tests' and screenshots'
-  reference). The camera's framing guard (`riderUp`) applies the same lay-back on top of the bank.
-- Verification (both rigs, RIGHT and LEFT, down the line and up the face): the lay-back from the
-  unleaned body grows with steepness (< 3° to steepness 0.3, 25–42° at 0.98) and tips away from up; the
-  bank turns the body as much with the lean as without it, the lay-back is as big banked as straight,
-  and a banked rider's line moves < 1.5° per 0.01 of steepness where the lean starts; the feet stay
-  within 5 mm and their soles within 1° of the unleaned (exact on the procedural rig; the glTF rig's
-  bone scales leave ≈ 0.5° in the decomposition), banked or not; on the real wave's pocket face the
-  lay-back carries the head farther from the water the steeper the face (≈ 0 gentle, > 0.2 m steep);
-  it eases in; none in a trick air. Before / after screenshots: a steep down-the-line trim and a top
-  turn, RIGHT and LEFT.
+  off the Hips); each foot is then put back exactly as it was. Two body-subtree matrix updates per frame
+  (planting the feet, then the unleaned body); the lean, the Spine and the feet are worked out in the
+  board's frame from those. `Character.leanScale` (1) scales it (0: none — the tests' reference). The
+  camera's framing guard (`riderUp`) lays the body out to the target on top of the bank.
+- Verification (both rigs, RIGHT and LEFT, down the line and up the face): the lay-back only ever tips
+  the body out (< 3° on gentle faces, 25–45° past the normal at steepness 0.98); the bank (≈ 34°) still
+  turns the body with the lean on (> 30°), the lean never tips a banked body toward up, and a banked
+  rider's line moves < 2° per 0.01 of steepness where it starts; the feet stay within 5 mm and the soles
+  within 1° of the unleaned (exact on the procedural rig; ≈ 0.5° of matrix-decomposition noise from the
+  glTF rig's bone scales), banked or not; on the real wave — x = 2 (the pocket), 8, 20 and 35, down the
+  line and up the face, both stances — it never brings the head nearer the water (≥ −1 cm), and in the
+  pocket the steepest face gains > 8 cm more than the gentlest (RIGHT up to ≈ +0.5 m, LEFT ≈ +0.24 m at
+  steepness 0.91); eased in; none in a trick air. Screenshots: steep down-the-line trim and top turn
+  (autopilot) and steep climbs near the curl (manual steering), RIGHT and LEFT.
 
 ## Playtest 2 amendments (user feedback)
 

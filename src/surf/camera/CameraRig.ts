@@ -3,7 +3,7 @@ import { SURF_CONFIG, type Side, type SurfConfig } from '../config';
 import { springStepVec3 } from '../math/spring';
 import { DEG, wrapAngle } from '../math/scalar';
 import type { SurferState } from '../physics/Surfer';
-import { faceSteepness, layBackAngle, layBackAxis } from '../character/lean';
+import { faceSteepness, layBackAxis, layBackTarget, layBackWeight } from '../character/lean';
 import { impactDistance } from '../wave/impact';
 import { frameToView } from '../wave/mirror';
 
@@ -160,6 +160,8 @@ const CHASE_FRAMING = [
   { up: 0.9, ndc: 0.65 }, // the chest
   { up: 1.5, ndc: 0.8 }, // the head
 ] as const;
+/** The lip lean's axis (scratch for riderUp). */
+const LAY_AXIS = new Vector3();
 /** Lean of the drawn body: as Character.ts, bank = clamp(turnRate · |v| · BANK_GAIN, ±BANK_MAX). */
 const BANK_GAIN = 0.04;
 const BANK_MAX = 0.6;
@@ -173,12 +175,13 @@ export function riderUp(s: Pick<SurferState, 'normal' | 'heading' | 'turnRate' |
   const bank = Math.max(-BANK_MAX, Math.min(BANK_MAX, s.turnRate * s.v.length() * BANK_GAIN)) * (s.stanceFlipped ? 1 : -1);
   fwd.copy(s.heading).multiplyScalar(s.stanceFlipped ? -1 : 1).normalize();
   out.copy(s.normal).applyAxisAngle(fwd, bank);
-  // The lip lean (character/lean.ts), on top of the bank: laid back off the face, away from world up.
-  const lay = layBackAngle(faceSteepness(s.normal.y));
+  // The lip lean (character/lean.ts), on top of the bank: the body laid back out to its target past the
+  // normal (the drawn body's own unleaned tilt is pose-dependent; this models the target).
+  const steep = faceSteepness(s.normal.y);
+  const lay = layBackWeight(steep) * layBackTarget(steep);
   if (lay > 0 && layBackAxis(s.normal, LAY_AXIS)) out.applyAxisAngle(LAY_AXIS, lay);
   return out;
 }
-const LAY_AXIS = new Vector3();
 
 /**
  * Where the camera wants to be (VIEW coordinates, i.e. already mirrored) for a shot.

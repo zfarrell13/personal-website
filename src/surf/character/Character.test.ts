@@ -164,8 +164,9 @@ describe.each(TEST_RIGS)('the lip lean on the %s rig (playtest 5: the steeper th
       surfer.prevP.copy(s.p);
     };
     /**
-     * Rides there for `frames` at 60 fps; returns the upper body's line (Spine → Head, unit) in the frame —
-     * the part that lays back (running up the face the legs stay planted and the lay-back is at the Spine).
+     * Rides there for `frames` at 60 fps; returns the body's line (ankles' midpoint → head, unit) in the
+     * frame — or, heading up the face, the upper body's (Spine → Head): there the legs stay planted and
+     * the lay-back is at the Spine.
      */
     const ride = (n: Vector3, heading: 'line' | 'up' = 'line', turnRate = 0, frames = 60) => {
       for (let i = 0; i < frames; i++) {
@@ -174,33 +175,38 @@ describe.each(TEST_RIGS)('the lip lean on the %s rig (playtest 5: the steeper th
       }
       ch.root.updateMatrixWorld(true);
       const b = ch.rig.bones;
-      return b.Head.getWorldPosition(new Vector3()).sub(b.Spine.getWorldPosition(new Vector3())).normalize();
+      if (heading === 'up') return b.Head.getWorldPosition(new Vector3()).sub(b.Spine.getWorldPosition(new Vector3())).normalize();
+      const mid = b.LeftFoot.getWorldPosition(new Vector3()).add(b.RightFoot.getWorldPosition(new Vector3())).multiplyScalar(0.5);
+      return b.Head.getWorldPosition(new Vector3()).sub(mid).normalize();
     };
     return { ch, s, surfer, ride };
   }
+
+  /** Signed tilt of the body line past the normal, away from world up (deg; + = out, off the face). */
+  const pastNormal = (body: Vector3, n: Vector3) => {
+    const k = new Vector3().crossVectors(UP, n).normalize();
+    const b = body.clone().addScaledVector(k, -body.dot(k));
+    return Math.atan2(new Vector3().crossVectors(n, b).dot(k), n.dot(b)) / DEG;
+  };
 
   it.each([
     ['right', 'line'],
     ['left', 'line'],
     ['right', 'up'],
     ['left', 'up'],
-  ] as const)('%s, heading %s: the lay-back grows with steepness from ≈ 0, out away from world up, to 30–40° on a near-vertical face', async (side, heading) => {
+  ] as const)('%s, heading %s: the lay-back only ever tips the body out (never toward up), ≈ 0 on gentle faces, and on a near-vertical face lays it 25–40° out past the normal', async (side, heading) => {
     const { ch, ride } = await rider(side);
-    let prev = -1;
     for (const st of [0, 0.15, 0.3, 0.5, 0.7, 0.85, 0.98]) {
       const n = faceNormal(st);
       ch.leanScale = 0;
       const plain = ride(n, heading);
       ch.leanScale = 1;
       const leaned = ride(n, heading);
-      const lay = leaned.angleTo(plain) / DEG;
-      expect(lay).toBeGreaterThanOrEqual(prev - 0.3);
-      prev = lay;
-      if (st <= 0.3) expect(lay).toBeLessThan(3);
-      if (st >= 0.5) expect(leaned.dot(UP)).toBeLessThan(plain.dot(UP)); // tipped away from up (out, off the face)
+      expect(pastNormal(leaned, n)).toBeGreaterThanOrEqual(pastNormal(plain, n) - 0.3); // out, never in
+      if (st <= 0.15) expect(leaned.angleTo(plain) / DEG).toBeLessThan(3);
       if (st === 0.98) {
-        expect(lay).toBeGreaterThan(25);
-        expect(lay).toBeLessThan(42);
+        expect(pastNormal(leaned, n)).toBeGreaterThan(25);
+        expect(pastNormal(leaned, n)).toBeLessThan(45);
       }
     }
   });
@@ -214,18 +220,20 @@ describe.each(TEST_RIGS)('the lip lean on the %s rig (playtest 5: the steeper th
         return ride(n, 'line', turnRate);
       };
       const [plain, plainBanked, leaned, leanedBanked] = [body(0, 0), body(0, 2.5), body(1, 0), body(1, 2.5)];
-      // The bank turns the body as much with the lean as without it (the lean never cancels it) …
-      expect(Math.abs(leanedBanked.angleTo(leaned) - plainBanked.angleTo(plain)) / DEG).toBeLessThan(4);
+      // The bank (0.6 rad ≈ 34° here) still turns the body with the lean on — it is never cancelled (the
+      // first build left ≈ 8°). The lay-back may even out the turn pose's own extra lean on top of it.
+      expect(leanedBanked.angleTo(leaned) / DEG).toBeGreaterThan(30);
+      expect(plainBanked.angleTo(plain) / DEG).toBeGreaterThan(30);
       expect(plainBanked.angleTo(plain) / DEG).toBeGreaterThan(20);
-      // … and the lay-back is as big banked as straight.
-      expect(Math.abs(leanedBanked.angleTo(plainBanked) - leaned.angleTo(plain)) / DEG).toBeLessThan(4);
+      // … and banked too it only ever lays the body out (it never cancels the bank by tipping toward up).
+      expect(pastNormal(leanedBanked, n)).toBeGreaterThanOrEqual(pastNormal(plainBanked, n) - 0.3);
     }
     ch.leanScale = 1;
     // Across the steepness where the lean starts, a banked rider's line moves smoothly.
     let prev = ride(faceNormal(0.15), 'line', 2.5);
     for (let st = 0.16; st <= 0.4; st += 0.01) {
       const b = ride(faceNormal(st), 'line', 2.5);
-      expect(b.angleTo(prev) / DEG).toBeLessThan(1.5);
+      expect(b.angleTo(prev) / DEG).toBeLessThan(2); // smooth: ≤ 2° per 0.01 of steepness (the old swing was 33° at once)
       prev = b;
     }
   });
@@ -263,27 +271,27 @@ describe.each(TEST_RIGS)('the lip lean on the %s rig (playtest 5: the steeper th
     }
   });
 
-  it('on the real wave, the steeper the face the further the lay-back carries the head from the water (riding the pocket face)', async () => {
+  it.each(['right', 'left'] as const)('%s: on the real wave the lean never brings the head nearer the water — the pocket (x = 2) and the open face (x = 8, 20, 35), down the line and up the face — and in the pocket the steeper the face the further it takes it away', async (side) => {
     const cfg = structuredClone(SURF_CONFIG);
     const wave = new WaveShape(cfg.wave);
     const surfer = new Surfer(wave, cfg.physics, new EventBus<SurfEvent>());
     const s = surfer.state;
     const ch = new Character(await makeRig(), SURFER_LOOK);
-    ch.setSide('right');
-    const pts: Vector3[] = [];
-    for (let x = -4; x <= 10; x += 0.25) for (let t = 0; t <= 1; t += 0.01) pts.push(wave.profile(x, t));
-    const headClearance = (t: number, scale: number) => {
+    ch.setSide(side);
+    const sx = new Vector3();
+    const clearance = (x: number, t: number, heading: 'line' | 'up', scale: number, pts: Vector3[]) => {
       ch.leanScale = scale;
-      const sx = new Vector3();
+      const n = wave.normal(x, t);
+      wave.tangents(x, t, sx, new Vector3());
+      const e1 = sx.clone().normalize();
       for (let i = 0; i < 60; i++) {
         s.mode = 'riding';
         s.turnRate = 0;
-        s.param.x = 2;
+        s.param.x = x;
         s.param.t = t;
-        wave.profile(2, t, s.p);
-        wave.normal(2, t, s.normal);
-        wave.tangents(2, t, sx, new Vector3());
-        s.heading.copy(sx.normalize());
+        wave.profile(x, t, s.p);
+        s.normal.copy(n);
+        s.heading.copy(heading === 'line' ? e1 : new Vector3().crossVectors(n, e1).normalize());
         s.v.copy(s.heading).multiplyScalar(8);
         surfer.prevP.copy(s.p);
         surfer.prevHeading.copy(s.heading);
@@ -293,15 +301,24 @@ describe.each(TEST_RIGS)('the lip lean on the %s rig (playtest 5: the steeper th
       const head = ch.rig.bones.Head.getWorldPosition(new Vector3());
       return Math.min(...pts.map((q) => q.distanceTo(head)));
     };
-    // Rideable face rows of the pocket column (n.y ≥ 0.2), gentle to steep.
-    const rows = [0.2, 0.3, 0.4, 0.45].filter((t) => wave.normal(2, t).y >= 0.2);
-    const gains = rows.map((t) => ({ steep: wave.steepness(2, t), gain: headClearance(t, 1) - headClearance(t, 0) }));
-    expect(gains.length).toBeGreaterThanOrEqual(3);
-    for (let i = 1; i < gains.length; i++) expect(gains[i]!.steep).toBeGreaterThan(gains[i - 1]!.steep);
-    expect(Math.abs(gains[0]!.gain)).toBeLessThan(0.05); // gentle: about nothing
-    expect(gains[gains.length - 1]!.gain).toBeGreaterThan(0.2); // steep: clearly farther out
-    for (let i = 1; i < gains.length; i++) expect(gains[i]!.gain).toBeGreaterThanOrEqual(gains[i - 1]!.gain - 0.06);
-  });
+    for (const x of [2, 8, 20, 35]) {
+      const pts: Vector3[] = [];
+      for (let xx = x - 5; xx <= x + 5; xx += 0.25) for (let t = 0; t <= 1; t += 0.006) pts.push(wave.profile(xx, t));
+      // Rideable rows (n.y ≥ 0.2), gentle to steep.
+      const rows = [0.15, 0.25, 0.35, 0.4, 0.45, 0.5].filter((t) => wave.normal(x, t).y >= 0.2);
+      for (const heading of ['line', 'up'] as const) {
+        const gains = rows.map((t) => ({ steep: wave.steepness(x, t), gain: clearance(x, t, heading, 1, pts) - clearance(x, t, heading, 0, pts) }));
+        for (const g of gains) expect(g.gain).toBeGreaterThanOrEqual(-0.01);
+        if (x === 2) {
+          const steepest = gains.reduce((a, b) => (b.steep > a.steep ? b : a));
+          const gentlest = gains.reduce((a, b) => (b.steep < a.steep ? b : a));
+          expect(steepest.steep).toBeGreaterThan(0.7);
+          expect(steepest.gain).toBeGreaterThan(0.08);
+          expect(steepest.gain).toBeGreaterThan(gentlest.gain + 0.08);
+        }
+      }
+    }
+  }, 30_000);
 
   it('no snapping: a face end tipping the normal in one tick eases the lean in over a few frames', async () => {
     const { ch, ride } = await rider('right');
@@ -313,14 +330,14 @@ describe.each(TEST_RIGS)('the lip lean on the %s rig (playtest 5: the steeper th
       maxStep = Math.max(maxStep, Math.abs(ch.leanAngle - prev));
       prev = ch.leanAngle;
     }
-    expect(ch.leanAngle).toBeGreaterThan(25 * DEG);
+    expect(ch.leanAngle).toBeGreaterThan(20 * DEG);
     expect(maxStep).toBeLessThan(0.25 * ch.leanAngle + 1e-6);
   });
 
   it('no lean in a trick air (it eases out)', async () => {
     const { ch, s, ride } = await rider('right');
     ride(faceNormal(0.98));
-    expect(ch.leanAngle).toBeGreaterThan(25 * DEG);
+    expect(ch.leanAngle).toBeGreaterThan(20 * DEG);
     s.mode = 'airborne';
     s.launchKind = 'crest';
     for (let i = 0; i < 60; i++) ch.update({ state: s, prevP: s.p, prevHeading: s.heading, wave: { crestY: () => 2.4 } } as never, 1, 1 / 60);
