@@ -77,7 +77,7 @@ The soundtrack is the tracks in `content/tracks/tracks.json` that have `"surf": 
 
 | Input | On the face | In the air |
 |---|---|---|
-| ← / → | Carve (screen-relative). Held, the board keeps turning: up, round past straight up and back toward the curl; let go and it holds its line. Held at the lip = snap. Cut back toward the curl, then carve up into the lip or the whitewater (keep holding, or let go and press again) = ROUNDHOUSE: it bounces you back down the line. **Let go at the lip to launch** (not just after letting go of a cutback) | Spin |
+| ← / → | Carve (screen-relative). Held, the board keeps turning: up, round past straight up and back toward the curl; let go and the turn stops on the spot — with no key held nothing turns the board (carve your own bottom turns). Held at the lip = snap. Cut back toward the curl, then carve up into the lip or the whitewater (keep holding, or let go and press again) = ROUNDHOUSE: it bounces you back down the line. **Let go at the lip to launch** (not just after letting go of a cutback) | Spin |
 | ↑ | Pump (works the face, not the flats; rhythm beats mashing) | — |
 | ↓ | Stall (the curl catches you; let go early to pump out of the barrel) | — |
 | Space | Ollie | — |
