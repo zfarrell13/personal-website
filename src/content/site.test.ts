@@ -17,7 +17,9 @@ function strings(value: unknown, path = ''): [string, string][] {
  * labels and URLs (a placeholder URL carries SAMPLE inside it instead), the surf game trophy and the soundtrack.
  */
 const REAL = [
-  /^profile\.name$/,
+  /^profile\.(name|title|location|tagline|lookingFor)$/,
+  /^profile\.bio\.\d+$/,
+  /^profile\.stats\.\d+\.label$/,
   /^profile\.photo$/,
   /^career\.resumePdf$/,
   /^career\.seasons\.\d+\.(start|end)$/,

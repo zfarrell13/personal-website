@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { site } from '@/content/site';
 import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 
 const nav = vi.hoisted(() => ({ push: vi.fn() }));
@@ -29,7 +30,7 @@ describe('TitleScreen', () => {
   it('shows the name, the tagline and the five items in menu order', () => {
     render(<TitleScreen />);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('ZACH FARRELL');
-    expect(screen.getByText(/SAMPLE — replace me/)).toBeTruthy();
+    expect(screen.getByText(site.profile.tagline)).toBeTruthy();
     expect(screen.getAllByRole('link').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['FREE SURF', '/surf'],
       ['RIDER PROFILE', '/profile'],
