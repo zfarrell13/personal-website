@@ -46,7 +46,6 @@ export interface Trophy {
 export interface Credits {
   email: string;
   links: { label: string; href: string }[];
-  music: { title: string; artist: string }[];
 }
 
 export interface SiteContent {

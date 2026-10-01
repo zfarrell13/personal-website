@@ -5,7 +5,7 @@ const SECTIONS = [
   { path: '/profile', text: 'LOOKING FOR' },
   { path: '/career', text: 'Vantaca' },
   { path: '/trophies', text: 'Kelly-style Surf Game' },
-  { path: '/credits', text: 'I Can Be Your Future' },
+  { path: '/credits', text: 'zachfarrell13@gmail.com' },
 ] as const;
 
 const TITLES: Record<string, string> = { '/profile': 'RIDER PROFILE', '/career': 'CAREER MODE', '/trophies': 'TROPHY ROOM', '/credits': 'CREDITS' };

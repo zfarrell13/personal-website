@@ -4,7 +4,7 @@ import styles from './sections.module.css';
 const BUILT_WITH = ['Next.js', 'React', 'three.js', 'WebGL 2', 'Web Audio', 'TypeScript'];
 
 /**
- * CREDITS: contact, links, resume, the soundtrack and what the site is built with, set like a game's end
+ * CREDITS: contact, links, resume and what the site is built with, set like a game's end
  * credits. The roll plays once on arrival and then rests (static under reduced motion), so every link
  * stays still enough to use.
  */
@@ -39,20 +39,6 @@ export function Credits({ credits, resumePdf }: { credits: CreditsContent; resum
           <a className={styles.creditLink} href={resumePdf} download>
             DOWNLOAD RESUME (PDF)
           </a>
-        </section>
-
-        <section className={styles.creditBlock} aria-labelledby="credits-music">
-          <h2 id="credits-music" className={styles.creditRole}>
-            SOUNDTRACK
-          </h2>
-          <ul className={styles.tracks}>
-            {credits.music.map((t) => (
-              <li key={t.title} className={styles.track}>
-                <span className={styles.trackTitle}>{t.title}</span>
-                <span className={styles.trackArtist}>{t.artist}</span>
-              </li>
-            ))}
-          </ul>
         </section>
 
         <section className={styles.creditBlock} aria-labelledby="credits-built">

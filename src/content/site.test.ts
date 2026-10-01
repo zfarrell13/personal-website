@@ -14,7 +14,7 @@ function strings(value: unknown, path = ''): [string, string][] {
 
 /**
  * Strings that are real or structural rather than placeholder text: the name, file paths, dates, ids, link
- * labels and URLs (a placeholder URL carries SAMPLE inside it instead), the surf game trophy and the soundtrack.
+ * labels and URLs (a placeholder URL carries SAMPLE inside it instead), and the surf game trophy.
  */
 const REAL = [
   /^profile\.(name|title|location|tagline|lookingFor)$/,
@@ -28,7 +28,7 @@ const REAL = [
   /^trophies\.\d+\.links\.\d+\.(label|href)$/,
   /^trophies\.0\./,
   /^credits\.links\.\d+\.(label|href)$/,
-  /^credits\.music\./,
+  /^credits\.email$/,
 ];
 
 describe('site content', () => {
@@ -66,12 +66,6 @@ describe('site content', () => {
     expect(surf!.name).toBe('Kelly-style Surf Game');
     expect(surf!.links).toContainEqual({ label: 'PLAY', href: '/surf' });
     expect(surf!.links).toContainEqual({ label: 'CODE', href: 'https://github.com/zfarrell13/personal-website' });
-  });
-
-  it('credits the three real tracks from content/tracks/tracks.json', () => {
-    const manifest = JSON.parse(readFileSync('content/tracks/tracks.json', 'utf8')) as { tracks: { title: string; artist: string }[] };
-    expect(site.credits.music).toEqual(manifest.tracks.map(({ title, artist }) => ({ title, artist })));
-    expect(site.credits.music).toHaveLength(3);
   });
 
   it('marks every placeholder string with a leading SAMPLE', () => {

@@ -167,7 +167,7 @@ describe('TROPHY ROOM', () => {
 });
 
 describe('CREDITS', () => {
-  it('rolls the contact, links, resume, soundtrack and built-with lines', () => {
+  it('rolls the contact, links, resume and built-with lines (no soundtrack)', () => {
     render(<CreditsPage.default />);
     expect(heading()).toBe('CREDITS');
     const { credits, career } = site;
@@ -175,11 +175,7 @@ describe('CREDITS', () => {
     for (const l of credits.links)
       expect(screen.getByRole('link', { name: `${l.label} (opens in a new tab)` }).getAttribute('href')).toBe(l.href);
     expect(screen.getByRole('link', { name: /RESUME/ }).getAttribute('href')).toBe(career.resumePdf);
-    expect(screen.getByRole('heading', { name: 'SOUNDTRACK' })).toBeTruthy();
-    for (const t of credits.music) {
-      expect(screen.getByText(t.title)).toBeTruthy();
-      expect(screen.getByText(t.artist)).toBeTruthy();
-    }
+    expect(screen.queryByRole('heading', { name: 'SOUNDTRACK' })).toBeNull();
     expect(screen.getByRole('heading', { name: 'BUILT WITH' })).toBeTruthy();
   });
 });

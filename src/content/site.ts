@@ -140,16 +140,11 @@ export const site: SiteContent = {
   ],
 
   credits: {
-    email: 'SAMPLE-replace-me@example.com',
+    email: 'zachfarrell13@gmail.com',
     links: [
-      { label: 'LINKEDIN', href: 'https://www.linkedin.com/in/SAMPLE-replace-me' },
-      { label: 'GITHUB', href: 'https://github.com/zfarrell13' },
-    ],
-    // The playlist (content/tracks/tracks.json), in its order.
-    music: [
-      { title: 'on & on (Sudley Remix)', artist: 'Piri, Tommy Villiers, Sudley' },
-      { title: 'One Day At A Time feat. Lalin St. Juste', artist: 'Nu:Tone' },
-      { title: 'I Can Be Your Future', artist: 'Mozey, Shady Novelle' },
+      { label: 'LINKEDIN', href: 'https://www.linkedin.com/in/zachfarrell13' },
+      { label: 'GITHUB · zfarrell13', href: 'https://github.com/zfarrell13' },
+      { label: 'GITHUB · AudialAI', href: 'https://github.com/AudialAI' },
     ],
   },
 };

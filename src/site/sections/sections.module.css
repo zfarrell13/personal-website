@@ -253,10 +253,6 @@
 }
 .creditLink:focus-visible { color: #ffe16b; text-decoration-color: #ffe16b; }
 @media (hover: hover) { .creditLink:hover { color: #ffe16b; text-decoration-color: #ffe16b; } }
-.tracks { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.track { display: grid; gap: 2px; }
-.trackTitle { font-style: italic; font-size: clamp(1.05rem, 2.6vw, 1.3rem); color: #fff; text-shadow: 2px 2px 0 #0a1a5c; }
-.trackArtist { font-family: var(--font-mono), monospace; font-size: 1.35rem; color: #b9c8f5; }
 .theEnd {
   margin: 12px 0 0; font-style: italic; font-size: clamp(1.3rem, 3.4vw, 1.8rem); letter-spacing: 0.1em;
   transform: skewX(-12deg); color: #ffe16b; text-shadow: 2px 2px 0 #5a2a00, 0 0 14px rgba(255, 225, 107, 0.55);
