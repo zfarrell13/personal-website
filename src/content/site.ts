@@ -14,7 +14,7 @@ export const site: SiteContent = {
       'Hello, I am a self-made entrepreneur and hyper-embedded in all things tech. In my free time, I like to experiment with bleeding-edge technology, surf, and compose music.',
       'Professionally, I have a fintech and AI background, currently building AI Platforms and Agent Governance for multi-billion dollar companies. I work in hyperproductive bursts with the intent to ship fast, get feedback, and iterate quickly. I care about making an impact to the bottom line.',
     ],
-    lookingFor: 'Cool, down-to-earth grinders that need a 10x product manager to help them build dreams.',
+    lookingFor: 'Cool, down-to-earth grinders that need a 10x product manager and SWE to help them build dreams.',
     photo: '/site/photo.jpg',
     stats: [
       { label: 'Full Stack Development', value: 9 },
