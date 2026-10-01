@@ -24,6 +24,7 @@ import { NO_INPUT, readSurferInput, SURF_BINDINGS, type SurfAction, type SurferI
 import { Surfer } from '../physics/Surfer';
 import { Environment } from '../render/Environment';
 import { Particles } from '../render/Particles';
+import { SeaLife } from '../render/sealife';
 import { WaveMesh } from '../render/WaveMesh';
 import { Scoring } from '../scoring/Scoring';
 import { pushTicker, ThrottledWriter, type Phase, type SurfStore, type TickerItem } from '../state/store';
@@ -90,6 +91,8 @@ export class SurfGame {
   private readonly waveMesh: WaveMesh;
   private readonly particles: Particles;
   private readonly env: Environment;
+  /** Starfish, sheepshead and the odd shark in the clear shallows in front of the wave. */
+  private readonly seaLife = new SeaLife();
   private readonly rig: CameraRig;
   private readonly stepper = new FixedStepper(1 / SURF_CONFIG.physics.hz, MAX_FRAME);
   private readonly writer: ThrottledWriter;
@@ -180,6 +183,13 @@ export class SurfGame {
     // Environment sets the fog/background and adds the camera to the scene.
     this.env = new Environment(this.scene, this.camera);
     this.frame.add(this.env.frameStuff);
+    this.seaLife.reset(this.seed);
+    this.frame.add(this.seaLife.group);
+    if (process.env.NODE_ENV !== 'production') {
+      // Dev only: bring a shark / a school of sheepshead past now, a little down the line from the rider.
+      this.hook.spawnShark = () => this.seaLife.spawnShark(this.travel, this.surfer.state.p.x + 35);
+      this.hook.spawnSchool = () => this.seaLife.spawnSchool(this.travel, this.surfer.state.p.x + 30);
+    }
     this.rig = new CameraRig(this.camera, SURF_CONFIG.camera, this.wave);
     this.scoring = new Scoring(SURF_CONFIG.scoring, {
       onAward: (a) => this.pushTicker(a.repeated ? `${a.name} (repeat)` : a.name, a.points),
@@ -387,6 +397,7 @@ export class SurfGame {
     // A fresh seeded fast-section schedule per run; the peel is back at base speed.
     this.seed = (Date.now() ^ Math.imul(++this.runs, 0x9e3779b9)) >>> 0;
     this.peel.reset(this.seed);
+    this.seaLife.reset(this.seed);
     this.sections.reset();
     this.surgeShift = 0;
     this.bot = null;
@@ -566,6 +577,7 @@ export class SurfGame {
     // moves it up to ~0.4 m a step).
     const travel = this.phase === 'playing' ? this.prevTravel + (this.travel - this.prevTravel) * alpha : this.travel;
     this.env.update(Number.isFinite(now) ? now / 1000 : 0, travel, sideSign(this.side));
+    this.seaLife.update(this.frameSimDt, travel);
     this.particles.tubeView = this.rig.shot === 'tube';
     this.particles.peakPitching = this.peel.peak.phase === 'pitching';
     this.particles.update(Math.min(MAX_PARTICLE_DT, this.frameSimDt), this.phase === 'playing');
@@ -684,6 +696,7 @@ export class SurfGame {
     this.particles.dispose();
     this.waveMesh.dispose();
     this.env.dispose();
+    this.seaLife.dispose();
     this.disposeGizmo();
     this.retro.dispose();
     if (window.__surf) delete window.__surf;

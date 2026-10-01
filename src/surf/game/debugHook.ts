@@ -31,6 +31,10 @@ export interface SurfDebugHook {
   /** The face under the rider: steepness (sin of the face angle) and the board heading (frame), for probes. */
   steep: number;
   heading: [number, number, number];
+  /** Dev builds only: bring a shark past the shallows now (it normally comes every couple of minutes). */
+  spawnShark?: () => void;
+  /** Dev builds only: bring a school of sheepshead past now. */
+  spawnSchool?: () => void;
 }
 
 /** ?debug only: a free camera for screenshots, in wave-frame coordinates (set from the console or Playwright). */
