@@ -15,6 +15,8 @@ export type SurfEvent =
   | { type: 'grabEnd'; time: number; kind: GrabKind; heldSec: number }
   | { type: 'snap'; time: number }
   | { type: 'carve'; time: number; degrees: number }
+  /** A held turn of ≥ roundhouseDeg back toward the curl, rebounded off the whitewater / lip back down the line. */
+  | { type: 'roundhouse'; time: number; degrees: number }
   | { type: 'pump'; time: number; efficiency: number }
   | { type: 'floaterStart'; time: number }
   | { type: 'floaterEnd'; time: number; duration: number; landed: boolean }

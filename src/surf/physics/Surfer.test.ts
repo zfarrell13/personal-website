@@ -434,35 +434,42 @@ describe('Surfer — riding', () => {
   });
 
   // Straight up the face the board's run along the wave is ~0 and flips sign tick to tick: a held
-  // carve toward the lip must settle there, not pin (a cancelled yaw rate) or fishtail across it.
+  // carve toward the lip must keep turning one way (the sense it latched from the last clear run,
+  // down the line: over toward the curl), not pin (a cancelled yaw rate) or fishtail across it.
+  // (Playtest 4: it no longer settles straight up — it keeps turning while held.)
   it.each([
     [15, 0.15, 8],
     [15, 0.15, 12],
     [25, 0.1, 10],
-  ])('pointing straight up the face, a held carve toward the lip changes the heading monotonically (x = %d, t = %d, %d m/s)', (x, t, speed) => {
+  ])('pointing straight up the face, a held carve toward the lip keeps turning one way, over toward the curl (x = %d, t = %d, %d m/s)', (x, t, speed) => {
     const h = setup();
     h.surfer.reset(x, t);
     const up = new Vector3().crossVectors(h.s.normal, new Vector3(1, 0, 0)).normalize();
     h.s.v.set(-h.surfer.peelSpeed, 0, 0).addScaledVector(up, speed); // world motion: straight up the face
     h.s.v.addScaledVector(h.s.normal, -h.s.v.dot(h.s.normal));
-    const hx: number[] = [];
+    // The line's angle in the face (0 = down the line, 90° = straight up), unwrapped.
+    const angle = () => Math.atan2(h.s.heading.dot(up), h.s.heading.x);
+    let phi = angle();
+    const phis: number[] = [];
+    let minRate = Infinity;
     for (let i = 0; i < 150 && h.s.mode === 'riding' && h.s.p.y < 0.9 * h.wave.crestY(h.s.param.x); i++) {
       h.run(DT, () => ({ carve: 1 }));
-      hx.push(h.s.heading.x);
+      const a = angle();
+      phi += Math.atan2(Math.sin(a - phi), Math.cos(a - phi));
+      phis.push(phi);
+      if (i > 0) minRate = Math.min(minRate, h.s.turnRate);
     }
-    expect(hx.length).toBeGreaterThan(30);
-    // Largest move back against the running extreme, in either direction.
-    let lo = hx[0]!;
-    let hi = hx[0]!;
-    let backUp = 0;
-    let backDown = 0;
-    for (const v of hx) {
-      lo = Math.min(lo, v);
+    expect(phis.length).toBeGreaterThan(30);
+    expect(minRate).toBeGreaterThan(0); // one sense throughout
+    // Largest move back against the turn: none.
+    let hi = phis[0]!;
+    let back = 0;
+    for (const v of phis) {
       hi = Math.max(hi, v);
-      backUp = Math.max(backUp, v - lo);
-      backDown = Math.max(backDown, hi - v);
+      back = Math.max(back, hi - v);
     }
-    expect(Math.min(backUp, backDown)).toBeLessThan(0.02);
+    expect(back).toBeLessThan(0.02);
+    expect(phis.at(-1)! - phis[0]!).toBeGreaterThan(30 * DEG); // turned over toward the curl
   });
 
   it('the turn radius grows with speed', () => {
@@ -849,6 +856,145 @@ describe('Surfer — air', () => {
     released.run(3);
     const l2 = released.events.find((e) => e.type === 'landed');
     expect(l2 && l2.type === 'landed' && l2.grabs[0]?.kind).toBe('method');
+  });
+});
+
+describe('Surfer — held carves and the roundhouse', () => {
+  /** At (x, t), world motion at `speed` along the face, `deg` from down the line (+: toward the lip; 180 = back toward the curl). */
+  function moving(speed: number, x: number, t: number, deg: number) {
+    const h = setup();
+    h.surfer.reset(x, t);
+    const up = new Vector3().crossVectors(h.s.normal, new Vector3(1, 0, 0)).normalize();
+    const a = deg * DEG;
+    h.s.v.set(Math.cos(a) * speed - h.surfer.peelSpeed, 0, 0).addScaledVector(up, Math.sin(a) * speed);
+    h.s.v.addScaledVector(h.s.normal, -h.s.v.dot(h.s.normal));
+    h.run(DT); // the heading follows the set-up motion
+    return h;
+  }
+
+  /**
+   * Holds `carve` from the given state for up to `seconds` (or until `until` is true), recording the
+   * carve yaw (Σ turnRate·dt), the smallest yaw rate after the rail has bitten (0.25 s), the largest
+   * one-tick heading change while riding, the most negative heading.x and the events.
+   */
+  function hold(h: ReturnType<typeof setup>, carve: number, seconds: number, until: () => boolean = () => false) {
+    const t0 = h.s.time;
+    const e0 = h.events.length;
+    const prev = h.s.heading.clone();
+    let yaw = 0;
+    let minRate = Infinity;
+    let maxTick = 0;
+    let minHx = Infinity;
+    while (h.s.time - t0 < seconds && h.s.mode === 'riding' && !until()) {
+      h.surfer.step({ ...NO_INPUT, carve }, DT);
+      if (h.s.mode !== 'riding') break;
+      yaw += h.s.turnRate * DT;
+      if (h.s.time - t0 > 0.25) minRate = Math.min(minRate, Math.sign(carve) * h.s.turnRate);
+      maxTick = Math.max(maxTick, prev.angleTo(h.s.heading));
+      prev.copy(h.s.heading);
+      minHx = Math.min(minHx, h.s.heading.x);
+    }
+    return { yawDeg: yaw / DEG, minRate, maxTickDeg: maxTick / DEG, minHx, events: h.events.slice(e0) };
+  }
+
+  it.each([8, 12])('from down the line at %d m/s, a held carve toward the lip turns on past straight up and past 180° (back toward the curl) without settling', (speed) => {
+    const h = moving(speed, 30, 0.3, 0);
+    const r = hold(h, 1, 3, () => h.s.heading.x < -0.3 && h.s.heading.y < -0.3);
+    expect(h.s.mode).toBe('riding');
+    expect(r.yawDeg).toBeGreaterThanOrEqual(200);
+    expect(r.minHx).toBeLessThan(-0.7); // really heading back toward the curl
+    expect(r.minRate).toBeGreaterThan(0.5); // the yaw keeps accumulating the same way: never settles
+    expect(r.maxTickDeg).toBeLessThanOrEqual(15);
+    expect(r.events.some((e) => e.type === 'launched')).toBe(false); // a held turn at the lip never launches
+  });
+
+  it('releasing mid-turn holds the line: the yaw rate dies away within a few carveLag', () => {
+    const h = moving(10, 30, 0.3, 0);
+    hold(h, 1, 0.35);
+    expect(Math.abs(h.s.turnRate)).toBeGreaterThan(1);
+    h.run(5 * h.cfg.physics.carveLag);
+    expect(Math.abs(h.s.turnRate)).toBeLessThan(0.05);
+  });
+
+  it('a held carve toward the trough turns through the fall line, round the bottom and back up the face (never stuck on the flats)', () => {
+    const h = moving(10, 30, 0.3, 0);
+    let wentBack = false;
+    let climbedBack = false;
+    for (let i = 0; i < 3 * 120 && h.s.mode === 'riding' && !climbedBack; i++) {
+      h.surfer.step({ ...NO_INPUT, carve: -1 }, DT);
+      if (h.s.heading.x < -0.7) wentBack = true;
+      if (wentBack && h.s.heading.y > 0.15) climbedBack = true;
+    }
+    expect(wentBack).toBe(true);
+    expect(climbedBack).toBe(true);
+    expect(h.s.mode).toBe('riding');
+  });
+
+  /**
+   * A roundhouse as a player does it: from down the line at `speed`, hold the carve toward the lip
+   * (the key's meaning is latched while held) until the board comes back out heading down the line.
+   */
+  function roundhouse(speed: number, x: number, t: number) {
+    const h = moving(speed, x, t, 0);
+    const entry = h.surfer.worldSpeed(h.surfer.peelSpeed);
+    let back = false;
+    const r = hold(h, 1, 4, () => {
+      if (h.s.heading.x < -0.7) back = true;
+      return back && h.events.some((e) => e.type === 'roundhouse') && h.s.heading.x > 0.5;
+    });
+    return { h, r, entry, exit: h.surfer.worldSpeed(h.surfer.peelSpeed) };
+  }
+
+  // Started near enough the curl for the turn to come round into the whitewater (further out, a
+  // held carve just loops round: see the tests above).
+  it.each([
+    [8, 8.5, 0.3],
+    [8, 9, 0.3],
+    [10, 7, 0.3],
+    [10, 8, 0.25],
+  ])('roundhouse at %d m/s from x = %d: held round past 180° back toward the curl, rebounds off the whitewater and comes out down the line', (speed, x, t) => {
+    const { h, r, entry, exit } = roundhouse(speed, x, t);
+    expect(r.events.some((e) => e.type === 'wipeout')).toBe(false);
+    expect(h.s.mode).toBe('riding');
+    expect(r.minHx).toBeLessThan(-0.7);
+    expect(h.s.heading.x).toBeGreaterThan(0.5); // heading down the line again
+    expect(exit).toBeGreaterThanOrEqual(0.6 * entry);
+    const rh = r.events.filter((e) => e.type === 'roundhouse');
+    expect(rh).toHaveLength(1);
+    expect(rh[0]!.type === 'roundhouse' && rh[0]!.degrees).toBeGreaterThanOrEqual(h.cfg.physics.roundhouseDeg);
+    expect(r.maxTickDeg).toBeLessThanOrEqual(15);
+    // Held on through the bounce, the spent carve does not start another turn: the board holds its line.
+    h.run(0.4, () => ({ carve: 1 }));
+    expect(h.s.mode).toBe('riding');
+    expect(h.s.heading.x).toBeGreaterThan(0.5);
+    expect(h.events.filter((e) => e.type === 'roundhouse')).toHaveLength(1);
+  });
+
+  it('a plain cutback into the foam (well short of 180° held) rebounds the rider down the line without a ROUNDHOUSE', () => {
+    const h = moving(9, 5, 0.35, 170); // already running back toward the curl
+    let out = false;
+    const r = hold(h, -1, 2, () => (out = h.s.heading.x > 0.5));
+    expect(out).toBe(true);
+    expect(r.events.some((e) => e.type === 'wipeout')).toBe(false);
+    expect(r.events.some((e) => e.type === 'roundhouse')).toBe(false);
+    expect(r.maxTickDeg).toBeLessThanOrEqual(15);
+    expect(h.s.param.x).toBeGreaterThan(-h.cfg.wave.tubeDepth);
+  });
+
+  it('running back toward the curl high on the face, carving up into the lip turns the rider off it and back down the line (no launch)', () => {
+    const h = moving(9, 25, 0.6, 175);
+    let out = false;
+    const r = hold(h, 1, 2, () => (out = h.s.heading.x > 0.5));
+    expect(out).toBe(true);
+    expect(r.events.some((e) => e.type === 'launched' || e.type === 'wipeout')).toBe(false);
+    expect(r.events.some((e) => e.type === 'roundhouse')).toBe(false);
+    expect(r.maxTickDeg).toBeLessThanOrEqual(15);
+  });
+
+  it('riding back toward the curl with no carve held, the whitewater does not turn you round (the curl swallows you)', () => {
+    const h = moving(9, 5, 0.35, 175);
+    h.run(2);
+    expect(h.s.wipeoutReason).toBe('swallowed');
   });
 });
 

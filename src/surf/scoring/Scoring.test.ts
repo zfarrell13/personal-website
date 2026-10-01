@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SURF_CONFIG } from '../config';
 import { EventBus, type SurfEvent } from '../physics/events';
-import { grabPoints, Scoring, spinPoints } from './Scoring';
+import { grabPoints, Scoring, spinPoints, TRICK_BASE } from './Scoring';
 
 const make = () => {
   const bus = new EventBus<SurfEvent>();
@@ -101,6 +101,21 @@ describe('Scoring', () => {
     bus.emit(landed(2, { revert: true, spinDeg: 180 }));
     bus.emit({ type: 'kickedOut', time: 2.5 });
     expect(scoring.score).toBe((550 + 300 + 150) * 3);
+  });
+});
+
+describe('roundhouse', () => {
+  it('a ROUNDHOUSE scores 400 (a bit above a snap) as its own trick in the combo', () => {
+    const bus = new EventBus<SurfEvent>();
+    const onAward = vi.fn();
+    const scoring = new Scoring(SURF_CONFIG.scoring, { onAward });
+    scoring.attach(bus);
+    expect(TRICK_BASE.Roundhouse).toBeGreaterThan(TRICK_BASE.Snap);
+    bus.emit({ type: 'snap', time: 1 });
+    bus.emit({ type: 'roundhouse', time: 1.4, degrees: 260 });
+    expect(onAward).toHaveBeenLastCalledWith({ name: 'Roundhouse', points: 400, repeated: false });
+    expect(scoring.pot).toBe(250 + 400);
+    expect(scoring.multiplier).toBe(2);
   });
 });
 

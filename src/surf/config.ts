@@ -90,6 +90,16 @@ export const SURF_CONFIG = {
     snapCarveBoost: 2,
     /** Snap requires the heading to turn at least this much at the crest (deg). */
     snapAngle: 110,
+    /**
+     * Roundhouse: running back toward the curl with a carve held, reaching the whitewater (frame
+     * x ≤ foamReboundX, just ahead of the impact zone [−D, 0]) or turning up into the top band
+     * rebounds the board round, back down the line, at the snap-boosted carve rate.
+     */
+    foamReboundX: 2,
+    /** … a whitewater rebound bleeds this share of the speed per 180° turned. */
+    roundhouseRebound: 0.05,
+    /** A held turn of at least this many degrees that ends in a rebound scores a ROUNDHOUSE. */
+    roundhouseDeg: 170,
     ollieImpulse: 4,
     /** Crest launch: speed off the face along the normal = up-face speed × airGain, in [launchSpeed, maxAirSpeed]. */
     airGain: 0.75,

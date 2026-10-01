@@ -58,10 +58,8 @@ const DROP_SLACK = 0.02;
 const WORLD_UP = new Vector3(0, 1, 0);
 /** The turn sense flips only once the board's line is this far off straight up / down the face (sine of the angle). */
 const TURN_SENSE_HYSTERESIS = 0.2;
-/** A held carve's yaw rate eases off over the last this-many radians before the line points straight up / down the face. */
-const CARVE_EASE = 30 * DEG;
-/** Aiming further than this behind the board, the turn swings through down the line (+x). */
-const NEAR_OPPOSITE = 150 * DEG;
+/** A rebound is done once the board's line runs down the line within this angle above flat (the rail then eases off). */
+const REBOUND_DONE = 20 * DEG;
 const DROP_IN = { x: 3.5, t: 0.5, along: 2, down: 4 };
 
 /**
@@ -128,6 +126,26 @@ export class Surfer {
   private yawRate = 0;
   /** +1 while the board runs toward +x (the shoulder), −1 toward the curl; see TURN_SENSE_HYSTERESIS. */
   private turnSense = 1;
+  /** Sign of the carve input on the last tick: a change (press, release, other key) starts a new turn. */
+  private heldSign = 0;
+  /**
+   * Rotation sense of the held turn about the normal, latched when it starts: +1 turns the line from
+   * down the line (+x) up the face, over toward the curl and on round. It is the carve's toward-the-lip
+   * / toward-the-trough meaning at the moment the key went down; the board keeps turning that way
+   * for as long as the key is held.
+   */
+  private heldSense = 0;
+  /** Yaw (rad) turned in the held turn's sense since it started. */
+  private heldYaw = 0;
+  /** The held turn ended in a rebound: it does nothing more until the key is let go. */
+  private carveSpent = false;
+  /** Running back toward the curl, bounced round off the whitewater ('foam') or the lip, back down the line. */
+  private rebound: 'foam' | 'lip' | null = null;
+  /** The rebound's rotation sense: −1 up the face and round (off the lip), +1 down and round. */
+  private reboundSense = 0;
+  /** heldYaw when the rebound started, and the yaw (rad) the rebound has turned since. */
+  private reboundHeld = 0;
+  private reboundYaw = 0;
   private crestMemo = { x: NaN, version: -1, t: 0, y: 0 };
   private readonly path: AirPath = {
     kind: 'jump',
@@ -226,6 +244,7 @@ export class Surfer {
     this.vp = this.wave.params.peelSpeed;
     this.yawRate = 0;
     this.turnSense = 1;
+    this.endTurn();
     this.crestMemo.x = NaN;
     // Riding starts on the rideable face (never on the vertical / overhanging part).
     t = this.faceEnd(x, Math.min(t, this.crestAt(x).t - CREST_EPS));
@@ -352,11 +371,12 @@ export class Surfer {
 
   /**
    * Bottomed out on the flats in front of the wave while still heading further out: a bottom turn.
-   * The board's line through the water swings toward along the wave (the way it already runs;
-   * from straight down, toward the shoulder) at bottomTurnRate, bleeding bottomTurnLoss of its
-   * speed per 90° turned. Never a dead stop or a one-tick heading snap.
+   * The board's line through the water swings toward along the wave (the way a held turn or a
+   * rebound is turning; else the way it already runs, from straight down toward the shoulder) at
+   * bottomTurnRate, bleeding bottomTurnLoss of its speed per 90° turned. Never a dead stop or a
+   * one-tick heading snap.
    */
-  private bottomTurn(dt: number): void {
+  private bottomTurn(dt: number, sense: number): void {
     const s = this.state;
     const c = this.cfg;
     this.frameAt(s.param.x, 0);
@@ -367,7 +387,8 @@ export class Surfer {
     const along = rel.dot(this.e1);
     const sp = Math.hypot(along, down);
     const phi = Math.atan2(down, along); // −π/2 = straight down the face
-    const dir = along < -BOTTOM_TURN_SENSE * sp ? -1 : 1;
+    // A held turn carries on round the way it is turning (never fights the rail into the flats).
+    const dir = sense !== 0 ? sense : along < -BOTTOM_TURN_SENSE * sp ? -1 : 1;
     const turn = Math.min(c.bottomTurnRate * dt, dir > 0 ? -phi : Math.PI + phi);
     const next = phi + dir * turn;
     const speed = sp * (1 - (c.bottomTurnLoss * turn) / (Math.PI / 2));
@@ -427,34 +448,59 @@ export class Surfer {
     // Stalling holds the board's height on the face: its motion up / down the face dies away.
     if (s.stalling) rel.addScaledVector(this.eUp, -rel.dot(this.eUp) * (1 - Math.exp(-c.stallHold * dt)));
 
-    // --- carve: rotate the board's line about the normal; toward the lip = +carve. The yaw rate
-    // eases toward ±carve × carveRate / (1 + speed / carveHalfSpeed) with lag carveLag (a weighty
-    // rail); the turn radius speed / rate grows with speed. ---
+    // --- carve: rotate the board's line about the normal. A held carve keeps turning the way it
+    // started (heldSense, latched on the press: toward the lip = +carve) for as long as it is held —
+    // up the face, round past straight up, back toward the curl and on round; let go and the board
+    // holds its line. The yaw rate eases toward carveRate / (1 + speed / carveHalfSpeed) with lag
+    // carveLag (a weighty rail); the turn radius speed / rate grows with speed. ---
     const sp = rel.length();
     const along = rel.dot(this.e1);
     const rate = c.carveRate / (1 + sp / c.carveHalfSpeed);
-    let target: number;
-    if (this.snapArmed && input.carve !== 0) {
-      // Snapping: the carve keeps turning the way the board ran, through straight up / down the face
-      // (a carve-through goes over the top and back down); held at the lip, the rail bites harder.
-      target = input.carve * rate * (this.atCrest ? c.snapCarveBoost : 1) * this.turnSense;
-    } else {
-      // Which way along the wave the board runs (the sense a snap keeps turning in); it only flips
-      // once the board clearly points the other way.
-      if (Math.abs(along) > TURN_SENSE_HYSTERESIS * sp) this.turnSense = along > 0 ? 1 : -1;
-      // Steer the line toward straight up the face (+carve) or straight down it (−carve), easing off
-      // over the last CARVE_EASE so a held carve settles there instead of fishtailing across it.
-      // Aiming (nearly) straight behind the board, the turn swings through down the line (+x): a
-      // bottom turn from the fall line, or a top turn from straight up, heads for the shoulder.
-      const aim = input.carve > 0 ? Math.PI / 2 : -Math.PI / 2;
-      const err = wrapAngle(aim - Math.atan2(rel.dot(this.eUp), along));
-      const sense = Math.abs(err) > NEAR_OPPOSITE ? Math.sign(input.carve) : Math.sign(err);
-      target = Math.abs(input.carve) * rate * Math.min(1, Math.abs(err) / CARVE_EASE) * sense;
+    // Which way along the wave the board runs; it only flips once the board clearly points the other way.
+    if (Math.abs(along) > TURN_SENSE_HYSTERESIS * sp) this.turnSense = along > 0 ? 1 : -1;
+    const sign = Math.sign(input.carve);
+    if (sign !== this.heldSign) {
+      this.heldSign = sign;
+      this.heldSense = sign * this.turnSense;
+      this.heldYaw = 0;
+      this.carveSpent = false;
+    }
+    // Running back toward the curl with a carve held: turning up into the lip (in the top band) or
+    // reaching the whitewater bounces the board round, back down the line. Off the lip it turns up
+    // and over; the foam knocks it round the shorter way (a line still climbing goes up and over,
+    // one already dropping carries on down and round).
+    if (!this.rebound && sign !== 0 && !s.floating && sp > c.minSpeed && along < -TURN_SENSE_HYSTERESIS * sp) {
+      const foam = s.param.x <= c.foamReboundX;
+      const lip = !this.carveSpent && this.heldSense < 0 && (this.nearTop || this.atCrest);
+      if (foam || lip) {
+        this.rebound = foam ? 'foam' : 'lip';
+        this.reboundSense = foam && rel.dot(this.eUp) < 0 ? 1 : -1;
+        this.reboundHeld = this.carveSpent ? 0 : this.heldYaw;
+        this.reboundYaw = 0;
+      }
+    }
+    let target = 0;
+    if (this.rebound) {
+      // Round toward the shoulder with the lip turn's bite.
+      target = this.reboundSense * rate * c.snapCarveBoost;
+    } else if (sign !== 0 && !this.carveSpent) {
+      // Snapping at the lip (a snap armed, held there), the rail bites harder.
+      target = Math.abs(input.carve) * rate * this.heldSense * (this.snapArmed && this.atCrest ? c.snapCarveBoost : 1);
     }
     this.yawRate += (target - this.yawRate) * (1 - Math.exp(-dt / c.carveLag));
     const ang = this.yawRate * dt;
     if (ang !== 0) rel.applyAxisAngle(n, ang);
     s.turnRate = this.yawRate;
+    if (this.rebound) {
+      const turned = Math.max(0, ang * this.reboundSense);
+      this.reboundYaw += turned;
+      // The foam knocks some speed off (bounded, per 180° of the bounce).
+      if (this.rebound === 'foam') rel.multiplyScalar(1 - (c.roundhouseRebound * turned) / Math.PI);
+      // Done once the line runs down the line again (coming over the top: no more than REBOUND_DONE
+      // above flat; coming round the bottom: no more than that below it).
+      const phi = Math.atan2(rel.dot(this.eUp), rel.dot(this.e1));
+      if (rel.dot(this.e1) > 0 && phi * this.reboundSense >= -REBOUND_DONE) this.endRebound();
+    } else if (!this.carveSpent && ang * this.heldSense > 0) this.heldYaw += Math.abs(ang);
     this.trackCarve(input.carve, Math.abs(ang));
 
     // --- pump: along the board's line, efficiency min(1, since/period), minus a fixed cost. A pump
@@ -496,7 +542,7 @@ export class Surfer {
         w.profile(s.param.x, s.param.t, s.p);
         w.normal(s.param.x, s.param.t, n);
         s.v.addScaledVector(n, -s.v.dot(n));
-        if (s.param.t <= 0) this.bottomTurn(dt);
+        if (s.param.t <= 0) this.bottomTurn(dt, this.turningSense());
       }
     }
     this.headingFromMotion(s.heading);
@@ -551,8 +597,8 @@ export class Surfer {
   /**
    * At the end of the rideable face (param already past it): start a floater (x < floaterMaxX with
    * speed), launch (up-face speed > launchSpeed), or clamp there and slide back. True = left the face.
-   * Carving (either way) into the top with a snap armed or pending is a turn off the lip, not a
-   * launch: the rider is held at the lip while the (boosted) carve turns the board back down.
+   * Carving (either way) into the top with a snap armed or pending, or in a rebound, is a turn off
+   * the lip, not a launch: the rider is held at the lip while the (boosted) carve turns the board back down.
    * Airs come from arriving without a carve held (or letting go at the lip), or from an ollie.
    */
   private faceEdge(tb: number, tc: number, carve: number, dt: number): boolean {
@@ -571,7 +617,7 @@ export class Surfer {
       this.beginAir('mount', tc, u);
       return true;
     }
-    const lipTurn = carve !== 0 && (this.snapArmed || this.topPending);
+    const lipTurn = carve !== 0 && (this.snapArmed || this.topPending || this.rebound !== null);
     if (u > c.launchSpeed && !lipTurn) {
       this.enterAir('crest');
       this.beginAir('jump', tb, clamp(u * c.airGain, c.launchSpeed, c.maxAirSpeed));
@@ -643,6 +689,33 @@ export class Surfer {
     s.tubeDepth = inTube ? clamp(-x / D, 0, 1) : 0;
   }
 
+  /** The rebound has the board heading down the line again: a long enough held turn into it was a ROUNDHOUSE. */
+  private endRebound(): void {
+    const s = this.state;
+    if (this.reboundHeld >= this.cfg.roundhouseDeg * DEG) {
+      this.emit({ type: 'roundhouse', time: s.time, degrees: (this.reboundHeld + this.reboundYaw) / DEG });
+    }
+    this.rebound = null;
+    // The rail lets go of the bounce's bite (no swinging on down the face) and the held key is spent.
+    this.yawRate /= this.cfg.snapCarveBoost;
+    this.carveSpent = this.heldSign !== 0;
+  }
+
+  /** The way the board is being turned round (a rebound, else an active held turn), or 0. */
+  private turningSense(): number {
+    if (this.rebound) return this.reboundSense;
+    return this.heldSign !== 0 && !this.carveSpent ? this.heldSense : 0;
+  }
+
+  /** Forget the held turn and any rebound (a fresh start, or leaving the face). */
+  private endTurn(): void {
+    this.heldSign = 0;
+    this.heldSense = 0;
+    this.heldYaw = 0;
+    this.carveSpent = false;
+    this.rebound = null;
+  }
+
   private trackCarve(carve: number, absAngle: number): void {
     const dir = Math.sign(carve);
     if (dir === 0 || dir !== this.carveDir) this.carveAccum = 0;
@@ -669,6 +742,7 @@ export class Surfer {
     s.airTime = 0;
     s.turnRate = 0;
     this.yawRate = 0;
+    this.endTurn();
     s.stalling = false;
     this.atCrest = false;
     this.snapArmed = false;

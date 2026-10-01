@@ -1,7 +1,7 @@
 import { Vector3, type PerspectiveCamera } from 'three';
 import { SURF_CONFIG, type Side, type SurfConfig } from '../config';
 import { springStepVec3 } from '../math/spring';
-import { wrapAngle } from '../math/scalar';
+import { DEG, wrapAngle } from '../math/scalar';
 import type { SurferState } from '../physics/Surfer';
 import { impactDistance } from '../wave/impact';
 import { frameToView } from '../wave/mirror';
@@ -129,6 +129,13 @@ export function travelYaw(heading: Vector3): number {
 
 /** |cos(camera yaw)| past which the carve keys' screen meaning follows the camera (hysteresis around side-on). */
 const FACING_SWITCH = 0.3;
+/**
+ * Chase framing guard: the rider's chest is kept within this share of the lens's vertical half-angle
+ * of the view axis. Normally they sit well inside it (≈ 17° below centre); a fast reversal (a
+ * roundhouse running back toward the curl under the still-swinging camera) would otherwise carry them
+ * off the bottom of the screen, so the camera tilts toward them instead (it never moves for this).
+ */
+const CHASE_FRAMING = 0.8;
 
 /**
  * Where the camera wants to be (VIEW coordinates, i.e. already mirrored) for a shot.
@@ -366,8 +373,25 @@ export class CameraRig {
         }
       }
     }
+    if (this.shot === 'chase') this.keepInFrame(s.normal, side);
     const x = side === 'right' ? -this.pos.x : this.pos.x;
     this.apply(this.shot === 'underwater' ? 0 : shakeAmplitude(x, D, c.shake), time);
+  }
+
+  /** Chase: tilt the look target toward the rider's chest if it is further than CHASE_FRAMING of the half-fov off the view axis. */
+  private keepInFrame(normal: Vector3, side: Side): void {
+    const chest = this.tmpA.copy(this.viewP).addScaledVector(frameToView(normal, side, this.tmpB), 0.9);
+    const toRider = chest.sub(this.pos);
+    const toLook = this.tmpC.subVectors(this.look, this.pos);
+    const limit = CHASE_FRAMING * (this.cfg.fov / 2) * DEG;
+    const off = toLook.angleTo(toRider);
+    if (off <= limit || toRider.lengthSq() < 1e-6) return;
+    // Rotate the view axis toward the rider in the plane they span, until the rider is at the limit.
+    const axis = this.tmpD.crossVectors(toLook, toRider);
+    if (axis.lengthSq() < 1e-12) return;
+    axis.normalize();
+    toLook.applyAxisAngle(axis, off - limit);
+    this.look.addVectors(this.pos, toLook);
   }
 
   /** The goal for a shot (the tube's moved to the spot found for it). */

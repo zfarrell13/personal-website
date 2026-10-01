@@ -4,6 +4,7 @@ import type { EventBus, GrabKind, SurfEvent } from '../physics/events';
 export type TrickName =
   | 'Ollie'
   | 'Snap'
+  | 'Roundhouse'
   | 'Floater'
   | 'Barrel'
   | 'Air 180'
@@ -20,6 +21,8 @@ export type TrickName =
 export const TRICK_BASE = {
   Ollie: 100,
   Snap: 250,
+  /** A held turn back toward the curl, rebounded off the whitewater / lip: a bit above a snap. */
+  Roundhouse: 400,
   Revert: 150,
   sectionMade: 500,
   floaterBase: 400,
@@ -111,6 +114,7 @@ export class Scoring {
         this.touch(e.time);
       }),
       bus.on('snap', (e) => this.award('Snap', TRICK_BASE.Snap, e.time)),
+      bus.on('roundhouse', (e) => this.award('Roundhouse', TRICK_BASE.Roundhouse, e.time)),
       bus.on('floaterEnd', (e) => {
         if (e.landed) this.award('Floater', Math.round(TRICK_BASE.floaterBase + TRICK_BASE.floaterPerSec * e.duration), e.time);
       }),

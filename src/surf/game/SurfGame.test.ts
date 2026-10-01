@@ -388,6 +388,14 @@ describe('SurfGame', () => {
     game.dispose();
   });
 
+  it('a roundhouse from the physics shows ROUNDHOUSE on the HUD ticker', async () => {
+    const { game, store } = await playing();
+    game.bus.emit({ type: 'roundhouse', time: game.surfer.state.time, degrees: 250 });
+    for (let i = 0; i < 6; i++) frame();
+    expect(store.getState().ticker.map((t) => [t.text, t.points])).toEqual([['Roundhouse', 400]]);
+    game.dispose();
+  });
+
   it('builds a lighter wave mesh on coarse-pointer (touch) devices only', () => {
     const saved = { ...SURF_CONFIG.mesh };
     try {

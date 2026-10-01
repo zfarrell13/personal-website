@@ -346,11 +346,14 @@ describe('a cutback: the camera swings round behind the new travel direction', (
   // 'lip': down the line with lineBot until the first climb into the top band (≥ 0.72 × crest) after 1 s,
   //   then hold a carve-back (−1) through the lip snap until the board heads back toward the curl
   //   (heading.x < −0.5), then straight: a genuine turn back toward the curl (snap + bottom turn).
-  // 'carve': lineBot until the turn time, then hold carve −1 for ≤ 1.2 s (down the face; overshooting
-  //   the fall line, the bottom turn carries on toward the curl, else back down the line).
+  // 'carve': lineBot until the turn time, then hold carve −1 (down the face). Held (≤ 1.2 s), the turn
+  //   carries on through the fall line and round the bottom toward the curl (playtest 4: a held carve
+  //   keeps turning); let go after 0.45 s, before the fall line, the bottom turn takes the board back
+  //   down the line.
   it.each([
     [30, 'lip', 1, true, true],
-    [26, 'lip', 1, true, true],
+    [28, 'lip', 1, true, true],
+    [26, 'lip', 1, true, false],
     [22, 'lip', 1, true, false],
     [18, 'lip', 1, true, false],
     [12, 'lip', 1, true, false],
@@ -406,7 +409,7 @@ describe('a cutback: the camera swings round behind the new travel direction', (
       const lastHeading = s.heading.clone();
       const input = (): SurferInput => {
         const t = s.time;
-        if (script === 'carve') return t < turnAt ? bot(1 / 120) : t < turnAt + 1.2 && s.heading.x > -0.9 ? { ...NO_INPUT, carve: -1 } : NO_INPUT;
+        if (script === 'carve') return t < turnAt ? bot(1 / 120) : t < turnAt + (reverses ? 1.2 : 0.45) && s.heading.x > -0.9 ? { ...NO_INPUT, carve: -1 } : NO_INPUT;
         if (phase === 'line' && t > turnAt && s.heading.y > 0.05 && s.p.y > 0.72 * wave.crestY(s.param.x)) {
           phase = 'turn';
           turnStart = t;
@@ -478,6 +481,88 @@ describe('a cutback: the camera swings round behind the new travel direction', (
       expect(maxStep).toBeLessThan(0.15); // m per frame (the old ±50° target flips swayed it ~5 m)
       if (zs.length > 0) expect(Math.max(...zs) - Math.min(...zs)).toBeLessThan(0.3);
     }
+  });
+});
+
+describe('a roundhouse: the camera follows the rider round, the held key keeps its meaning', () => {
+  it.each(['left', 'right'] as const)('on a %s: holding the toward-the-lip key (latched) carves round past 180° into the whitewater and back out; the chase keeps the rider in frame and ends behind the new line', (side: Side) => {
+    const cfg = structuredClone(SURF_CONFIG);
+    const wave = new WaveShape(cfg.wave);
+    const bus = new EventBus<SurfEvent>();
+    const events: SurfEvent[] = [];
+    bus.onAny((e) => events.push(e));
+    const surfer = new Surfer(wave, cfg.physics, bus);
+    const s = surfer.state;
+    // Down the line at 10 m/s, low on the face, near the pocket.
+    surfer.reset(7, 0.3);
+    s.v.set(10 - surfer.peelSpeed, 0, 0).addScaledVector(s.normal, -(10 - surfer.peelSpeed) * s.normal.x);
+    surfer.step(NO_INPUT, 1 / 120); // the heading follows the set-up motion
+    const cam = new PerspectiveCamera(cfg.camera.fov, 16 / 9, 0.1, 650);
+    const rig = new CameraRig(cam, cfg.camera, wave);
+    rig.update(s, s.p, side, false, 1 / 60, s.time);
+    rig.snap(s, side);
+    // The key that means "toward the lip" on screen right now (→ on a RIGHT, ← on a LEFT) …
+    const right = carveFromKeys(false, true, side, rig.keyFacing) === 1;
+    // … latched as SurfGame does: the keys' meaning is read when the key goes down and kept while held.
+    const latched = rig.keyFacing;
+    const front = new Mesh(buildWaveGeometry(wave, columnsX(cfg.mesh.columns, cfg.wave.xMin, cfg.wave.xMax), cfg.mesh.rows), new MeshBasicMaterial({ side: DoubleSide }));
+    front.scale.x = side === 'left' ? 1 : -1;
+    front.updateMatrixWorld();
+    const ray = new Raycaster();
+    let chase = 0;
+    let framed = 0;
+    let seen = 0;
+    const carves = new Set<number>();
+    let unlatchedFlip = false;
+    let back = false;
+    let outAt = -1;
+    let maxTick = 0;
+    const prev = s.heading.clone();
+    for (let f = 0; f < 5 * 60 && s.mode === 'riding'; f++) {
+      const holding = outAt < 0;
+      for (let k = 0; k < 2; k++) {
+        const carve = holding ? carveFromKeys(!right, right, side, latched) : 0;
+        if (holding) {
+          carves.add(carve);
+          if (carveFromKeys(!right, right, side, rig.keyFacing) !== carve) unlatchedFlip = true;
+        }
+        surfer.step({ ...NO_INPUT, carve }, 1 / 120);
+        if (s.mode === 'riding') maxTick = Math.max(maxTick, prev.angleTo(s.heading));
+        prev.copy(s.heading);
+      }
+      rig.update(s, s.p, side, false, 1 / 60, s.time);
+      if (rig.shot === 'chase') {
+        chase++;
+        cam.updateMatrixWorld();
+        const chest = frameToView(new Vector3().copy(s.p).addScaledVector(s.normal, 0.9), side, new Vector3());
+        const dir = new Vector3().subVectors(chest, rig.pos);
+        ray.set(rig.pos, dir.clone().normalize());
+        ray.far = dir.length() - 0.2;
+        const ndc = chest.clone().project(cam);
+        const inFrame = ndc.z < 1 && Math.abs(ndc.x) < 0.95 && Math.abs(ndc.y) < 0.95;
+        if (inFrame) framed++;
+        if (inFrame && ray.intersectObject(front, false).length === 0) seen++;
+      }
+      if (s.heading.x < -0.7) back = true;
+      if (outAt < 0 && back && events.some((e) => e.type === 'roundhouse') && s.heading.x > 0.5) outAt = s.time;
+      if (outAt >= 0 && s.time - outAt > 1.2) break;
+    }
+    expect(carves).toEqual(new Set([1])); // the held key meant "toward the lip" all the way round
+    expect(unlatchedFlip).toBe(true); // … although the camera swung round far enough to flip an unlatched key
+    expect(events.filter((e) => e.type === 'roundhouse')).toHaveLength(1);
+    expect(events.some((e) => e.type === 'wipeout')).toBe(false);
+    expect(maxTick).toBeLessThanOrEqual(15 * (Math.PI / 180));
+    expect(outAt).toBeGreaterThan(0);
+    expect(s.time - outAt).toBeGreaterThan(1.1);
+    // Behind the rider along their (new, down-the-line) travel, in view space.
+    const p = frameToView(s.p, side, new Vector3());
+    const h = frameToView(s.heading, side, new Vector3());
+    expect(flat(new Vector3().subVectors(p, rig.pos)).dot(flat(h))).toBeGreaterThan(0.7);
+    expect(rig.keyFacing).toBe(1);
+    // The rider never leaves the frame while the camera swings round (it tilts to keep them in) …
+    expect(framed).toBe(chase);
+    // … though low in the pocket the pitching lip hides them from the chase for a moment (≈ 0.3 s).
+    expect(seen / chase).toBeGreaterThanOrEqual(0.7);
   });
 });
 
