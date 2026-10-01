@@ -11,6 +11,7 @@ import {
   Group,
   HemisphereLight,
   InstancedMesh,
+  Material,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -22,7 +23,6 @@ import {
   Sprite,
   SpriteMaterial,
   Vector3,
-  type Material,
   type PerspectiveCamera,
   type Scene,
 } from 'three';
@@ -31,6 +31,7 @@ import { retroMaterial } from '@/retro/retroMaterial';
 import { FOG_CONFIG } from '../config';
 import { smoothstep } from '../math/scalar';
 import { REEF_TILES, scrollWrap } from './scroll';
+import { buildSandbedGeometry, CAUSTIC_REPEAT, createSandMaterial, makeRippleTexture, SHALLOWS, type SandUniforms } from './shallows';
 import { buildShore, createShoreMaterial, SHORE } from './shore';
 import { createSkyMaterial, seaReflection } from './sky';
 import { makeRadialTexture } from './textures';
@@ -53,9 +54,15 @@ const SEA_FLOOR_COLOR = new Color('#1b808a');
  */
 export const FLOOR_FOG_FADE = [40, 120] as const;
 
-/** Fades a (fogged) material under the water into the fog colour past FLOOR_FOG_FADE. */
+/**
+ * Fades a (fogged) material under the water into the fog colour past FLOOR_FOG_FADE. Chains after a
+ * shader hook the material already has (e.g. the sand's), keeping its program cache key apart.
+ */
 export function fadeUnderwaterIntoFog<M extends Material>(m: M): M {
-  m.onBeforeCompile = (shader) => {
+  const prev = m.onBeforeCompile;
+  const prevKey = m.customProgramCacheKey === Material.prototype.customProgramCacheKey ? '' : `${m.customProgramCacheKey()}|`;
+  m.onBeforeCompile = (shader, renderer) => {
+    prev.call(m, shader, renderer);
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <fog_fragment>',
       `#ifdef USE_FOG
@@ -64,7 +71,7 @@ export function fadeUnderwaterIntoFog<M extends Material>(m: M): M {
 #include <fog_fragment>`,
     );
   };
-  m.customProgramCacheKey = () => 'under-water-fog-fade';
+  m.customProgramCacheKey = () => `${prevKey}under-water-fog-fade`;
   return m;
 }
 
@@ -127,6 +134,9 @@ export class Environment {
   private readonly sunLight: DirectionalLight;
   private readonly flares: Sprite[] = [];
   private readonly gulls: InstancedMesh;
+  /** The sand bed under the clear shallows in front of the wave (its ripple map scrolls with the travel). */
+  private readonly sandbed: Mesh<BufferGeometry, MeshLambertMaterial>;
+  private readonly sandUniforms: SandUniforms;
   private readonly scrollers: Scroller[] = [];
   private readonly sunWorld = new Vector3();
   private readonly ndc = new Vector3();
@@ -183,10 +193,22 @@ export class Environment {
     floor.position.y = SEA_FLOOR_Y - 0.05;
     this.frameStuff.add(floor);
 
+    // The sandbar the wave breaks on: rippled sand seen through the clear shallows in front of the
+    // wave (shallows.ts), sinking into the sea floor seaward and toward the reef.
+    const ripples = makeRippleTexture();
+    const sand = createSandMaterial(ripples);
+    this.sandUniforms = sand.uniforms;
+    this.sandbed = new Mesh(buildSandbedGeometry(SEA_FLOOR_COLOR), retroMaterial(fadeUnderwaterIntoFog(sand.material)));
+    this.sandbed.name = 'sandbed';
+    this.frameStuff.add(this.sandbed);
+    this.disposables.push(ripples);
+
     // Reef floor: two seamless tiles (periodic noise over the tile span).
     const TILE = REEF_TILES.tile;
     // Its seaward and shoreward edges sink and fade into the sea floor (no hard edge under the water).
-    const reefEdge = (z: number) => smoothstep(70, 45, Math.abs(z));
+    // Near the break the bottom is the sandbar (shallows.ts): the reef rises out of the sea floor only
+    // beyond the clearest shallows, over world z ≈ 35–55 (the tile sits at z = 70).
+    const reefEdge = (z: number) => smoothstep(70, 45, Math.abs(z)) * smoothstep(-35, -15, z);
     const reefGeo = paint(new PlaneGeometry(TILE, 140, 40, 24).rotateX(-Math.PI / 2), (x, _y, z, c) => {
       const n = 0.5 + 0.25 * Math.sin((x / TILE) * Math.PI * 2 * 3 + z * 0.1) + 0.25 * Math.sin((x / TILE) * Math.PI * 2 * 7 + z * 0.23);
       // Coral / pale sand / weed in cool tones: through the teal water sand reads as clear turquoise and
@@ -274,7 +296,7 @@ export class Environment {
     this.gulls.name = 'gulls';
     this.frameStuff.add(this.gulls);
 
-    for (const obj of [this.sky, floor, islandMesh, this.gulls]) {
+    for (const obj of [this.sky, floor, this.sandbed, islandMesh, this.gulls]) {
       const mesh = obj as unknown as { geometry?: { dispose(): void }; material?: { dispose(): void } };
       if (mesh.geometry) this.disposables.push(mesh.geometry);
       if (mesh.material) this.disposables.push(mesh.material);
@@ -302,6 +324,13 @@ export class Environment {
    */
   update(time: number, travel: number, sideSign: number): void {
     for (const s of this.scrollers) s.obj.position.x = scrollWrap(s.worldX, travel, s.span, s.start);
+    // The sand is fixed to the reef: its ripples move past at the travel (uv.x = frame x / tile).
+    const tile = SHALLOWS.rippleTile;
+    this.sandbed.material.map!.offset.x = (((travel / tile) % 1) + 1) % 1;
+    this.sandUniforms.uTravel.value = travel % CAUSTIC_REPEAT;
+    // The caustics' rates are multiples of 0.1 rad/s: wrapping the clock every 20π s is seamless, and
+    // keeps the shader's sin() arguments small (the ambient clock is the page's).
+    this.sandUniforms.uTime.value = time % (20 * Math.PI);
 
     for (let i = 0; i < 5; i++) {
       const a = time * (0.25 + i * 0.03) + i * 1.3;

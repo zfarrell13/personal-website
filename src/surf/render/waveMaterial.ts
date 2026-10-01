@@ -1,6 +1,7 @@
 import { DataTexture, DoubleSide, LinearFilter, MeshLambertMaterial, RepeatWrapping, RGBAFormat, Vector3, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
 import { retroMaterial, retroTexture } from '@/retro/retroMaterial';
 import { PEAK_GLSL_HEADER, PEAK_NORMAL_GLSL, PEAK_POSITION_GLSL } from '../wave/peak';
+import { SHALLOWS, SHALLOWS_GLSL } from './shallows';
 import { SKY_GLSL, seaReflection, skyUniforms } from './sky';
 
 export interface WaveUniforms {
@@ -25,6 +26,7 @@ export interface WaveUniforms {
  * Foam doesn't reflect, the translucent face keeps most of its colour, and `uReflect` = 0 turns the
  * reflection off (underwater cut).
  */
+const f = (v: number) => v.toFixed(3);
 const SKY_REFLECTION_GLSL = /* glsl */ `
   {
     vec3 V = normalize(vViewPosition);
@@ -45,9 +47,15 @@ const SKY_REFLECTION_GLSL = /* glsl */ `
     float strength = mix(0.45 * (1.0 - 0.7 * body), 1.0, max(farSea, grazing));
     float clean = 1.0 - foamCover;
     // Grazing and distant water is opaque (little light gets back out), however much sky it shows:
-    // the reef shows through near the rider but doesn't smear across the mid-distance.
-    diffuseColor.a = mix(diffuseColor.a, 1.0, max(fres, smoothstep(8.0, 35.0, length(vViewPosition))) * clean);
+    // the reef shows through near the rider but doesn't smear across the mid-distance. The clear
+    // shallows in front of the wave (shallowClear) are see-through further out (waterOpacity in shallows.ts).
+    float clearW = shallowClear * clean;
+    diffuseColor.a = mix(diffuseColor.a, ${f(SHALLOWS.alpha)}, clearW);
+    float nearOpaque = smoothstep(mix(8.0, ${f(SHALLOWS.opaqueNear)}, clearW), mix(35.0, ${f(SHALLOWS.opaqueFar)}, clearW), length(vViewPosition));
+    float fresOpaque = fres * (1.0 - ${f(SHALLOWS.fresnelCut)} * clearW * (1.0 - fres));
+    diffuseColor.a = mix(diffuseColor.a, 1.0, max(fresOpaque, nearOpaque) * clean);
     float refl = clamp(fres * (1.0 + 0.25 * swell), 0.0, 1.0) * strength * clean * (1.0 - 0.6 * vFace) * uReflect;
+    refl *= 1.0 - ${f(SHALLOWS.reflectCut)} * clearW * (1.0 - farSea);
     vec3 up = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
     vec3 sky = skyGradient(dot(reflect(-V, N), up));
     outgoingLight = mix(outgoingLight, sky, refl);
@@ -80,7 +88,6 @@ export function lipOffset(x: number, lip: number, time: number, out: Vector3): V
   return out.set(0, lip * LIP_LIFT * lift, lip * LIP_THROW * thrown);
 }
 
-const f = (v: number) => v.toFixed(3);
 const LIP_GLSL = /* glsl */ `
   float lipThrow = 0.5 + 0.5 * (0.6 * sin(position.x * ${f(THROW_WAVES[0][0])} + uTime * ${f(THROW_WAVES[0][1])}) + 0.4 * sin(position.x * ${f(THROW_WAVES[1][0])} + uTime * ${f(THROW_WAVES[1][1])}));
   float lipLift = 0.5 + 0.5 * sin(position.x * ${f(CHURN_WAVE[0])} + uTime * ${f(CHURN_WAVE[1])});
@@ -112,6 +119,36 @@ const FOAM_GLSL = /* glsl */ `
 `;
 
 /**
+ * The face, concave like a halfpipe (in the colour pass, after the foam; `aRise` = height up the
+ * wave): darker down in the trough curve where the face bends up out of the flat water, lighter up the
+ * wall, and faint streaks running up the face (water drawn up the wave: two scales of the foam noise
+ * stretched along t, fixed to the water). The streaks also flute the face's normal (FACE_NORMAL_GLSL),
+ * so they catch the light. The clear shallows (shallowClear) are worked out here for the alpha pass.
+ */
+const FACE_GLSL = /* glsl */ `
+  float shallowClear = shallowClarity(vSea.y, vHeight);
+  float faceU = (vSea.x + uTravel) / 9.0;
+  float faceV = vT * 0.18 + uTime * 0.012;
+  float streakA = texture2D(uFoamTex, vec2(faceU, faceV)).r;
+  float streakB = texture2D(uFoamTex, vec2(faceU * 2.6 + 0.43, faceV * 1.7 + 0.2)).r;
+  float streak = smoothstep(0.42, 0.78, 0.65 * streakA + 0.35 * streakB);
+  float streakSlope = texture2D(uFoamTex, vec2(faceU + 0.025, faceV)).r - texture2D(uFoamTex, vec2(faceU - 0.025, faceV)).r;
+  float faceClean = 1.0 - foamCover;
+  float troughCurve = smoothstep(0.0, 0.15, vRise) * (1.0 - smoothstep(0.15, 0.6, vRise));
+  float faceWall = smoothstep(0.5, 0.92, vRise);
+  diffuseColor.rgb *= (1.0 - 0.24 * troughCurve * faceClean) * (1.0 + 0.12 * faceWall * faceClean);
+  diffuseColor.rgb *= 1.0 + 0.08 * vFace * (streak - 0.5);
+  // Clear shallow water over pale sand: a brighter, greener aqua than the open sea.
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.12, 0.62, 0.55), 0.45 * shallowClear * faceClean);
+  float lipRim = smoothstep(0.86, 0.98, vRise) * faceClean;
+`;
+
+/** After <normal_fragment_maps>: the streaks flute the face (view-space normal tilted along the break). */
+const FACE_NORMAL_GLSL = /* glsl */ `
+  normal = normalize(normal + vAlongView * streakSlope * 0.8 * vFace);
+`;
+
+/**
  * Inject the section peak, ripple, the animated pitching lip, foam scrolling, fake subsurface and sky
  * reflection into a Lambert shader. Pure string surgery (unit-tested). The peak scales the rest shape
  * exactly as WaveShape.heightScale does (normals included), before the ripple and the lip.
@@ -119,7 +156,7 @@ const FOAM_GLSL = /* glsl */ `
 export function injectWaveShader(shader: Pick<WebGLProgramParametersWithUniforms, 'uniforms' | 'vertexShader' | 'fragmentShader'>, u: WaveUniforms): void {
   Object.assign(shader.uniforms, u, skyUniforms, seaReflection);
   shader.vertexShader =
-    'uniform float uTime;\nuniform float uTravel;\nattribute float aFoam;\nattribute float aFace;\nattribute float aLip;\nvarying float vFoam;\nvarying float vFace;\nvarying vec2 vFoamUv;\nvarying vec2 vSea;\nvarying float vHeight;\n' +
+    'uniform float uTime;\nuniform float uTravel;\nattribute float aFoam;\nattribute float aFace;\nattribute float aLip;\nattribute float aRise;\nvarying float vFoam;\nvarying float vFace;\nvarying vec2 vFoamUv;\nvarying vec2 vSea;\nvarying float vHeight;\nvarying float vRise;\nvarying float vT;\nvarying vec3 vAlongView;\n' +
     PEAK_GLSL_HEADER +
     shader.vertexShader.replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>\n${PEAK_NORMAL_GLSL}`).replace(
       '#include <begin_vertex>',
@@ -131,24 +168,32 @@ ${LIP_GLSL}
   vFace = aFace;
   vSea = position.xz;
   vHeight = position.y;
+  vRise = aRise;
+  vT = uv.y;
+  vAlongView = normalize((modelViewMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz);
   // Foam is fixed to the water, which runs through the frame at the (live) peel speed; on the lip it
   // streams toward the tip.
   vFoamUv = vec2((position.x + uTravel) / 7.0, uv.y * 9.0 + position.z * 0.05 - aLip * uTime * 1.5);`,
     );
   shader.fragmentShader =
-    'uniform sampler2D uFoamTex;\nuniform vec3 uSSS;\nuniform float uTime;\nuniform float uReflect;\nvarying float vFoam;\nvarying float vFace;\nvarying vec2 vFoamUv;\nvarying vec2 vSea;\nvarying float vHeight;\n' +
+    'uniform sampler2D uFoamTex;\nuniform vec3 uSSS;\nuniform float uTime;\nuniform float uTravel;\nuniform float uReflect;\nvarying float vFoam;\nvarying float vFace;\nvarying vec2 vFoamUv;\nvarying vec2 vSea;\nvarying float vHeight;\nvarying float vRise;\nvarying float vT;\nvarying vec3 vAlongView;\n' +
     SKY_GLSL +
+    SHALLOWS_GLSL +
     shader.fragmentShader
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-${FOAM_GLSL}`,
+${FOAM_GLSL}
+${FACE_GLSL}`,
       )
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${FACE_NORMAL_GLSL}`)
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
   float rim = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
   totalEmissiveRadiance += uSSS * rim * rim * vFace;
+  // A bright rim along the lip, where the light comes through its thin edge.
+  totalEmissiveRadiance += vec3(0.5, 0.9, 0.8) * 0.3 * lipRim * uReflect;
   // Self-lit foam is for daylight above the water; from below (the wipeout cut, uReflect = 0) it stays dim.
   totalEmissiveRadiance += (diffuseColor.rgb * (0.45 * foamCover + 0.25 * foamMilky) + 0.35 * foamSparkle) * uReflect;`,
       )

@@ -131,6 +131,16 @@ export function waveVertexColor(y: number, crestY: number, t: number, tc: number
   return alpha + (1 - alpha) * foam; // whitewater is opaque
 }
 
+/**
+ * How far up the wave a profile vertex is (the `aRise` attribute): its height as a share of the crest
+ * height, 0 in the trough … 1 at the crest (and on the lip around it). The shader shades the face
+ * concave with it: darker down in the trough curve, lighter up the wall, a bright rim along the lip.
+ * 0 off the profile (flats, lip top, back).
+ */
+export function faceRise(y: number, crestY: number): number {
+  return crestY > 0.01 ? clamp(y / crestY, 0, 1) : 0;
+}
+
 /** Row/column layout of the ocean grid (stored on `geometry.userData`). */
 export interface OceanLayout {
   columns: number;
@@ -166,7 +176,7 @@ function endEase(x: number, xMin: number, xMax: number): number {
  * the back of the wave and out to the far sea behind. Columns continue past the ridden range,
  * easing the wave down to flat sea, out to the far sea at ±OCEAN_EXTENT. Flat water everywhere is
  * exactly sea level, faces up and has the sea colour and opacity — there is no seam to see.
- * Winding faces the normal (Sx × St). Attributes: position, normal, color (RGBA), uv (x, t), aFoam, aFace, aLip.
+ * Winding faces the normal (Sx × St). Attributes: position, normal, color (RGBA), uv (x, t), aFoam, aFace, aLip, aRise.
  */
 export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: number, geo = new BufferGeometry()): BufferGeometry {
   const { xMin, xMax, tubeDepth: D, height: H } = shape.params;
@@ -196,6 +206,7 @@ export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: numb
   const foamA = new Float32Array(count);
   const faceA = new Float32Array(count);
   const lipA = new Float32Array(count);
+  const riseA = new Float32Array(count);
   const tA = new Float32Array(count).fill(NaN);
   const p = new Vector3();
   const n = new Vector3();
@@ -267,6 +278,7 @@ export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: numb
       put(v, x, p.y, p.z, foam, face, t, alpha, lipWeight(shape, xc, t, tc) * e);
       nor.set([n.x, n.y, n.z], v * 3);
       tA[v] = t;
+      riseA[v] = faceRise(p.y, cy);
     }
 
     // The lip top: from the drawn tip back over the crest, a slab LIP_THICKNESS thick at most.
@@ -322,6 +334,7 @@ export function buildWaveGeometry(shape: WaveShape, xs: Float32Array, rows: numb
   geo.setAttribute('aFoam', new BufferAttribute(foamA, 1));
   geo.setAttribute('aFace', new BufferAttribute(faceA, 1));
   geo.setAttribute('aLip', new BufferAttribute(lipA, 1));
+  geo.setAttribute('aRise', new BufferAttribute(riseA, 1));
   geo.setIndex(gridIndex(cols, R));
   geo.computeBoundingSphere();
   const layout: OceanLayout = {

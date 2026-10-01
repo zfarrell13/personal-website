@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Color, Vector3 } from 'three';
 import { FOG_CONFIG, SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
-import { buildWaveGeometry, columnsX, lipWeight, SEA, waveVertexColor, type OceanLayout } from './waveGeometry';
+import { buildWaveGeometry, columnsX, faceRise, lipWeight, SEA, waveVertexColor, type OceanLayout } from './waveGeometry';
 import { injectWaveShader, LIP_MAX_OFFSET, lipOffset, makeFoamTexture } from './waveMaterial';
 
 const shape = () => new WaveShape(structuredClone(SURF_CONFIG.wave));
@@ -188,6 +188,38 @@ describe('injectWaveShader', () => {
     expect(shader.vertexShader.indexOf('transformed +=')).toBeGreaterThan(shader.vertexShader.indexOf('#include <begin_vertex>'));
     expect(shader.fragmentShader).toContain('totalEmissiveRadiance += uSSS');
     expect(shader.uniforms.uTravel).toBe(u.uTravel);
+  });
+});
+
+describe('face rise (aRise: the concave shading up the face)', () => {
+  it('runs 0 in the trough to 1 at the crest on the face, and is 0 off the profile', () => {
+    const w = shape();
+    const geo = buildWaveGeometry(w, columnsX(40, -10, 60), 32);
+    const L = geo.userData as OceanLayout;
+    const rise = geo.getAttribute('aRise');
+    const pos = geo.getAttribute('position');
+    for (let i = L.firstSimColumn; i < L.firstSimColumn + L.simColumns; i++) {
+      const x = L.xs[i]!;
+      const tc = w.crestT(x);
+      let prev = -1;
+      for (let r = 0; r < L.rows; r++) {
+        const v = i * L.rows + r;
+        const t = L.t[v]!;
+        const a = rise.getX(v);
+        expect(a).toBeGreaterThanOrEqual(0);
+        expect(a).toBeLessThanOrEqual(1);
+        if (Number.isNaN(t)) {
+          expect(a).toBe(0);
+          continue;
+        }
+        expect(a).toBeCloseTo(faceRise(pos.getY(v), w.crestY(x)), 6);
+        if (t <= tc) {
+          expect(a).toBeGreaterThanOrEqual(prev - 1e-6); // climbs the face
+          prev = a;
+        }
+      }
+      expect(rise.getX(i * L.rows + L.profileRow)).toBeLessThan(0.02);
+    }
   });
 });
 
