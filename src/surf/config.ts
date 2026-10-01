@@ -92,14 +92,32 @@ export const SURF_CONFIG = {
     snapAngle: 110,
     /**
      * Roundhouse: running back toward the curl with a carve held, reaching the whitewater (frame
-     * x ≤ foamReboundX, just ahead of the impact zone [−D, 0]) or turning up into the top band
-     * rebounds the board round, back down the line, at the snap-boosted carve rate.
+     * x ≤ foamReboundX, just ahead of the impact zone [−D, 0]; not deeper than −D/2) or turning up
+     * into the lip (in the top band, or anywhere once a cutback is under way) rebounds the board
+     * round, back down the line.
      */
-    foamReboundX: 2,
-    /** … a whitewater rebound bleeds this share of the speed per 180° turned. */
+    foamReboundX: 3,
+    /** A rebound turns at this many times the carve rate (the lip / foam pushes the board round). */
+    reboundBoost: 2,
+    /** Coming out of a rebound the board picks up this much speed along its new line (m/s): the wave throws it back down the line. */
+    reboundKick: 2,
+    /**
+     * … and rebounding in the whitewater (x ≤ foamReboundX), which runs with the break, a slower board
+     * is pushed up toward this share of the peel speed at foamPush m/s².
+     */
+    foamCarry: 1,
+    foamPush: 15,
+    /** A whitewater rebound bleeds this share of the speed per 180° turned (before the kick / carry). */
     roundhouseRebound: 0.05,
-    /** A held turn of at least this many degrees that ends in a rebound scores a ROUNDHOUSE. */
-    roundhouseDeg: 170,
+    /**
+     * A cutback of at least this many degrees (the carve yaw since the board last ran down the line,
+     * across releases) that ends in a rebound scores a ROUNDHOUSE.
+     */
+    roundhouseDeg: 150,
+    /** A cutback is forgotten after this long (s) running back toward the curl without a rebound. */
+    cutbackMemory: 1.5,
+    /** For this long (s) after letting go of a cutback, still running back toward the curl, the lip doesn't launch. */
+    cutbackLaunchGuard: 0.5,
     ollieImpulse: 4,
     /** Crest launch: speed off the face along the normal = up-face speed × airGain, in [launchSpeed, maxAirSpeed]. */
     airGain: 0.75,

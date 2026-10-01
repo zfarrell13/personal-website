@@ -177,6 +177,7 @@ export class Particles {
       bus.on('wipeout', () => this.splash(this.surfer.p, 150)),
       bus.on('landed', () => this.splash(this.surfer.p, 40)),
       bus.on('snap', () => this.roosterBurst(BOARD_SPRAY.snapBurst)),
+      bus.on('roundhouse', () => this.roosterBurst(BOARD_SPRAY.snapBurst)),
     );
   }
 

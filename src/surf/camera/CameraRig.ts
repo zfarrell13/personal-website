@@ -130,12 +130,13 @@ export function travelYaw(heading: Vector3): number {
 /** |cos(camera yaw)| past which the carve keys' screen meaning follows the camera (hysteresis around side-on). */
 const FACING_SWITCH = 0.3;
 /**
- * Chase framing guard: the rider's chest is kept within this share of the lens's vertical half-angle
- * of the view axis. Normally they sit well inside it (≈ 17° below centre); a fast reversal (a
- * roundhouse running back toward the curl under the still-swinging camera) would otherwise carry them
- * off the bottom of the screen, so the camera tilts toward them instead (it never moves for this).
+ * Chase framing guard: the rider's chest is kept within this share of the half-height of the screen
+ * from its centre (|ndc| ≤ 0.7, clear of the HUD along the bottom edge). Normally they sit well inside
+ * it (≈ 17° below centre, ndc ≈ −0.5); a fast reversal (a roundhouse running back toward the curl
+ * under the still-swinging camera) would otherwise carry them off the bottom of the screen, so the
+ * camera tilts toward them instead (it never moves for this).
  */
-const CHASE_FRAMING = 0.8;
+const CHASE_FRAMING = 0.7;
 
 /**
  * Where the camera wants to be (VIEW coordinates, i.e. already mirrored) for a shot.
@@ -301,7 +302,11 @@ export class CameraRig {
     // The tube view also covers riding low in the pocket (either way along the line), under the
     // pitching lip: from above the crest the lip hides the rider there.
     const D = this.wave.params.tubeDepth;
-    const wanted = s.mode === 'riding' && (s.inTube || (s.p.x <= c.pocketX && s.p.x >= -D && s.p.y < c.pocketHeightFrac * this.wave.crestY(s.p.x)));
+    const pocket = s.mode === 'riding' && s.p.x <= c.pocketX && s.p.x >= -D;
+    // … and anywhere in the pocket where the chase can't see the rider past the pitching lip (a
+    // roundhouse running back into the pocket high on the face): that cuts straight in.
+    const blind = pocket && this.chaseBlind(s, renderP);
+    const wanted = s.mode === 'riding' && (s.inTube || blind || (pocket && s.p.y < c.pocketHeightFrac * this.wave.crestY(s.p.x)));
     // …as long as there IS a tube shot: a spot behind the rider in the barrel's air that sees them
     // (not through the falling curtain, not with the barrel closing on them). Otherwise the chase.
     const tubed = wanted && this.findTubeSpot(renderP, s.normal);
@@ -323,7 +328,7 @@ export class CameraRig {
       shot = good ? 'tube' : giveUp();
       hold = good && !tubed;
     } else if (this.shot === 'tube') shot = this.outFor >= c.tubeCutOut ? 'chase' : 'tube';
-    else shot = this.inFor >= c.tubeCutIn ? 'tube' : 'chase';
+    else shot = this.inFor >= c.tubeCutIn || (blind && tubed) ? 'tube' : 'chase';
     this.track(s, renderP, side, shot);
     if (hold) {
       this.holdTube(renderP, s.normal, side, dt);
@@ -378,12 +383,28 @@ export class CameraRig {
     this.apply(this.shot === 'underwater' ? 0 : shakeAmplitude(x, D, c.shake), time);
   }
 
-  /** Chase: tilt the look target toward the rider's chest if it is further than CHASE_FRAMING of the half-fov off the view axis. */
+  /** Would the chase (its goal behind the eased travel direction) see the rider's chest past the wave? */
+  private chaseBlind(s: SurferState, p: Vector3): boolean {
+    const w = this.wave;
+    if (!w.profile || w.params.xMin === undefined) return false;
+    const subj = this.probeSubject;
+    subj.p.copy(p);
+    subj.normal.copy(s.normal);
+    subj.heading.set(Math.cos(this.yaw), 0, Math.sin(this.yaw));
+    subj.mode = s.mode;
+    subj.launchKind = s.launchKind;
+    // In frame coordinates (the 'left' frame is the canonical one).
+    cameraGoal(subj, 'left', 'chase', w, this.probeGoal, this.cfg);
+    const chest = this.tmpG.copy(p).addScaledVector(s.normal, 0.9);
+    return !this.sees(w as ProfileProbe, this.probeGoal.pos, chest);
+  }
+
+  /** Chase: tilt the look target toward the rider's chest if it is further off the view axis than CHASE_FRAMING of the half-screen allows. */
   private keepInFrame(normal: Vector3, side: Side): void {
     const chest = this.tmpA.copy(this.viewP).addScaledVector(frameToView(normal, side, this.tmpB), 0.9);
     const toRider = chest.sub(this.pos);
     const toLook = this.tmpC.subVectors(this.look, this.pos);
-    const limit = CHASE_FRAMING * (this.cfg.fov / 2) * DEG;
+    const limit = Math.atan(CHASE_FRAMING * Math.tan((this.cfg.fov / 2) * DEG));
     const off = toLook.angleTo(toRider);
     if (off <= limit || toRider.lengthSq() < 1e-6) return;
     // Rotate the view axis toward the rider in the plane they span, until the rider is at the limit.

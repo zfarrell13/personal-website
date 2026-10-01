@@ -21,8 +21,8 @@ export type TrickName =
 export const TRICK_BASE = {
   Ollie: 100,
   Snap: 250,
-  /** A held turn back toward the curl, rebounded off the whitewater / lip: a bit above a snap. */
-  Roundhouse: 400,
+  /** A cutback rebounded off the whitewater / lip back down the line (it replaces the snap on the way round). */
+  Roundhouse: 500,
   Revert: 150,
   sectionMade: 500,
   floaterBase: 400,

@@ -58,8 +58,13 @@ const DROP_SLACK = 0.02;
 const WORLD_UP = new Vector3(0, 1, 0);
 /** The turn sense flips only once the board's line is this far off straight up / down the face (sine of the angle). */
 const TURN_SENSE_HYSTERESIS = 0.2;
-/** A rebound is done once the board's line runs down the line within this angle above flat (the rail then eases off). */
-const REBOUND_DONE = 20 * DEG;
+/**
+ * A rebound is done once the board's line runs down the line, dropping at this angle below flat
+ * (coming off the lip / out of the foam it heads back down the face, picking up speed).
+ */
+const REBOUND_EXIT = -30 * DEG;
+/** A cutback is under way once the carves since the board last ran down the line have turned it this far. */
+const CUTBACK_ACTIVE = 90 * DEG;
 const DROP_IN = { x: 3.5, t: 0.5, along: 2, down: 4 };
 
 /**
@@ -135,15 +140,30 @@ export class Surfer {
    * for as long as the key is held.
    */
   private heldSense = 0;
-  /** Yaw (rad) turned in the held turn's sense since it started. */
-  private heldYaw = 0;
+  /**
+   * Cutback: the net carve yaw (rad, in cutbackSense) since the board last ran down the line. It
+   * survives letting go of the key (cut back, let go, run at the curl, press into the lip), and is
+   * forgotten once the board runs down the line again or after cutbackMemory s running back toward
+   * the curl without a rebound.
+   */
+  private cutbackYaw = 0;
+  private cutbackSense = 0;
+  /** Seconds running back toward the curl in the current cutback, and whether it has run back at all. */
+  private backFor = 0;
+  private wentBack = false;
+  /** When the last held carve was let go (sim s). */
+  private releasedAt = -Infinity;
+  /** A snap during a cutback waits: a ROUNDHOUSE replaces it; otherwise it scores when the cutback ends. */
+  private deferredSnap = false;
+  /** The held carve was pressed while the board ran back toward the curl (a re-press after a cutback). */
+  private pressedBack = false;
   /** The held turn ended in a rebound: it does nothing more until the key is let go. */
   private carveSpent = false;
   /** Running back toward the curl, bounced round off the whitewater ('foam') or the lip, back down the line. */
   private rebound: 'foam' | 'lip' | null = null;
   /** The rebound's rotation sense: −1 up the face and round (off the lip), +1 down and round. */
   private reboundSense = 0;
-  /** heldYaw when the rebound started, and the yaw (rad) the rebound has turned since. */
+  /** cutbackYaw when the rebound started, and the yaw (rad) the rebound has turned since. */
   private reboundHeld = 0;
   private reboundYaw = 0;
   private crestMemo = { x: NaN, version: -1, t: 0, y: 0 };
@@ -244,6 +264,7 @@ export class Surfer {
     this.vp = this.wave.params.peelSpeed;
     this.yawRate = 0;
     this.turnSense = 1;
+    this.deferredSnap = false; // a fresh run: nothing from the last one scores
     this.endTurn();
     this.crestMemo.x = NaN;
     // Riding starts on the rideable face (never on the vertical / overhanging part).
@@ -460,29 +481,44 @@ export class Surfer {
     if (Math.abs(along) > TURN_SENSE_HYSTERESIS * sp) this.turnSense = along > 0 ? 1 : -1;
     const sign = Math.sign(input.carve);
     if (sign !== this.heldSign) {
+      if (sign === 0) this.releasedAt = s.time;
       this.heldSign = sign;
       this.heldSense = sign * this.turnSense;
-      this.heldYaw = 0;
+      this.pressedBack = sign !== 0 && this.turnSense < 0;
       this.carveSpent = false;
     }
-    // Running back toward the curl with a carve held: turning up into the lip (in the top band) or
-    // reaching the whitewater bounces the board round, back down the line. Off the lip it turns up
-    // and over; the foam knocks it round the shorter way (a line still climbing goes up and over,
-    // one already dropping carries on down and round).
-    if (!this.rebound && sign !== 0 && !s.floating && sp > c.minSpeed && along < -TURN_SENSE_HYSTERESIS * sp) {
-      const foam = s.param.x <= c.foamReboundX;
-      const lip = !this.carveSpent && this.heldSense < 0 && (this.nearTop || this.atCrest);
+    // The cutback is forgotten once the board runs down the line again — after running back toward
+    // the curl (a loop came round), or with no turn held its way — or after running at the curl too long.
+    const back = sp > c.minSpeed && along < -TURN_SENSE_HYSTERESIS * sp;
+    if (back) {
+      this.backFor += dt;
+      this.wentBack = true;
+    }
+    const downLine = along > TURN_SENSE_HYSTERESIS * sp;
+    const turningOn = this.heldSign !== 0 && !this.carveSpent && this.heldSense === this.cutbackSense;
+    if (!this.rebound && ((downLine && (this.wentBack || !turningOn)) || this.backFor > c.cutbackMemory)) this.endCutback();
+    // Running back toward the curl with a carve held: turning up into the lip (in the top band, or
+    // anywhere once a cutback is under way — the second half of the figure-8) or reaching the
+    // whitewater bounces the board round, back down the line. Off the lip it turns up and over; the
+    // foam knocks it round the shorter way (a line still climbing goes up and over, one already
+    // dropping carries on down and round).
+    if (!this.rebound && sign !== 0 && !s.floating && back) {
+      // (Not inside the barrel, under the lip; deeper than half the tube the foam no longer throws the
+      // board out: the curl swallows it.)
+      const foam = !s.inTube && s.param.x <= c.foamReboundX && s.param.x > -this.wave.params.tubeDepth / 2;
+      const lip =
+        !this.carveSpent && this.heldSense < 0 && (this.nearTop || this.atCrest || (this.pressedBack && this.cutbackYaw >= CUTBACK_ACTIVE));
       if (foam || lip) {
         this.rebound = foam ? 'foam' : 'lip';
         this.reboundSense = foam && rel.dot(this.eUp) < 0 ? 1 : -1;
-        this.reboundHeld = this.carveSpent ? 0 : this.heldYaw;
+        this.reboundHeld = this.cutbackYaw;
         this.reboundYaw = 0;
       }
     }
     let target = 0;
     if (this.rebound) {
-      // Round toward the shoulder with the lip turn's bite.
-      target = this.reboundSense * rate * c.snapCarveBoost;
+      // Round toward the shoulder, the rail biting hard (the lip / foam pushes the board round).
+      target = this.reboundSense * rate * c.reboundBoost;
     } else if (sign !== 0 && !this.carveSpent) {
       // Snapping at the lip (a snap armed, held there), the rail bites harder.
       target = Math.abs(input.carve) * rate * this.heldSense * (this.snapArmed && this.atCrest ? c.snapCarveBoost : 1);
@@ -494,13 +530,21 @@ export class Surfer {
     if (this.rebound) {
       const turned = Math.max(0, ang * this.reboundSense);
       this.reboundYaw += turned;
-      // The foam knocks some speed off (bounded, per 180° of the bounce).
+      // The foam knocks some speed off (bounded, per 180° of the bounce) …
       if (this.rebound === 'foam') rel.multiplyScalar(1 - (c.roundhouseRebound * turned) / Math.PI);
-      // Done once the line runs down the line again (coming over the top: no more than REBOUND_DONE
-      // above flat; coming round the bottom: no more than that below it).
+      // … but in the whitewater, which runs with the break, it pushes a slow board up toward the peel speed.
+      const spr = rel.length();
+      const carry = c.foamCarry * this.vp;
+      if (s.param.x <= c.foamReboundX && spr > 1e-3 && spr < carry) rel.multiplyScalar(Math.min(carry, spr + c.foamPush * dt) / spr);
+      // Done once the line runs down the line again, dropping at REBOUND_EXIT (reached from above
+      // coming over the top, from below coming round the bottom).
       const phi = Math.atan2(rel.dot(this.eUp), rel.dot(this.e1));
-      if (rel.dot(this.e1) > 0 && phi * this.reboundSense >= -REBOUND_DONE) this.endRebound();
-    } else if (!this.carveSpent && ang * this.heldSense > 0) this.heldYaw += Math.abs(ang);
+      if (rel.dot(this.e1) > 0 && (phi - REBOUND_EXIT) * this.reboundSense >= 0) this.endRebound();
+    } else if (ang !== 0) {
+      if (this.cutbackSense === 0) this.cutbackSense = Math.sign(ang);
+      this.cutbackYaw = Math.max(0, this.cutbackYaw + ang * this.cutbackSense);
+      if (this.cutbackYaw === 0) this.cutbackSense = 0;
+    }
     this.trackCarve(input.carve, Math.abs(ang));
 
     // --- pump: along the board's line, efficiency min(1, since/period), minus a fixed cost. A pump
@@ -573,7 +617,10 @@ export class Surfer {
         this.snapArmed = false;
         // The snap is done: the rail lets go of the boost (no swinging on past the fall line).
         this.yawRate /= c.snapCarveBoost;
-        this.emit({ type: 'snap', time: s.time });
+        // A snap that turns the board back toward the curl (a cutback over the top) waits: a ROUNDHOUSE
+        // out of it replaces the snap.
+        if ((this.cutbackYaw >= CUTBACK_ACTIVE && s.heading.x < 0) || this.rebound) this.deferredSnap = true;
+        else this.emit({ type: 'snap', time: s.time });
       }
     }
 
@@ -618,7 +665,14 @@ export class Surfer {
       return true;
     }
     const lipTurn = carve !== 0 && (this.snapArmed || this.topPending || this.rebound !== null);
-    if (u > c.launchSpeed && !lipTurn) {
+    // Just after letting go of a cutback, still running back toward the curl, the lip doesn't launch:
+    // there is time to press again and carve off it.
+    const world = this.tmp.copy(s.v).addScaledVector(this.e1, this.vp);
+    const guard =
+      this.cutbackYaw >= CUTBACK_ACTIVE &&
+      world.dot(this.e1) < -TURN_SENSE_HYSTERESIS * world.length() &&
+      s.time - this.releasedAt <= c.cutbackLaunchGuard;
+    if (u > c.launchSpeed && !lipTurn && !guard) {
       this.enterAir('crest');
       this.beginAir('jump', tb, clamp(u * c.airGain, c.launchSpeed, c.maxAirSpeed));
       return true;
@@ -693,11 +747,19 @@ export class Surfer {
   private endRebound(): void {
     const s = this.state;
     if (this.reboundHeld >= this.cfg.roundhouseDeg * DEG) {
+      // The roundhouse replaces any snap on the way round (and the lip turn it ends in).
+      this.deferredSnap = false;
+      this.snapArmed = false;
+      this.topPending = false;
       this.emit({ type: 'roundhouse', time: s.time, degrees: (this.reboundHeld + this.reboundYaw) / DEG });
     }
+    // Off the lip / out of the foam the wave throws the board back down the line.
+    const sp = this.rel.length();
+    if (sp > 1e-3) this.rel.multiplyScalar((sp + this.cfg.reboundKick) / sp);
     this.rebound = null;
+    this.endCutback();
     // The rail lets go of the bounce's bite (no swinging on down the face) and the held key is spent.
-    this.yawRate /= this.cfg.snapCarveBoost;
+    this.yawRate /= this.cfg.reboundBoost;
     this.carveSpent = this.heldSign !== 0;
   }
 
@@ -707,13 +769,25 @@ export class Surfer {
     return this.heldSign !== 0 && !this.carveSpent ? this.heldSense : 0;
   }
 
-  /** Forget the held turn and any rebound (a fresh start, or leaving the face). */
+  /** The cutback is over (no roundhouse out of it, or one already scored): a waiting snap scores now. */
+  private endCutback(): void {
+    if (this.deferredSnap) this.emit({ type: 'snap', time: this.state.time });
+    this.deferredSnap = false;
+    this.cutbackYaw = 0;
+    this.cutbackSense = 0;
+    this.backFor = 0;
+    this.wentBack = false;
+  }
+
+  /** Forget the held turn, the cutback and any rebound (a fresh start, or leaving the face). */
   private endTurn(): void {
     this.heldSign = 0;
     this.heldSense = 0;
-    this.heldYaw = 0;
+    this.pressedBack = false;
     this.carveSpent = false;
     this.rebound = null;
+    this.releasedAt = -Infinity;
+    this.endCutback();
   }
 
   private trackCarve(carve: number, absAngle: number): void {
@@ -966,6 +1040,8 @@ export class Surfer {
 
   private wipe(reason: WipeoutReason): void {
     const s = this.state;
+    // A waiting snap still shows (the wipeout then loses it with the pot).
+    this.endCutback();
     s.mode = 'wipeout';
     s.wipeoutReason = reason;
     s.inTube = false;

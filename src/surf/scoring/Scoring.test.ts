@@ -105,16 +105,16 @@ describe('Scoring', () => {
 });
 
 describe('roundhouse', () => {
-  it('a ROUNDHOUSE scores 400 (a bit above a snap) as its own trick in the combo', () => {
+  it('a ROUNDHOUSE scores 500 (double a snap; the physics drops the snap on the way round) as its own trick in the combo', () => {
     const bus = new EventBus<SurfEvent>();
     const onAward = vi.fn();
     const scoring = new Scoring(SURF_CONFIG.scoring, { onAward });
     scoring.attach(bus);
-    expect(TRICK_BASE.Roundhouse).toBeGreaterThan(TRICK_BASE.Snap);
-    bus.emit({ type: 'snap', time: 1 });
+    expect(TRICK_BASE.Roundhouse).toBe(500);
+    bus.emit({ type: 'landed', time: 1, spinDeg: 0, grabs: [], revert: false, ollie: true, airTime: 0.5 });
     bus.emit({ type: 'roundhouse', time: 1.4, degrees: 260 });
-    expect(onAward).toHaveBeenLastCalledWith({ name: 'Roundhouse', points: 400, repeated: false });
-    expect(scoring.pot).toBe(250 + 400);
+    expect(onAward).toHaveBeenLastCalledWith({ name: 'Roundhouse', points: 500, repeated: false });
+    expect(scoring.pot).toBe(100 + 500);
     expect(scoring.multiplier).toBe(2);
   });
 });

@@ -942,32 +942,115 @@ describe('Surfer — held carves and the roundhouse', () => {
       if (h.s.heading.x < -0.7) back = true;
       return back && h.events.some((e) => e.type === 'roundhouse') && h.s.heading.x > 0.5;
     });
-    return { h, r, entry, exit: h.surfer.worldSpeed(h.surfer.peelSpeed) };
+    return { h, r, entry };
   }
 
-  // Started near enough the curl for the turn to come round into the whitewater (further out, a
-  // held carve just loops round: see the tests above).
-  it.each([
-    [8, 8.5, 0.3],
-    [8, 9, 0.3],
-    [10, 7, 0.3],
-    [10, 8, 0.25],
-  ])('roundhouse at %d m/s from x = %d: held round past 180° back toward the curl, rebounds off the whitewater and comes out down the line', (speed, x, t) => {
-    const { h, r, entry, exit } = roundhouse(speed, x, t);
-    expect(r.events.some((e) => e.type === 'wipeout')).toBe(false);
+  /**
+   * Out of the roundhouse: held on (the spent key does nothing) for 0.5 s, the board is back on its
+   * line down the face. Checks the shared exit conditions.
+   */
+  function expectCleanExit(h: ReturnType<typeof setup>, r: ReturnType<typeof hold>, entry: number, carve: number) {
+    expect(r.events.some((e) => e.type === 'wipeout' || e.type === 'launched')).toBe(false);
     expect(h.s.mode).toBe('riding');
     expect(r.minHx).toBeLessThan(-0.7);
     expect(h.s.heading.x).toBeGreaterThan(0.5); // heading down the line again
-    expect(exit).toBeGreaterThanOrEqual(0.6 * entry);
     const rh = r.events.filter((e) => e.type === 'roundhouse');
     expect(rh).toHaveLength(1);
     expect(rh[0]!.type === 'roundhouse' && rh[0]!.degrees).toBeGreaterThanOrEqual(h.cfg.physics.roundhouseDeg);
+    // The roundhouse replaces the snap on the way round.
+    expect(r.events.some((e) => e.type === 'snap')).toBe(false);
     expect(r.maxTickDeg).toBeLessThanOrEqual(15);
-    // Held on through the bounce, the spent carve does not start another turn: the board holds its line.
-    h.run(0.4, () => ({ carve: 1 }));
+    // Not left deep in the tube.
+    expect(h.s.param.x).toBeGreaterThan(-h.cfg.wave.tubeDepth / 2);
+    const prev = h.s.heading.clone();
+    let maxTick = 0;
+    for (let i = 0; i < 60; i++) {
+      h.surfer.step({ ...NO_INPUT, carve }, DT);
+      maxTick = Math.max(maxTick, prev.angleTo(h.s.heading) / DEG);
+      prev.copy(h.s.heading);
+    }
+    expect(maxTick).toBeLessThanOrEqual(15);
     expect(h.s.mode).toBe('riding');
-    expect(h.s.heading.x).toBeGreaterThan(0.5);
+    expect(h.s.heading.x).toBeGreaterThan(0); // still running down the line, dropping down the face
+    expect(h.surfer.worldSpeed(h.surfer.peelSpeed)).toBeGreaterThanOrEqual(0.6 * entry);
     expect(h.events.filter((e) => e.type === 'roundhouse')).toHaveLength(1);
+    expect(h.events.some((e) => e.type === 'snap')).toBe(false);
+  }
+
+  // One held carve, started near enough the curl for the turn to come round into the whitewater
+  // (further out, a held carve just loops round: see the tests above, and the two-press move below).
+  it.each([
+    [8, 7, 0.2],
+    [8, 7, 0.35],
+    [10, 8, 0.2],
+    [10, 9, 0.2],
+  ])('one held carve at %d m/s from x = %d: round past 180° back toward the curl, rebounds off the whitewater and comes out down the line', (speed, x, t) => {
+    const { h, r, entry } = roundhouse(speed, x, t);
+    // Held on through the bounce, the spent carve does not start another turn: the board holds its line.
+    expectCleanExit(h, r, entry, 1);
+  });
+
+  // The two-press roundhouse, at any distance from the curl: hold the carve toward the lip round past
+  // straight up until the board runs back toward the curl, let go for 0.15 s, then press toward the
+  // lip again (the second half of the figure-8) and hold it until the board is back down the line.
+  it.each([
+    [8, 20, 0.2],
+    [8, 25, 0.35],
+    [10, 20, 0.35],
+    [10, 30, 0.2],
+    [12, 22, 0.35],
+    [12, 28, 0.5],
+    [12, 30, 0.2],
+  ])('two presses at %d m/s from x = %d: cut back, let go, press into the lip — one ROUNDHOUSE (no snap), back down the line', (speed, x, t) => {
+    const h = moving(speed, x, t, 0);
+    const entry = h.surfer.worldSpeed(h.surfer.peelSpeed);
+    const e0 = h.events.length;
+    const prev = h.s.heading.clone();
+    let maxTick = 0;
+    let minHx = Infinity;
+    let phase: 'cut' | 'gap' | 'press' = 'cut';
+    let backAt = -1;
+    for (let i = 0; i < 4 * 120 && h.s.mode === 'riding'; i++) {
+      if (phase === 'cut' && h.s.heading.x < -0.7) {
+        phase = 'gap';
+        backAt = h.s.time;
+      }
+      if (phase === 'gap' && h.s.time - backAt >= 0.15) phase = 'press';
+      h.surfer.step({ ...NO_INPUT, carve: phase === 'gap' ? 0 : 1 }, DT);
+      maxTick = Math.max(maxTick, prev.angleTo(h.s.heading) / DEG);
+      prev.copy(h.s.heading);
+      minHx = Math.min(minHx, h.s.heading.x);
+      if (h.events.some((e) => e.type === 'roundhouse') && h.s.heading.x > 0.5) break;
+    }
+    expectCleanExit(h, { yawDeg: 0, minRate: 0, maxTickDeg: maxTick, minHx, events: h.events.slice(e0) }, entry, 1);
+  });
+
+  it('a cutback is forgotten after cutbackMemory s running at the curl: pressing into the lip later turns the board but is no ROUNDHOUSE', () => {
+    const h = moving(10, 40, 0.3, 0);
+    hold(h, 1, 2, () => h.s.heading.x < -0.7);
+    h.run(h.cfg.physics.cutbackMemory + 0.1);
+    expect(h.s.mode).toBe('riding');
+    const r = hold(h, 1, 2, () => h.s.heading.x > 0.5);
+    expect(h.s.heading.x).toBeGreaterThan(0.5);
+    expect(r.events.some((e) => e.type === 'roundhouse')).toBe(false);
+  });
+
+  it('just after letting go of a cutback at the lip, running back toward the curl, the lip does not launch (there is time to press again)', () => {
+    const run = (guard: number) => {
+      const h = setup({ cutbackLaunchGuard: guard });
+      h.surfer.reset(20, 0.5);
+      const up = new Vector3().crossVectors(h.s.normal, new Vector3(1, 0, 0)).normalize();
+      h.s.v.set(12 - h.surfer.peelSpeed, 0, 0).addScaledVector(up, 0);
+      h.s.v.addScaledVector(h.s.normal, -h.s.v.dot(h.s.normal));
+      h.run(DT);
+      // Over the top and back toward the curl, still high and rising off the lip: let go.
+      hold(h, 1, 2, () => h.s.heading.x < -0.3);
+      const e0 = h.events.length;
+      h.run(0.45);
+      return h.events.slice(e0).some((e) => e.type === 'launched');
+    };
+    expect(run(0)).toBe(true); // without the guard, letting go here throws the rider into the air …
+    expect(run(SURF_CONFIG.physics.cutbackLaunchGuard)).toBe(false); // … with it, the lip holds them
   });
 
   it('a plain cutback into the foam (well short of 180° held) rebounds the rider down the line without a ROUNDHOUSE', () => {

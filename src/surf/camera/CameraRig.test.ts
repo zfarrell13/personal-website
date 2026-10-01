@@ -485,7 +485,18 @@ describe('a cutback: the camera swings round behind the new travel direction', (
 });
 
 describe('a roundhouse: the camera follows the rider round, the held key keeps its meaning', () => {
-  it.each(['left', 'right'] as const)('on a %s: holding the toward-the-lip key (latched) carves round past 180° into the whitewater and back out; the chase keeps the rider in frame and ends behind the new line', (side: Side) => {
+  /**
+   * 'hold': one held carve from down the line near the pocket (x = 7) round into the whitewater.
+   * 'two-press': from further out (x = 20), hold round until running back toward the curl, let go
+   * for 0.15 s, then press the key that is toward the lip on screen at that moment.
+   * Keys are latched as SurfGame does: their meaning is read when a key goes down and kept while held.
+   */
+  it.each([
+    ['left', 'hold', 7],
+    ['right', 'hold', 7],
+    ['left', 'two-press', 20],
+    ['right', 'two-press', 20],
+  ] as const)('on a %s (%s from x = %d): one ROUNDHOUSE; the rider stays framed clear of the HUD and seen in ≥ 90% of chase frames; the chase ends behind the new line', (side, script, x0) => {
     const cfg = structuredClone(SURF_CONFIG);
     const wave = new WaveShape(cfg.wave);
     const bus = new EventBus<SurfEvent>();
@@ -493,18 +504,14 @@ describe('a roundhouse: the camera follows the rider round, the held key keeps i
     bus.onAny((e) => events.push(e));
     const surfer = new Surfer(wave, cfg.physics, bus);
     const s = surfer.state;
-    // Down the line at 10 m/s, low on the face, near the pocket.
-    surfer.reset(7, 0.3);
+    // Down the line at 10 m/s, low on the face.
+    surfer.reset(x0, 0.3);
     s.v.set(10 - surfer.peelSpeed, 0, 0).addScaledVector(s.normal, -(10 - surfer.peelSpeed) * s.normal.x);
     surfer.step(NO_INPUT, 1 / 120); // the heading follows the set-up motion
     const cam = new PerspectiveCamera(cfg.camera.fov, 16 / 9, 0.1, 650);
     const rig = new CameraRig(cam, cfg.camera, wave);
     rig.update(s, s.p, side, false, 1 / 60, s.time);
     rig.snap(s, side);
-    // The key that means "toward the lip" on screen right now (→ on a RIGHT, ← on a LEFT) …
-    const right = carveFromKeys(false, true, side, rig.keyFacing) === 1;
-    // … latched as SurfGame does: the keys' meaning is read when the key goes down and kept while held.
-    const latched = rig.keyFacing;
     const front = new Mesh(buildWaveGeometry(wave, columnsX(cfg.mesh.columns, cfg.wave.xMin, cfg.wave.xMax), cfg.mesh.rows), new MeshBasicMaterial({ side: DoubleSide }));
     front.scale.x = side === 'left' ? 1 : -1;
     front.updateMatrixWorld();
@@ -512,57 +519,79 @@ describe('a roundhouse: the camera follows the rider round, the held key keeps i
     let chase = 0;
     let framed = 0;
     let seen = 0;
-    const carves = new Set<number>();
+    let frames = 0;
+    let seenAll = 0;
+    // The key that means "toward the lip" on screen now (→ on a RIGHT, ← on a LEFT), and its latch.
+    const towardLip = () => carveFromKeys(false, true, side, rig.keyFacing) === 1;
+    let right = towardLip();
+    let latched = rig.keyFacing;
+    let down = true;
     let unlatchedFlip = false;
     let back = false;
+    let backAt = -1;
     let outAt = -1;
     let maxTick = 0;
     const prev = s.heading.clone();
     for (let f = 0; f < 5 * 60 && s.mode === 'riding'; f++) {
-      const holding = outAt < 0;
       for (let k = 0; k < 2; k++) {
-        const carve = holding ? carveFromKeys(!right, right, side, latched) : 0;
-        if (holding) {
-          carves.add(carve);
-          if (carveFromKeys(!right, right, side, rig.keyFacing) !== carve) unlatchedFlip = true;
+        if (script === 'two-press' && backAt >= 0 && down && s.time - backAt < 0.15) down = false;
+        else if (script === 'two-press' && backAt >= 0 && !down && s.time - backAt >= 0.15 && outAt < 0 && !events.some((e) => e.type === 'roundhouse')) {
+          // The second press: the key toward the lip on screen now, latched from here.
+          down = true;
+          right = towardLip();
+          latched = rig.keyFacing;
+        }
+        const carve = down && outAt < 0 ? carveFromKeys(!right, right, side, latched) : 0;
+        if (down && outAt < 0) {
+          expect(carve).toBe(1); // whichever key, it means "toward the lip" for as long as it is held
+          if (script === 'hold' && carveFromKeys(!right, right, side, rig.keyFacing) !== carve) unlatchedFlip = true;
         }
         surfer.step({ ...NO_INPUT, carve }, 1 / 120);
         if (s.mode === 'riding') maxTick = Math.max(maxTick, prev.angleTo(s.heading));
         prev.copy(s.heading);
+        if (backAt < 0 && s.heading.x < -0.7) backAt = s.time;
       }
       rig.update(s, s.p, side, false, 1 / 60, s.time);
-      if (rig.shot === 'chase') {
-        chase++;
+      if (rig.shot !== 'underwater') {
+        frames++;
         cam.updateMatrixWorld();
         const chest = frameToView(new Vector3().copy(s.p).addScaledVector(s.normal, 0.9), side, new Vector3());
         const dir = new Vector3().subVectors(chest, rig.pos);
         ray.set(rig.pos, dir.clone().normalize());
         ray.far = dir.length() - 0.2;
         const ndc = chest.clone().project(cam);
-        const inFrame = ndc.z < 1 && Math.abs(ndc.x) < 0.95 && Math.abs(ndc.y) < 0.95;
-        if (inFrame) framed++;
-        if (inFrame && ray.intersectObject(front, false).length === 0) seen++;
+        // In frame and clear of the HUD along the bottom edge.
+        const inFrame = ndc.z < 1 && Math.abs(ndc.x) < 0.95 && Math.abs(ndc.y) < 0.75;
+        const visible = inFrame && ray.intersectObject(front, false).length === 0;
+        if (visible) seenAll++;
+        if (rig.shot === 'chase') {
+          chase++;
+          if (inFrame) framed++;
+          if (visible) seen++;
+        }
       }
       if (s.heading.x < -0.7) back = true;
       if (outAt < 0 && back && events.some((e) => e.type === 'roundhouse') && s.heading.x > 0.5) outAt = s.time;
       if (outAt >= 0 && s.time - outAt > 1.2) break;
     }
-    expect(carves).toEqual(new Set([1])); // the held key meant "toward the lip" all the way round
-    expect(unlatchedFlip).toBe(true); // … although the camera swung round far enough to flip an unlatched key
+    if (script === 'hold') expect(unlatchedFlip).toBe(true); // the camera swung round far enough to flip an unlatched key
     expect(events.filter((e) => e.type === 'roundhouse')).toHaveLength(1);
-    expect(events.some((e) => e.type === 'wipeout')).toBe(false);
+    expect(events.some((e) => e.type === 'snap' || e.type === 'wipeout' || e.type === 'launched')).toBe(false);
     expect(maxTick).toBeLessThanOrEqual(15 * (Math.PI / 180));
     expect(outAt).toBeGreaterThan(0);
     expect(s.time - outAt).toBeGreaterThan(1.1);
     // Behind the rider along their (new, down-the-line) travel, in view space.
     const p = frameToView(s.p, side, new Vector3());
     const h = frameToView(s.heading, side, new Vector3());
-    expect(flat(new Vector3().subVectors(p, rig.pos)).dot(flat(h))).toBeGreaterThan(0.7);
+    if (rig.shot === 'chase') expect(flat(new Vector3().subVectors(p, rig.pos)).dot(flat(h))).toBeGreaterThan(0.7);
     expect(rig.keyFacing).toBe(1);
-    // The rider never leaves the frame while the camera swings round (it tilts to keep them in) …
+    // The rider never leaves the frame or slips under the HUD while the chase swings round (it tilts to
+    // keep them in) …
     expect(framed).toBe(chase);
-    // … though low in the pocket the pitching lip hides them from the chase for a moment (≈ 0.3 s).
-    expect(seen / chase).toBeGreaterThanOrEqual(0.7);
+    // … the wave never hides them from the chase (spec Verification 5), and the pocket view picks them
+    // up where the pitching lip would.
+    expect(seen / chase).toBeGreaterThanOrEqual(0.9);
+    expect(seenAll / frames).toBeGreaterThanOrEqual(0.9);
   });
 });
 
