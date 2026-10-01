@@ -15,7 +15,7 @@ export const site: SiteContent = {
       'Professionally, I have a fintech and AI background, currently building AI Platforms and Agent Governance for multi-billion dollar companies. I work in hyperproductive bursts with the intent to ship fast, get feedback, and iterate quickly. I care about making an impact to the bottom line.',
     ],
     lookingFor: 'Cool, down-to-earth grinders that need a 10x product manager to help them build dreams.',
-    photo: '/site/photo-placeholder.svg',
+    photo: '/site/photo.jpg',
     stats: [
       { label: 'Full Stack Development', value: 9 },
       { label: 'Inference Engineering', value: 10 },
