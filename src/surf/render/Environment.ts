@@ -5,7 +5,6 @@ import {
   Color,
   ConeGeometry,
   CylinderGeometry,
-  BoxGeometry,
   DirectionalLight,
   DoubleSide,
   Fog,
@@ -32,6 +31,7 @@ import { retroMaterial } from '@/retro/retroMaterial';
 import { FOG_CONFIG } from '../config';
 import { smoothstep } from '../math/scalar';
 import { REEF_TILES, scrollWrap } from './scroll';
+import { buildShore, createShoreMaterial, SHORE } from './shore';
 import { createSkyMaterial, seaReflection } from './sky';
 import { makeRadialTexture } from './textures';
 import { OCEAN_EXTENT } from './waveGeometry';
@@ -94,6 +94,13 @@ const hash = (x: number, y: number) => {
   return s - Math.floor(s);
 };
 
+export interface EnvironmentOptions {
+  /** Phones: a lighter beach side (fewer house rows, simpler pilings). Default: a coarse pointer. */
+  lite?: boolean;
+}
+
+const isCoarsePointer = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true;
+
 interface Scroller {
   obj: { position: Vector3 };
   worldX: number;
@@ -102,8 +109,8 @@ interface Scroller {
 }
 
 /**
- * Sky dome, low sun + lens flare, reef floor, islands with palms, a pier,
- * gulls and fog. Reef/islands/pier/gulls live in the (mirrored) frame group
+ * Sky dome, low sun + lens flare, reef floor, islands with palms out to sea, the beach side
+ * (Wrightsville Beach and Crystal Pier, see shore.ts), gulls and fog. Reef/islands/shore/gulls live in the (mirrored) frame group
  * and scroll past with the floating origin.
  */
 export class Environment {
@@ -132,6 +139,7 @@ export class Environment {
   constructor(
     scene: Scene,
     private readonly camera: PerspectiveCamera,
+    opts: EnvironmentOptions = {},
   ) {
     this.scene = scene;
     this.fog = new Fog(FOG_COLOR, FOG_CONFIG.near, FOG_CONFIG.far);
@@ -239,15 +247,20 @@ export class Environment {
     this.frameStuff.add(islandMesh);
     this.scrollers.push({ obj: islandMesh, worldX: 0, span: 1600, start: -800 });
 
-    // Pier: deck + pilings, toward shore.
-    const pierParts: BufferGeometry[] = [paint(new BoxGeometry(4, 0.4, 70).translate(0, 3, 0), (_a, _b, _c, c) => c.set('#9b7b55'))];
-    for (let i = 0; i < 12; i++) {
-      pierParts.push(paint(new CylinderGeometry(0.25, 0.25, 8, 5).translate(i % 2 ? 1.6 : -1.6, -1, -34 + Math.floor(i / 2) * 13), (_a, _b, _c, c) => c.set('#5c4630')));
+    // The beach side: Wrightsville Beach around Crystal Pier (shore.ts), in scrolling chunks — one
+    // near and one far mesh each (one material), so chunks behind the camera are culled.
+    const shore = buildShore({ lite: opts.lite ?? isCoarsePointer() });
+    const shoreMat = retroMaterial(createShoreMaterial());
+    this.disposables.push(shoreMat);
+    for (const c of shore.chunks) {
+      for (const [geo, name] of [[c.near, 'shoreNear'], [c.far, 'shoreFar']] as const) {
+        const mesh = new Mesh(geo, shoreMat);
+        mesh.name = name;
+        this.frameStuff.add(mesh);
+        this.disposables.push(geo);
+        this.scrollers.push({ obj: mesh, worldX: c.worldX, span: SHORE.span, start: SHORE.start });
+      }
     }
-    const pier = new Mesh(mergeGeometries(pierParts), retroMaterial(new MeshLambertMaterial({ vertexColors: true })));
-    pier.position.z = 110;
-    this.frameStuff.add(pier);
-    this.scrollers.push({ obj: pier, worldX: 60, span: 1300, start: -650 }); // wraps beyond fog far
 
     // Gulls: 5 instanced "V"s circling over the pocket.
     const gullGeo = new BufferGeometry();
@@ -261,7 +274,7 @@ export class Environment {
     this.gulls.name = 'gulls';
     this.frameStuff.add(this.gulls);
 
-    for (const obj of [this.sky, floor, islandMesh, pier, this.gulls]) {
+    for (const obj of [this.sky, floor, islandMesh, this.gulls]) {
       const mesh = obj as unknown as { geometry?: { dispose(): void }; material?: { dispose(): void } };
       if (mesh.geometry) this.disposables.push(mesh.geometry);
       if (mesh.material) this.disposables.push(mesh.material);

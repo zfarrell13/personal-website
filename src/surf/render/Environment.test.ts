@@ -4,6 +4,7 @@ import { CAMERA_FAR } from '../camera/CameraRig';
 import { FOG_CONFIG, SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
 import { createSeaFloorMaterial, Environment, FLOOR_FOG_FADE } from './Environment';
+import { SHORE } from './shore';
 import { seaReflection } from './sky';
 import { buildWaveGeometry, columnsX } from './waveGeometry';
 
@@ -117,5 +118,56 @@ describe('horizon: the ocean never ends in view', () => {
     const box = new Box3().setFromObject(floor);
     expect(nearestEdge(box) * cosCorner).toBeGreaterThan(fog99);
     env.dispose();
+  });
+});
+
+describe('Environment beach side', () => {
+  const shoreMeshes = (env: Environment) => {
+    const out: Mesh[] = [];
+    env.frameStuff.traverse((o) => {
+      if (o instanceof Mesh && (o.name === 'shoreNear' || o.name === 'shoreFar')) out.push(o);
+    });
+    return out;
+  };
+
+  it('adds the shore chunks (near + far each) on one fogged, opaque material, all on the shore side', () => {
+    const env = new Environment(new Scene(), new PerspectiveCamera(60, 1, 0.1, 650));
+    const meshes = shoreMeshes(env);
+    expect(meshes).toHaveLength(2 * (SHORE.span / SHORE.chunk));
+    expect(new Set(meshes.map((m) => m.material)).size).toBe(1);
+    const mat = meshes[0]!.material as Material & { fog: boolean };
+    expect(mat.fog).toBe(true);
+    expect(mat.transparent).toBe(false);
+    for (const m of meshes) {
+      m.geometry.computeBoundingBox();
+      expect(m.geometry.boundingBox!.min.z).toBeGreaterThan(0);
+    }
+    env.dispose();
+  });
+
+  it('scrolls the shore with the frame travel, wrapping inside the shore window', () => {
+    const env = new Environment(new Scene(), new PerspectiveCamera(60, 1, 0.1, 650));
+    const near = shoreMeshes(env).filter((m) => m.name === 'shoreNear');
+    env.update(0, 0, 1);
+    const x0 = near.map((m) => m.position.x);
+    env.update(0, 5, 1);
+    near.forEach((m, i) => {
+      // Moved back by the travel, or wrapped round to the other end of the window.
+      const moved = x0[i]! - 5;
+      expect(m.position.x).toBeCloseTo(moved < SHORE.start ? moved + SHORE.span : moved, 6);
+      expect(m.position.x).toBeGreaterThanOrEqual(SHORE.start);
+      expect(m.position.x).toBeLessThan(SHORE.start + SHORE.span);
+    });
+    env.dispose();
+  });
+
+  it('builds a lighter shore for phones', () => {
+    const count = (lite: boolean) => {
+      const env = new Environment(new Scene(), new PerspectiveCamera(60, 1, 0.1, 650), { lite });
+      const n = shoreMeshes(env).reduce((a, m) => a + m.geometry.getAttribute('position').count, 0);
+      env.dispose();
+      return n;
+    };
+    expect(count(true)).toBeLessThan(0.6 * count(false));
   });
 });
