@@ -79,6 +79,12 @@ export class PeelController {
   private inSection = false;
   /** The current section's 'surged' has been reported. */
   private surged = false;
+  /**
+   * The rider was too far down the line for the peak to form 15–25 m ahead of them within maxSpawnX:
+   * this section is a plain fast section (the boost through the race time, then the ramp down) — no
+   * peak, no pitch, nothing to make.
+   */
+  peakless = false;
   private rand: () => number = Math.random;
 
   constructor(
@@ -95,6 +101,7 @@ export class PeelController {
     this.level = 0;
     this.surge = 0;
     this.inSection = false;
+    this.peakless = false;
     this.clearPeak();
     this.schedule(0);
     this.speed = this.wave.peelSpeed;
@@ -142,9 +149,14 @@ export class PeelController {
     const T = pk.raceTime;
     const S = pk.surgeTime;
     const prev = pk.phase;
-    pk.age = u;
     // Boost: ramps in, holds through the race and the surge, ramps out.
     this.level = Math.min(1, u / c.ramp, (this.total - u) / c.ramp);
+    if (this.peakless) {
+      this.surge = 0;
+      this.speed = this.wave.peelSpeed * (1 + this.boost * this.level);
+      return transition;
+    }
+    pk.age = u;
     if (u < T) {
       pk.phase = 'rising';
       pk.x = pk.x0 - pk.approach * u;
@@ -173,7 +185,17 @@ export class PeelController {
     const pk = this.peak;
     const T = pk.raceTime;
     pk.width = p.width;
-    pk.x0 = Math.min(riderX + this.ahead, p.maxSpawnX);
+    this.surged = false;
+    // Too far down the line for 15–25 m ahead: no peak this time (never one behind or beside the rider).
+    this.peakless = riderX + this.ahead > p.maxSpawnX;
+    if (this.peakless) {
+      pk.surgeTime = 0;
+      pk.amp = 0;
+      pk.phase = 'none';
+      pk.age = -1;
+      return;
+    }
+    pk.x0 = riderX + this.ahead;
     pk.xPitch = Math.max(p.minPitchX, Math.min(riderX - p.allowance * T, pk.x0 - p.minApproach * T));
     pk.approach = (pk.x0 - pk.xPitch) / T;
     pk.surgeTime = Math.max(p.minSurge, pk.xPitch / p.surgeSpeed);

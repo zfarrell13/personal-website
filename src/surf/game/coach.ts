@@ -28,6 +28,11 @@ export const COACH_CONFIG = {
    */
   raceWindow: 0.5,
   raceMargin: 0.5,
+  /**
+   * After a made section the rider is right in front of the new barrel on purpose (stall into it or
+   * race on): no prompt for this long (s).
+   */
+  madeGrace: 1.5,
 } as const;
 
 /** The race to a section peak (see PeelController): where it pitches and how long until then. */
@@ -72,6 +77,8 @@ export class Coach {
   /** Sim time the "losing ground" condition started holding, or −1. */
   private losingSince = -1;
   private hiddenAt = -Infinity;
+  /** No prompt before this sim time (see hush). */
+  private quietUntil = -Infinity;
   private beatAt = 0;
 
   /** A new run (or GUIDE toggled): nothing showing, history cleared. */
@@ -85,7 +92,22 @@ export class Coach {
     this.count = 0;
     this.losingSince = -1;
     this.hiddenAt = -Infinity;
+    this.quietUntil = -Infinity;
     this.beatAt = 0;
+  }
+
+  /** Say nothing for `seconds` from `time` (e.g. madeGrace after SECTION MADE); a prompt up goes. */
+  hush(time: number, seconds: number): void {
+    this.quietUntil = Math.max(this.quietUntil, time + seconds);
+  }
+
+  /**
+   * The wave frame jumped `dx` m along the wave past the rider (a section peak's surge): shift the x
+   * history with it, so the jump never reads as ground lost (no ▲ PUMP right after a made section).
+   */
+  shift(dx: number): void {
+    if (dx === 0) return;
+    for (let i = 0; i < this.count; i++) this.xs[(this.head - i + HISTORY) % HISTORY]! += dx;
   }
 
   /** A pump landed (from the event bus): the beat restarts on it. */
@@ -103,7 +125,7 @@ export class Coach {
     const st = this.state;
     // Stalling = going for the barrel on purpose, or off the face: say nothing. In the tube without a
     // stall the rider is just being caught: keep prompting (PUMP OUT).
-    const eligible = this.enabled && f.mode === 'riding' && !f.stalling;
+    const eligible = this.enabled && f.mode === 'riding' && !f.stalling && t >= this.quietUntil;
     const drop = this.change(t, c.dropWindow);
     // Racing the peak: behind schedule = on the current pace, short of it at the pitch.
     const pace = race ? this.change(t, c.raceWindow) : null;

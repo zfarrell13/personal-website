@@ -106,17 +106,43 @@ describe('PeelController', () => {
     }
   });
 
-  it('clamps the peak: never formed beyond maxSpawnX, never pitched closer than minPitchX, always approaching', () => {
+  it('clamps the peak: never pitched closer than minPitchX, always approaching; near the curl too', () => {
     const { peakCfg, peel } = make();
-    for (const x of [-3, 2, 68, 85]) {
+    for (const x of [-3, 2, 30]) {
       peel.reset(5);
       const { sections } = run(peel, 40, () => x);
+      expect(sections.length).toBeGreaterThan(0);
       for (const s of sections) {
+        expect(s.x0 - s.riderX).toBeGreaterThanOrEqual(peakCfg.minAhead - 1e-9);
         expect(s.x0).toBeLessThanOrEqual(peakCfg.maxSpawnX + 1e-9);
         expect(s.xPitch).toBeGreaterThanOrEqual(peakCfg.minPitchX - 1e-9);
         expect(s.x0 - s.xPitch).toBeGreaterThanOrEqual(peakCfg.minApproach * s.raceTime - 1e-6);
       }
     }
+  });
+
+  it('a rider too far down the line for a peak 15–25 m ahead (within maxSpawnX) gets a plain fast section: boost, no peak, no pitch', () => {
+    const { wave, cfg, peakCfg, peel } = make();
+    peel.reset(5);
+    let started = false;
+    let sawPeak = false;
+    let pitch = false;
+    let maxSpeed = 0;
+    let ended = false;
+    for (let i = 1; i <= 40 * 120 && !ended; i++) {
+      const tr = peel.update(i / 120, peakCfg.maxSpawnX - peakCfg.minAhead + 1);
+      started ||= tr === 'start';
+      pitch ||= tr === 'pitch' || tr === 'surged';
+      ended = tr === 'end';
+      sawPeak ||= peel.peak.phase !== 'none' || peel.peak.amp > 0;
+      maxSpeed = Math.max(maxSpeed, peel.speed);
+    }
+    expect(started && ended).toBe(true);
+    expect(peel.peakless).toBe(true);
+    expect(sawPeak).toBe(false);
+    expect(pitch).toBe(false);
+    expect(maxSpeed).toBeGreaterThanOrEqual(wave.peelSpeed * (1 + cfg.minBoost) - 1e-9);
+    expect(maxSpeed).toBeLessThanOrEqual(wave.peelSpeed * (1 + cfg.maxBoost) + 1e-9);
   });
 
   it('the boost is +minBoost–maxBoost through the race; the peel never jumps (the surge eases in and out)', () => {

@@ -317,3 +317,41 @@ describe('coach: racing a section peak (playtest 5)', () => {
     expect(c.state.show).toBe(false);
   });
 });
+
+describe('coach: the surge and a made section', () => {
+  it('a frame jump shifted out of the history (the surge) is not ground lost: no prompt; unshifted it would be', () => {
+    const run = (shift: boolean) => {
+      const c = new Coach();
+      c.reset(true);
+      let x = 5;
+      let t = 0;
+      for (let i = 0; i < 240; i++, t += DT) {
+        // Holding ground, then a 4 m jump back over 0.3 s (the surge carrying the curl up to the rider).
+        const dx = i >= 120 && i < 156 ? -4 / 36 : 0;
+        x += dx;
+        if (shift) c.shift(dx);
+        c.update(frame(t, x));
+        if (c.state.show) return true;
+      }
+      return false;
+    };
+    expect(run(false)).toBe(true);
+    expect(run(true)).toBe(false);
+  });
+
+  it('hush keeps it quiet for the grace, then the ordinary rules apply again', () => {
+    const c = new Coach();
+    c.reset(true);
+    c.hush(0, COACH_CONFIG.madeGrace);
+    let t = 0;
+    let shownInGrace = false;
+    for (; t < COACH_CONFIG.madeGrace; t += DT) {
+      c.update(frame(t, 6 - 3 * t));
+      shownInGrace ||= c.state.show;
+    }
+    expect(shownInGrace).toBe(false);
+    for (let k = 0; k < 120; k++, t += DT) c.update(frame(t, 1.5 - 3 * (t - COACH_CONFIG.madeGrace)));
+    expect(c.state.show).toBe(true);
+  });
+});
+

@@ -147,6 +147,12 @@ export const SURF_CONFIG = {
      * as a fraction of the wave's): × 1.35 at the top of a full 35% peak — a steeper ramp, a bigger air.
      */
     peakAirLift: 1,
+    /**
+     * … scaled by the launch height up the face (y / crest y at the column): none below
+     * peakAirFrom, full from peakAirFull — the steeper ramp is what pops you (a trough ollie gets none).
+     */
+    peakAirFrom: 0.4,
+    peakAirFull: 0.75,
     spinRate: 540,
     /** A landing within this many degrees of a half turn (0 / 180 / 360…) is clean. */
     landTolerance: 60,
@@ -226,8 +232,10 @@ export const SURF_CONFIG = {
     surgeSpeed: 25,
     /** … and lasts at least this long (s). */
     minSurge: 0.4,
-    /** A launch counts as off the peak (SECTION AIR) at or above this share of the bump's full height. */
+    /** A launch counts as off the peak (SECTION AIR) at or above this share of the bump's full height … */
     airOn: 0.5,
+    /** … and off its upper face: a crest launch, or launched at or above this share of the crest height. */
+    airFromHeight: 0.6,
   },
   scoring: {
     comboWindow: 1.5,

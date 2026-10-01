@@ -149,6 +149,22 @@ describe('SurfGame', () => {
     game.dispose();
   });
 
+  it('the scenery scrolls with travel blended between sim steps like the rider (no stepping during a surge)', async () => {
+    const { game } = await playing();
+    const update = vi.spyOn(Environment.prototype, 'update');
+    // A big peel (as in a surge): 8.33 ms steps against 10 ms frames, so most frames land between steps.
+    vi.spyOn(game.peel, 'update').mockImplementation(() => {
+      game.peel.speed = 40;
+      return null;
+    });
+    for (let i = 0; i < 30; i++) frame(10);
+    const travel = update.mock.calls.map((c) => c[1] as number);
+    const steps = travel.slice(1).map((t, i) => t - travel[i]!);
+    // Every frame advances by the frame time × speed (40 m/s × 10 ms = 0.4 m), not by whole 0.33 m steps.
+    for (const d of steps.slice(2)) expect(d).toBeCloseTo(0.4, 1);
+    game.dispose();
+  });
+
   it('delivers Space held as the crouch on every tick and its release as the pop on exactly one tick', async () => {
     const { game } = await playing();
     const ollies: boolean[] = [];

@@ -312,9 +312,19 @@ steeper ramp for a bigger air (SECTION AIR).
     (frame x < 0, riding or in the air) or when the surge ends, whichever is first: wipeout
     **CLOSED OUT** (a swallow during it reads the same).
 - **Air off it.** A launch (crest air or ollie) pops `physics.peakAirLift` (1) × the bump there
-  faster: × 1.35 at the top of a full peak (the crest launch may then exceed `maxAirSpeed`). A launch
-  off the peak's upper half (bump ≥ `peak.airOn` 0.5 × full height, while it stands or pitches) that
-  lands clean scores SECTION AIR (750) on top of the air's tricks, once per peak.
+  faster, scaled by how high up the face it launches (none below `peakAirFrom` 0.4 of the crest
+  height, full from `peakAirFull` 0.75): × 1.35 off the top of a full peak (the crest launch may then
+  exceed `maxAirSpeed`) — the steeper ramp is what pops you, an ollie from the trough gets nothing. A
+  launch off the peak's upper half (bump ≥ `peak.airOn` 0.5 × full height, while it stands or
+  pitches) and off its upper face (a crest launch, or launched at ≥ `peak.airFromHeight` 0.6 × the
+  crest height) that lands clean scores SECTION AIR (750) on top of the air's tricks, once per peak.
+- **Far down the line** (review fix): if a peak 15–25 m ahead of the rider would form past
+  `maxSpawnX` (70), that section has no peak — it is a plain fast section (the boost through the race
+  time, then the ramp down; no pitch, nothing to make). A peak always forms 15–25 m ahead.
+- **After the pitch** (review fix): the coach's x history is shifted with the surge (as the camera is),
+  and after SECTION MADE it stays quiet for `madeGrace` (1.5 s) — the rider is in front of the new
+  barrel on purpose. The scenery's `travel` is blended between sim steps like the rider (no stepping
+  at surge speeds; the pier will reuse it).
 - `window.__surf.peak` exposes phase / x / amp / xPitch / made; `?debug` adds `window.__surfBot` (a
   lineBot autopilot for screenshots) and the `peak.height` / `peak.allowance` sliders. The frame / time
   math lives in `PeelController` (a pure function of time since the section began and the rider's x

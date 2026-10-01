@@ -32,7 +32,7 @@ import { impactDistance } from '../wave/impact';
 import { sideSign } from '../wave/mirror';
 import { PeelController } from '../wave/PeelController';
 import { WaveShape } from '../wave/WaveShape';
-import { Coach } from './coach';
+import { Coach, COACH_CONFIG } from './coach';
 import { SectionDirector } from './SectionDirector';
 import type { SurfDebugCamera, SurfDebugHook } from './debugHook';
 import './debugHook';
@@ -109,6 +109,8 @@ export class SurfGame {
   private tickerId = 0;
   /** Frame distance along the reef (floating origin), m. */
   private travel = 0;
+  /** `travel` at the start of the last sim step (the scenery blends it like the rider). */
+  private prevTravel = 0;
   /** Simulation time stepped during the current frame (s). */
   private frameSimDt = 0;
   /** Water/particle clock: advances with the sim while playing, freezes on pause. */
@@ -190,6 +192,7 @@ export class SurfGame {
       this.scoring.attach(this.bus),
       this.bus.on('landed', () => this.character?.onLanded()),
       this.bus.on('pump', (e) => this.coach.onPump(e.time)),
+      this.bus.on('sectionMade', (e) => this.coach.hush(e.time, COACH_CONFIG.madeGrace)),
       () => this.sections.dispose(),
       this.bus.onAny((e) => this.audio?.onEvent(e)),
       () => this.detachKeys?.(),
@@ -372,6 +375,7 @@ export class SurfGame {
     this.particles.clear();
     this.particles.setBubbles(false);
     this.travel = 0;
+    this.prevTravel = 0;
     this.endAt = -1;
   }
 
@@ -447,7 +451,10 @@ export class SurfGame {
     if (!this.actions.isDown('carveLeft') && !this.actions.isDown('carveRight')) this.keyFacing = this.rig.keyFacing;
     readSurferInput(this.actions, this.side, this.input, this.keyFacing);
     if (this.gizmo) this.autopilot(dt);
-    this.surgeShift += this.sections.step(this.input, dt);
+    this.prevTravel = this.travel;
+    const surge = this.sections.step(this.input, dt);
+    this.surgeShift += surge;
+    this.coach.shift(surge);
     this.coach.update(s, this.sections.race);
     this.frameSimDt += dt;
     this.scoring.update(s.time, (s.mode === 'airborne' && s.launchKind !== null) || s.inTube || s.floating);
@@ -530,7 +537,10 @@ export class SurfGame {
       this.particles.setScale(this.camera, this.retro.internalResolution.height);
     }
     if (this.gizmo && window.__surfCam) this.applyDebugCamera(window.__surfCam);
-    this.env.update(Number.isFinite(now) ? now / 1000 : 0, this.travel, sideSign(this.side));
+    // The scenery scrolls with `travel` blended between the last two steps, like the rider (the surge
+    // moves it up to ~0.4 m a step).
+    const travel = this.phase === 'playing' ? this.prevTravel + (this.travel - this.prevTravel) * alpha : this.travel;
+    this.env.update(Number.isFinite(now) ? now / 1000 : 0, travel, sideSign(this.side));
     this.particles.tubeView = this.rig.shot === 'tube';
     this.particles.peakPitching = this.peel.peak.phase === 'pitching';
     this.particles.update(Math.min(MAX_PARTICLE_DT, this.frameSimDt), this.phase === 'playing');

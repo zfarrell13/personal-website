@@ -429,9 +429,18 @@ export class Surfer {
     this.wipe('closedOut');
   }
 
-  /** Pop-speed factor for a launch at column x: faster off a section peak (peakAirLift × the bump). */
+  /**
+   * Pop-speed factor for a launch from the current position: faster off a section peak (peakAirLift ×
+   * the bump), by how high up its face the launch is (peakAirFrom … peakAirFull of the crest height):
+   * the peak's taller, steeper ramp gives the extra pop, not just standing in its column.
+   */
   private peakLift(x: number): number {
-    return 1 + this.cfg.peakAirLift * this.wave.peakBump(x);
+    const c = this.cfg;
+    const bump = this.wave.peakBump(x);
+    if (bump <= 0) return 1;
+    const crest = this.crestAt(x).y;
+    const up = crest > 1e-3 ? this.state.p.y / crest : 0;
+    return 1 + c.peakAirLift * bump * smoothstep(c.peakAirFrom, c.peakAirFull, up);
   }
 
   /**

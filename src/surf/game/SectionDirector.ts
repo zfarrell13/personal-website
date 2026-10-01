@@ -1,5 +1,5 @@
 import type { SurfConfig } from '../config';
-import type { EventBus, SurfEvent } from '../physics/events';
+import type { EventBus, LaunchKind, SurfEvent } from '../physics/events';
 import type { SurferInput } from '../physics/input';
 import type { Surfer } from '../physics/Surfer';
 import type { PeelController } from '../wave/PeelController';
@@ -30,7 +30,7 @@ export class SectionDirector {
     private readonly cfg: SurfConfig['peak'],
   ) {
     this.off = [
-      bus.on('launched', () => this.onLaunch()),
+      bus.on('launched', (e) => this.onLaunch(e.kind)),
       bus.on('landed', (e) => {
         if (!this.airPending) return;
         // A clean landing (a bad one is a wipeout, not a landed event): SECTION AIR, once per peak.
@@ -98,11 +98,18 @@ export class SectionDirector {
     return -this.peel.surge * dt;
   }
 
-  /** A launch off the section peak (its upper part) goes for SECTION AIR. */
-  private onLaunch(): void {
+  /**
+   * A launch off the section peak goes for SECTION AIR: on its upper part (the bump ≥ airOn of full)
+   * and off its upper face — a crest launch, or launched at ≥ airFromHeight of the crest height (an
+   * ollie from the trough in the peak's column is not an air off the peak).
+   */
+  private onLaunch(kind: LaunchKind): void {
     const pk = this.peel.peak;
     if (this.airDone || (pk.phase !== 'rising' && pk.phase !== 'pitching')) return;
-    this.airPending = this.wave.peakBump(this.surfer.state.param.x) >= this.cfg.airOn * this.cfg.height;
+    const s = this.surfer.state;
+    const onPeak = this.wave.peakBump(s.param.x) >= this.cfg.airOn * this.cfg.height;
+    const upFace = kind === 'crest' || s.p.y >= this.cfg.airFromHeight * this.wave.crestY(s.param.x);
+    this.airPending = onPeak && upFace;
   }
 
   dispose(): void {

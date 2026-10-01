@@ -9,6 +9,7 @@ import { Surfer } from '../physics/Surfer';
 import { Scoring } from '../scoring/Scoring';
 import { PeelController } from '../wave/PeelController';
 import { WaveShape } from '../wave/WaveShape';
+import { Coach, COACH_CONFIG } from './coach';
 import { SectionDirector } from './SectionDirector';
 
 const DT = 1 / 120;
@@ -148,6 +149,30 @@ describe('section peaks: the race (playtest 5)', () => {
   });
 });
 
+describe('section peaks: the coach after the pitch', () => {
+  it.each(SEEDS)('seed %d: no ▲ PUMP prompt right after SECTION MADE (the surge\'s frame jump is not ground lost, and the made rider gets a grace)', (seed) => {
+    const w = world(seed);
+    const coach = new Coach();
+    coach.reset(true);
+    w.bus.on('pump', (e) => coach.onPump(e.time));
+    // As SurfGame wires it.
+    w.bus.on('sectionMade', (e) => coach.hush(e.time, COACH_CONFIG.madeGrace));
+    const bot = lineBot(w.surfer, w.wave, { pumpEvery: 1 });
+    let madeAt = -1;
+    let shownAfter = 0;
+    for (let i = 0; i < 40 * 120 && (w.s.mode === 'riding' || w.s.mode === 'airborne'); i++) {
+      const n = w.events.length;
+      coach.shift(w.director.step(bot(DT), DT));
+      coach.update(w.s, w.director.race);
+      if (madeAt < 0 && w.events.slice(n).some((e) => e.type === 'sectionMade')) madeAt = w.s.time;
+      if (madeAt >= 0 && w.s.time - madeAt <= 1 && coach.state.show) shownAfter++;
+      if (madeAt >= 0 && w.s.time - madeAt > 1) break;
+    }
+    expect(madeAt).toBeGreaterThan(0);
+    expect(shownAfter).toBe(0);
+  });
+});
+
 describe('section peaks: airs off the peak', () => {
   /**
    * From (x, 0.35) climbing straight up the face at `speed` (held over the same column of the wave:
@@ -180,12 +205,13 @@ describe('section peaks: airs off the peak', () => {
     expect(peak).toBeGreaterThanOrEqual(normal + 1);
   });
 
-  it('an ollie off the peak pops higher than an ollie off the plain wave', () => {
+  it('an ollie from high on the peak\'s face pops higher than the same ollie off the plain wave', () => {
     const plain = world(1);
-    const normal = crestAir(plain, 25, 6, 10);
+    const normal = crestAir(plain, 25, 6, 25);
     const peaked = world(1);
     peaked.wave.setPeak(25, SURF_CONFIG.peak.height, SURF_CONFIG.peak.width);
-    const peak = crestAir(peaked, 25, 6, 10);
+    const peak = crestAir(peaked, 25, 6, 25);
+    expect(peaked.events.find((e) => e.type === 'launched')).toMatchObject({ kind: 'ollie' });
     expect(peak).toBeGreaterThanOrEqual(normal + 0.5);
   });
 
@@ -231,6 +257,37 @@ describe('section peaks: airs off the peak', () => {
     airThroughDirector(w, w.peel.peak.x);
     expect(w.events.filter((e) => e.type === 'landed').length).toBe(landings + 1);
     expect(w.events.filter((e) => e.type === 'sectionAir')).toHaveLength(1);
+  });
+
+  it('an ollie from the trough in the peak\'s column gets neither the extra pop nor SECTION AIR (the ramp is the upper face)', () => {
+    // Pop height of a tapped ollie from low on the face (t = 0.08), with and without a full peak there.
+    const trough = (peak: boolean) => {
+      const w = world(1);
+      if (peak) w.wave.setPeak(25, SURF_CONFIG.peak.height, SURF_CONFIG.peak.width);
+      w.surfer.reset(25, 0.08);
+      w.s.v.set(9 - w.surfer.peelSpeed, 0, 0).addScaledVector(w.s.normal, -(9 - w.surfer.peelSpeed) * w.s.normal.x);
+      w.surfer.step(NO_INPUT, DT);
+      const y0 = w.s.p.y;
+      w.surfer.step({ ...NO_INPUT, ollie: true }, DT);
+      let apex = -Infinity;
+      for (let i = 0; i < 240 && w.s.mode === 'airborne'; i++) {
+        apex = Math.max(apex, w.s.p.y);
+        w.surfer.step(NO_INPUT, DT);
+      }
+      return apex - y0;
+    };
+    expect(trough(true)).toBeCloseTo(trough(false), 2);
+    // And through the director, on a standing peak: launched, landed, no SECTION AIR.
+    const { w, x } = onThePeak(2);
+    const time = w.s.time;
+    w.surfer.reset(x, 0.08);
+    w.s.time = time;
+    w.director.step(NO_INPUT, DT);
+    w.director.step({ ...NO_INPUT, ollie: true }, DT);
+    for (let i = 0; i < 240 && w.s.mode === 'airborne'; i++) w.director.step(NO_INPUT, DT);
+    expect(w.events.some((e) => e.type === 'launched' && e.kind === 'ollie')).toBe(true);
+    expect(w.events.some((e) => e.type === 'landed')).toBe(true);
+    expect(w.events.some((e) => e.type === 'sectionAir')).toBe(false);
   });
 
   it('an air off the wave beside the peak (beyond its upper half) is no SECTION AIR', () => {
