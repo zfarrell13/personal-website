@@ -87,6 +87,16 @@ carving **weighty / realistic**.
     0 (`carveLag`): the board holds its line. Rate, lag and `carveBleed` are
     unchanged. A held turn that reaches the trough carries on round the way it
     is turning (the bottom turn follows it, never fights it into the flats).
+  - **Letting go always stops the turn** (playtest 4 bug: "if i hold the arrow
+    for too long, the roundhouse is held, even if i take my finger off"). With
+    no carve key down nothing turns the board: a rebound in progress ends at
+    once (no ROUNDHOUSE for a bounce let go of; the cutback is remembered for a
+    re-press), any extra bite (snap at the lip, rebound) is dropped at once, and
+    the plain carve rate left eases out over `carveLag` exactly as any release
+    (below 0.1 rad/s within ≈ 4 × `carveLag`, ≤ ≈ 30° more of carve yaw). The
+    only turning without a key is the physical bottom-out turn at the trough
+    (bounded, Verification 10), the lip shedding a too-slow board, and the air
+    spin settle.
   - Cutback: the carve yaw since the board last ran down the line is tracked
     across releases (cut back, let go, run at the curl, press again). It is
     forgotten once the board runs down the line again (after running back, or
@@ -138,7 +148,10 @@ carving **weighty / realistic**.
     position) to keep the drawn rider — leaning into the turn as Character.ts
     banks the body, `clamp(turnRate · |v| · 0.04, ±0.6)` — with the chest within
     0.7, the board within 0.8 and the head within 0.8 of the half-screen from
-    the centre (clear of the HUD); and in the pocket (x ≤ `pocketX`) the view
+    the centre (clear of the HUD). It is not only for reversals: in ordinary
+    riding (lineBot S-turns) it also nudges the view in about 3–6% of chase
+    frames, by at most 5–7°, when the leaned head on a hard carve nears its
+    limit (accepted). And in the pocket (x ≤ `pocketX`) the view
     cuts straight to the tube / pocket view when the chase's line of sight to
     the rider is blocked by the pitching lip. In the pocket, board spray (and
     the snap / roundhouse burst) is kept down as in the tube, so spray thrown
