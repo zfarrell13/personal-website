@@ -66,6 +66,8 @@ const CURL_SHIFT = 0.45;
 const BOTTOM_TURN_END = 0.3;
 const CARVE_MID = 0.5;
 const TOP_TURN_START = 0.7;
+/** The turn poses are fully in once the carve lean reaches this. */
+const TURN_FULL_LEAN = 0.6;
 
 /**
  * Which poses to blend for the current surfer state. Weights sum to 1.
@@ -97,21 +99,22 @@ export function poseWeights(s: SurferState, sinceLand: number, out: PoseWeights 
   }
   const speed = s.v.length();
   const lean = clamp((Math.abs(s.turnRate) / 2.5) * clamp(speed / 8, 0.3, 1.2), 0, 1);
-  // carve > 0 = toward the lip (the wave), whichever way the rider is travelling, so it (not the
-  // sign of turnRate, which also flips with travel direction) decides toe vs heel side. A backside
-  // rider (back to the wave) leans onto the heels to turn toward the lip. Once the key is let go the
-  // board is still easing out of its turn: the way it is still turning (toward the lip when the yaw
-  // swings the line the way it runs, +x or −x, up the face) keeps the rail it was on.
-  const towardLip = s.carve !== 0 ? s.carve > 0 : s.turnRate * s.heading.x > 0;
-  const toeSide = towardLip !== s.stanceFlipped !== backside;
-  w.stance = 1 - lean;
-  if (lean > 0) {
+  // The rail is the way the board is actually yawing: +turnRate swings the nose toward the board's
+  // left, the rider's chest (toe) side when riding forward. Not the carve key: through a rebound, a
+  // released turn or a key pressed while running back toward the curl, the key and the yaw disagree
+  // (and Character's tilt bank follows turnRate). The backside body is mirrored, so it flips there.
+  // lean ∝ |turnRate|, so the rail only changes where the turn poses have no weight.
+  const toeSide = s.turnRate > 0 !== s.stanceFlipped !== backside;
+  // The turn poses ramp in faster than the lean itself, so they own the blend in an ordinary S-turn.
+  const turn = smoothstep(0, TURN_FULL_LEAN, lean);
+  w.stance = 1 - turn;
+  if (turn > 0) {
     const score = clamp(faceHeight, 0, 1) - PHASE_SHIFT * turnPhase(s) + CURL_SHIFT * smoothstep(0.1, 0.6, -s.heading.x);
     const bottom = 1 - smoothstep(BOTTOM_TURN_END, CARVE_MID, score);
     const top = smoothstep(CARVE_MID, TOP_TURN_START, score);
-    w[toeSide ? 'bottomTurnToe' : 'bottomTurnHeel'] = lean * bottom;
-    w[toeSide ? 'carveToe' : 'carveHeel'] = lean * (1 - bottom - top);
-    w[toeSide ? 'topTurnToe' : 'topTurnHeel'] = lean * top;
+    w[toeSide ? 'bottomTurnToe' : 'bottomTurnHeel'] = turn * bottom;
+    w[toeSide ? 'carveToe' : 'carveHeel'] = turn * (1 - bottom - top);
+    w[toeSide ? 'topTurnToe' : 'topTurnHeel'] = turn * top;
   }
   if (s.inTube) mixIn(w, 'crouch', 0.85);
   if (s.sincePump < 0.35) mixIn(w, 'pump', 1 - s.sincePump / 0.35);

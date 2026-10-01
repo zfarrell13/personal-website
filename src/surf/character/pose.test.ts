@@ -49,7 +49,7 @@ describe('poseWeights', () => {
     const cfg = structuredClone(SURF_CONFIG);
     return new Surfer(new WaveShape(cfg.wave), cfg.physics, new EventBus<SurfEvent>()).state;
   };
-  it('picks toe/heel carve by carve direction and stance', () => {
+  it('picks the toe/heel rail by the board\'s yaw and stance', () => {
     const s = make();
     s.v.set(8, 0, 0);
     s.turnRate = 2.5;

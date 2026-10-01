@@ -22,12 +22,16 @@ function measure(layer: PoseLayer, name: PoseName) {
   return {
     /** Head height above the lower foot (what plantFeet keeps on the deck). */
     height: head.y - lowFoot,
+    /** Hip height above the lower foot: how extended the legs are. */
+    hipHeight: hips.y - lowFoot,
     /** Head toward the nose (over the front foot) vs toward the tail. */
     nose: head.z - feet.z,
     /** Head toward the chest / toe rail vs the heel rail. */
     toe: head.x - feet.x,
     /** How far the torso folds forward toward the chest side. */
     fold: head.x - hips.x,
+    /** Torso (hips → head) angle from upright toward the nose (front foot), degrees. */
+    noseFold: (Math.atan2(head.z - hips.z, head.y - hips.y) * 180) / Math.PI,
     /** Height (above the lower foot) of the hand on the toe side and the heel side. */
     toeHand: (handL.x > handR.x ? handL : handR).y - lowFoot,
     heelHand: (handL.x > handR.x ? handR : handL).y - lowFoot,
@@ -35,19 +39,26 @@ function measure(layer: PoseLayer, name: PoseName) {
 }
 
 describe.each(TEST_RIGS)('maneuver posture on the %s rig', (_name, make) => {
-  it('a bottom turn is lower and further over the front foot than the stance; a top turn taller and back on the tail', async () => {
+  it('a bottom turn is lower and further over the front foot than the stance; a top turn extended and back on the tail', async () => {
     const layer = new PoseLayer(await make());
     const stance = measure(layer, 'stance');
     for (const side of ['Toe', 'Heel'] as const) {
       const bottom = measure(layer, `bottomTurn${side}`);
       const top = measure(layer, `topTurn${side}`);
       expect(bottom.height, side).toBeLessThan(stance.height - 0.15);
-      expect(top.height, side).toBeGreaterThan(stance.height + 0.04);
+      // Top turn: legs extended (hips up), and the head stays high even leaning well back.
+      expect(top.hipHeight, side).toBeGreaterThan(stance.hipHeight + 0.02);
+      expect(top.height, side).toBeGreaterThan(bottom.height + 0.15);
+      expect(top.height, side).toBeGreaterThan(stance.height - 0.08);
       expect(bottom.nose, side).toBeGreaterThan(stance.nose + 0.08);
       expect(top.nose, side).toBeLessThan(stance.nose - 0.08);
-      // The torso folds forward in a bottom turn and stands up in a top turn.
-      expect(bottom.fold, side).toBeGreaterThan(stance.fold);
-      expect(top.fold, side).toBeLessThan(stance.fold - 0.05);
+      // The torso folds forward over the front foot in a bottom turn (toward the chest too on the toe
+      // rail; on the heel rail the hips sit back toward the heels) and stands up in a top turn.
+      expect(bottom.noseFold, side).toBeGreaterThan(stance.noseFold + 5);
+      if (side === 'Toe') expect(bottom.fold, side).toBeGreaterThan(stance.fold);
+      // In a top turn the torso leans back over the tail (on the toe rail it still leans into the turn).
+      expect(top.noseFold, side).toBeLessThan(stance.noseFold - 15);
+      if (side === 'Heel') expect(top.fold, side).toBeLessThan(stance.fold - 0.05);
     }
   });
 
@@ -55,6 +66,9 @@ describe.each(TEST_RIGS)('maneuver posture on the %s rig', (_name, make) => {
     const layer = new PoseLayer(await make());
     for (const kind of ['bottomTurn', 'topTurn'] as const) {
       expect(measure(layer, `${kind}Toe`).toe, kind).toBeGreaterThan(measure(layer, `${kind}Heel`).toe + 0.15);
+      // Into the turn: the head is over the toe rail on the toe side and past the heel rail on the heel side.
+      expect(measure(layer, `${kind}Toe`).toe, kind).toBeGreaterThan(0.1);
+      expect(measure(layer, `${kind}Heel`).toe, kind).toBeLessThan(-0.1);
     }
   });
 
@@ -129,7 +143,7 @@ describe('maneuver pose weights', () => {
     expect(turnPhase(s)).toBeGreaterThan(0.9);
     s.turnRate = -1;
     expect(turnPhase(s)).toBeLessThan(-0.9);
-    // Running toward the curl (−x) the same yaw sense swings the line down.
+    // Running toward the curl (−x), the opposite yaw (−1, as here) is the one that swings the line up.
     s.heading.set(-1, 0, 0);
     expect(turnPhase(s)).toBeGreaterThan(0.9);
     // Pointing straight up the face, the turn neither climbs nor drops yet.
@@ -151,13 +165,43 @@ describe('maneuver pose weights', () => {
     expect(sumOf(w)).toBeCloseTo(1, 6);
     // Same turn high on the face: the top-turn pose.
     expect(poseWeights(s, 10, {}, false, 0.95).topTurnToe).toBeGreaterThan(0.9);
-    // Mid-face, turning back down (carve toward the trough = heel side when frontside).
+    // Mid-face, turning back down (a −yaw: the heel rail when frontside).
     const down = onFace(downTheLine, -2.5, -1);
     const wd = poseWeights(down, 10, {}, false, 0.55);
     expect(wd.topTurnHeel).toBeGreaterThan(0.9);
     expect(sumOf(wd)).toBeCloseTo(1, 6);
     // Backside, a turn toward the lip is on the heels: the heel-side bottom turn.
     expect(poseWeights(s, 10, {}, true, 0.1).bottomTurnHeel).toBeGreaterThan(0.9);
+  });
+
+  it('the rail follows the board\'s yaw, not the carve key', () => {
+    // [heading, turnRate, carve key]: held against the yaw, released, a rebound, running back to the curl.
+    const cases: Array<[Vector3, number, number]> = [
+      [downTheLine, 2.5, -1],
+      [downTheLine, -2.5, 1],
+      [downTheLine, 2.5, 0],
+      [new Vector3(-1, 0, 0), 2.5, -1],
+      [new Vector3(-1, 0, 0), -2.5, 0],
+      [new Vector3(-1, 0, 0), -2.5, 1],
+    ];
+    const toe = (w: Partial<Record<PoseName, number>>) => (w.bottomTurnToe ?? 0) + (w.carveToe ?? 0) + (w.topTurnToe ?? 0);
+    const heel = (w: Partial<Record<PoseName, number>>) => (w.bottomTurnHeel ?? 0) + (w.carveHeel ?? 0) + (w.topTurnHeel ?? 0);
+    for (const [heading, rate, carve] of cases) {
+      const s = onFace(heading, rate, carve);
+      const label = `heading ${heading.x}, turnRate ${rate}, carve ${carve}`;
+      // +yaw = the toe rail frontside; the backside (mirrored) body takes the other rail.
+      expect(rate > 0 ? toe(poseWeights(s, 10, {}, false, 0.5)) : heel(poseWeights(s, 10, {}, false, 0.5)), label).toBeGreaterThan(0.9);
+      expect(rate > 0 ? heel(poseWeights(s, 10, {}, true, 0.5)) : toe(poseWeights(s, 10, {}, true, 0.5)), label).toBeGreaterThan(0.9);
+      // Riding switch flips it back.
+      s.stanceFlipped = true;
+      expect(rate > 0 ? heel(poseWeights(s, 10, {}, false, 0.5)) : toe(poseWeights(s, 10, {}, false, 0.5)), label).toBeGreaterThan(0.9);
+    }
+  });
+
+  it('the turn poses own the blend in an ordinary turn', () => {
+    // A mild carve (lean ≈ 0.5) is nearly all turn pose, not half stance.
+    const s = onFace(downTheLine, 1.25);
+    expect(poseWeights(s, 10, {}, false, 0.1).stance ?? 0).toBeLessThan(0.1);
   });
 
   it('a turn still easing out after the key is let go keeps its rail', () => {
@@ -170,9 +214,12 @@ describe('maneuver pose weights', () => {
   });
 
   it('a cutback back toward the curl holds the tall pose; coming back down the line low, the crouch returns', () => {
-    // Running toward the curl, mid-face, turning back down (the cutback / roundhouse).
+    // Running toward the curl, mid-face, the line swinging down and round (+yaw: the toe rail).
     const cut = onFace(new Vector3(-1, -0.3, 0.3), 2.5, -1);
-    expect(poseWeights(cut, 10, {}, false, 0.4).topTurnHeel).toBeGreaterThan(0.9);
+    expect(poseWeights(cut, 10, {}, false, 0.4).topTurnToe).toBeGreaterThan(0.9);
+    // The other way round (−yaw, up and over off the top): tall on the heel rail.
+    const over = onFace(new Vector3(-1, 0.3, -0.3), -2.5, 1);
+    expect(poseWeights(over, 10, {}, false, 0.6).topTurnHeel).toBeGreaterThan(0.9);
     // Out of the bounce: running down the line again, low, swinging back up the face.
     const out = onFace(new Vector3(1, -0.2, 0.2), 2.5, 1);
     expect(poseWeights(out, 10, {}, false, 0.25).bottomTurnToe).toBeGreaterThan(0.9);
