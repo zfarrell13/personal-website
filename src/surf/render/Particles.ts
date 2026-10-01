@@ -14,6 +14,7 @@ import {
 import type { EventBus, SurfEvent } from '../physics/events';
 import type { SurferState } from '../physics/Surfer';
 import type { WaveShape } from '../wave/WaveShape';
+import { SURF_CONFIG } from '../config';
 import { smoothstep } from '../math/scalar';
 import { ParticlePool, RateAccumulator } from './ParticlePool';
 
@@ -292,9 +293,12 @@ export class Particles {
     this.lineSign = sign;
   }
 
-  /** In the barrel, or with the tube camera right behind the rider, the tail is kept down (it would fill the lens). */
+  /** In the barrel or the pocket, or with the tube camera right behind the rider, the tail is kept down (it would fill the lens). */
   private lensFactor(): number {
-    return this.surfer.inTube || this.tubeView ? BOARD_SPRAY.inTube : 1;
+    // In the pocket the view can cut in close behind the rider at any moment (the pocket view, e.g. as a
+    // roundhouse rebounds off the foam there): spray thrown just before the cut would sit at the lens.
+    const pocket = this.surfer.param.x <= SURF_CONFIG.camera.pocketX;
+    return this.surfer.inTube || this.tubeView || pocket ? BOARD_SPRAY.inTube : 1;
   }
 
   /** 0.6 in the trough (bottom turns throw less) → 1 high on the face (cutbacks, lip turns). */

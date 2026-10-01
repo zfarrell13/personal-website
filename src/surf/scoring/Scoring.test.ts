@@ -112,10 +112,32 @@ describe('roundhouse', () => {
     scoring.attach(bus);
     expect(TRICK_BASE.Roundhouse).toBe(500);
     bus.emit({ type: 'landed', time: 1, spinDeg: 0, grabs: [], revert: false, ollie: true, airTime: 0.5 });
-    bus.emit({ type: 'roundhouse', time: 1.4, degrees: 260 });
+    bus.emit({ type: 'roundhouse', time: 1.4, degrees: 260, replacesSnap: false });
     expect(onAward).toHaveBeenLastCalledWith({ name: 'Roundhouse', points: 500, repeated: false });
     expect(scoring.pot).toBe(100 + 500);
     expect(scoring.multiplier).toBe(2);
+  });
+});
+
+describe('roundhouse replacing a snap', () => {
+  it('a roundhouse that replaces a snap already scored takes it back: only the ROUNDHOUSE counts', () => {
+    const { bus, scoring } = make();
+    bus.emit({ type: 'snap', time: 1 });
+    expect(scoring.pot).toBe(250);
+    bus.emit({ type: 'roundhouse', time: 1.5, degrees: 240, replacesSnap: true });
+    expect(scoring.pot).toBe(500);
+    expect(scoring.multiplier).toBe(1);
+    scoring.update(4, false);
+    expect(scoring.score).toBe(500);
+  });
+
+  it('… but not a snap from an earlier move, or one already banked', () => {
+    const { bus, scoring } = make();
+    bus.emit({ type: 'snap', time: 1 });
+    scoring.update(3, false); // banked
+    bus.emit({ type: 'roundhouse', time: 3.5, degrees: 240, replacesSnap: true });
+    expect(scoring.pot).toBe(500);
+    expect(scoring.score).toBe(250);
   });
 });
 

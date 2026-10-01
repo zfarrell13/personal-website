@@ -390,7 +390,7 @@ describe('SurfGame', () => {
 
   it('a roundhouse from the physics shows ROUNDHOUSE on the HUD ticker', async () => {
     const { game, store } = await playing();
-    game.bus.emit({ type: 'roundhouse', time: game.surfer.state.time, degrees: 250 });
+    game.bus.emit({ type: 'roundhouse', time: game.surfer.state.time, degrees: 250, replacesSnap: false });
     for (let i = 0; i < 6; i++) frame();
     expect(store.getState().ticker.map((t) => [t.text, t.points])).toEqual([['Roundhouse', 500]]);
     game.dispose();

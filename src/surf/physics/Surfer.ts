@@ -148,13 +148,22 @@ export class Surfer {
    */
   private cutbackYaw = 0;
   private cutbackSense = 0;
+  /** World speed (m/s) when the cutback's turning began, and when the rebound began (its cap: a roundhouse never exits faster than it went in). */
+  private cutbackEntry = 0;
+  private reboundEntry = 0;
   /** Seconds running back toward the curl in the current cutback, and whether it has run back at all. */
   private backFor = 0;
   private wentBack = false;
   /** When the last held carve was let go (sim s). */
   private releasedAt = -Infinity;
-  /** A snap during a cutback waits: a ROUNDHOUSE replaces it; otherwise it scores when the cutback ends. */
+  /**
+   * A snap that turns the board back toward the curl waits (from deferredAt): a ROUNDHOUSE out of it
+   * replaces it; otherwise it scores when the cutback ends, or after snapDeferMax s at the latest.
+   */
   private deferredSnap = false;
+  private deferredAt = 0;
+  /** This cutback's snap has already scored (its wait ran out): a ROUNDHOUSE out of it then takes the snap back. */
+  private cutbackSnapped = false;
   /** The held carve was pressed while the board ran back toward the curl (a re-press after a cutback). */
   private pressedBack = false;
   /** The held turn ended in a rebound: it does nothing more until the key is let go. */
@@ -512,6 +521,7 @@ export class Surfer {
         this.rebound = foam ? 'foam' : 'lip';
         this.reboundSense = foam && rel.dot(this.eUp) < 0 ? 1 : -1;
         this.reboundHeld = this.cutbackYaw;
+        this.reboundEntry = Math.max(sp, this.cutbackSense !== 0 ? this.cutbackEntry : 0);
         this.reboundYaw = 0;
       }
     }
@@ -527,6 +537,12 @@ export class Surfer {
     const ang = this.yawRate * dt;
     if (ang !== 0) rel.applyAxisAngle(n, ang);
     s.turnRate = this.yawRate;
+    // Carried deeper than half the tube, the foam has lost the board to the curl: no rebound out of it.
+    if (this.rebound === 'foam' && s.param.x < -this.wave.params.tubeDepth / 2) {
+      this.rebound = null;
+      this.carveSpent = this.heldSign !== 0;
+      this.endCutback();
+    }
     if (this.rebound) {
       const turned = Math.max(0, ang * this.reboundSense);
       this.reboundYaw += turned;
@@ -534,14 +550,17 @@ export class Surfer {
       if (this.rebound === 'foam') rel.multiplyScalar(1 - (c.roundhouseRebound * turned) / Math.PI);
       // … but in the whitewater, which runs with the break, it pushes a slow board up toward the peel speed.
       const spr = rel.length();
-      const carry = c.foamCarry * this.vp;
+      const carry = Math.min(c.foamCarry * this.vp, this.reboundEntry);
       if (s.param.x <= c.foamReboundX && spr > 1e-3 && spr < carry) rel.multiplyScalar(Math.min(carry, spr + c.foamPush * dt) / spr);
       // Done once the line runs down the line again, dropping at REBOUND_EXIT (reached from above
       // coming over the top, from below coming round the bottom).
       const phi = Math.atan2(rel.dot(this.eUp), rel.dot(this.e1));
       if (rel.dot(this.e1) > 0 && (phi - REBOUND_EXIT) * this.reboundSense >= 0) this.endRebound();
     } else if (ang !== 0) {
-      if (this.cutbackSense === 0) this.cutbackSense = Math.sign(ang);
+      if (this.cutbackSense === 0) {
+        this.cutbackSense = Math.sign(ang);
+        this.cutbackEntry = sp;
+      }
       this.cutbackYaw = Math.max(0, this.cutbackYaw + ang * this.cutbackSense);
       if (this.cutbackYaw === 0) this.cutbackSense = 0;
     }
@@ -610,6 +629,13 @@ export class Surfer {
       this.topPending = false;
     }
 
+    // A waiting snap scores after snapDeferMax s at the latest (no roundhouse came out of it in time).
+    if (this.deferredSnap && s.time - this.deferredAt >= c.snapDeferMax) {
+      this.deferredSnap = false;
+      this.cutbackSnapped = true;
+      this.emit({ type: 'snap', time: s.time });
+    }
+
     // --- snap: heading reversal at the crest within the window, while carving ---
     if (this.snapArmed) {
       if (s.time - this.crestTime > c.snapWindow) this.snapArmed = false;
@@ -619,8 +645,10 @@ export class Surfer {
         this.yawRate /= c.snapCarveBoost;
         // A snap that turns the board back toward the curl (a cutback over the top) waits: a ROUNDHOUSE
         // out of it replaces the snap.
-        if ((this.cutbackYaw >= CUTBACK_ACTIVE && s.heading.x < 0) || this.rebound) this.deferredSnap = true;
-        else this.emit({ type: 'snap', time: s.time });
+        if ((this.cutbackYaw >= CUTBACK_ACTIVE && s.heading.x < 0) || this.rebound) {
+          this.deferredSnap = true;
+          this.deferredAt = s.time;
+        } else this.emit({ type: 'snap', time: s.time });
       }
     }
 
@@ -747,15 +775,18 @@ export class Surfer {
   private endRebound(): void {
     const s = this.state;
     if (this.reboundHeld >= this.cfg.roundhouseDeg * DEG) {
-      // The roundhouse replaces any snap on the way round (and the lip turn it ends in).
+      // The roundhouse replaces any snap on the way round (and the lip turn it ends in): a waiting one
+      // is dropped, one that already scored is taken back.
       this.deferredSnap = false;
       this.snapArmed = false;
       this.topPending = false;
-      this.emit({ type: 'roundhouse', time: s.time, degrees: (this.reboundHeld + this.reboundYaw) / DEG });
+      this.emit({ type: 'roundhouse', time: s.time, degrees: (this.reboundHeld + this.reboundYaw) / DEG, replacesSnap: this.cutbackSnapped });
     }
-    // Off the lip / out of the foam the wave throws the board back down the line.
+    // Off the lip / out of the foam the wave throws the board back down the line — back toward the
+    // speed it went in with, never beyond (a roundhouse costs a little speed).
     const sp = this.rel.length();
-    if (sp > 1e-3) this.rel.multiplyScalar((sp + this.cfg.reboundKick) / sp);
+    const out = Math.max(sp, Math.min(sp + this.cfg.reboundKick, this.reboundEntry));
+    if (sp > 1e-3) this.rel.multiplyScalar(out / sp);
     this.rebound = null;
     this.endCutback();
     // The rail lets go of the bounce's bite (no swinging on down the face) and the held key is spent.
@@ -773,6 +804,7 @@ export class Surfer {
   private endCutback(): void {
     if (this.deferredSnap) this.emit({ type: 'snap', time: this.state.time });
     this.deferredSnap = false;
+    this.cutbackSnapped = false;
     this.cutbackYaw = 0;
     this.cutbackSense = 0;
     this.backFor = 0;

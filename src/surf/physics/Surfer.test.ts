@@ -885,8 +885,11 @@ describe('Surfer — held carves and the roundhouse', () => {
     let minRate = Infinity;
     let maxTick = 0;
     let minHx = Infinity;
+    let rhSpeed = NaN;
     while (h.s.time - t0 < seconds && h.s.mode === 'riding' && !until()) {
+      const n = h.events.length;
       h.surfer.step({ ...NO_INPUT, carve }, DT);
+      if (h.events.slice(n).some((e) => e.type === 'roundhouse')) rhSpeed = h.surfer.worldSpeed(h.surfer.peelSpeed);
       if (h.s.mode !== 'riding') break;
       yaw += h.s.turnRate * DT;
       if (h.s.time - t0 > 0.25) minRate = Math.min(minRate, Math.sign(carve) * h.s.turnRate);
@@ -894,7 +897,7 @@ describe('Surfer — held carves and the roundhouse', () => {
       prev.copy(h.s.heading);
       minHx = Math.min(minHx, h.s.heading.x);
     }
-    return { yawDeg: yaw / DEG, minRate, maxTickDeg: maxTick / DEG, minHx, events: h.events.slice(e0) };
+    return { yawDeg: yaw / DEG, minRate, maxTickDeg: maxTick / DEG, minHx, events: h.events.slice(e0), rhSpeed };
   }
 
   it.each([8, 12])('from down the line at %d m/s, a held carve toward the lip turns on past straight up and past 180° (back toward the curl) without settling', (speed) => {
@@ -957,8 +960,14 @@ describe('Surfer — held carves and the roundhouse', () => {
     const rh = r.events.filter((e) => e.type === 'roundhouse');
     expect(rh).toHaveLength(1);
     expect(rh[0]!.type === 'roundhouse' && rh[0]!.degrees).toBeGreaterThanOrEqual(h.cfg.physics.roundhouseDeg);
-    // The roundhouse replaces the snap on the way round.
-    expect(r.events.some((e) => e.type === 'snap')).toBe(false);
+    // The roundhouse replaces the snap on the way round: none, or one whose wait ran out (snapDeferMax)
+    // and which the roundhouse takes back.
+    const snaps = r.events.filter((e) => e.type === 'snap').length;
+    expect(snaps).toBeLessThanOrEqual(1);
+    expect(rh[0]!.type === 'roundhouse' && rh[0]!.replacesSnap).toBe(snaps === 1);
+    // It costs a little speed: the kick and the foam's push never take it past the speed the cutback
+    // went in with (gravity on the last ticks of the drop off the lip may add a touch: 2%).
+    expect(r.rhSpeed).toBeLessThanOrEqual(1.02 * entry);
     expect(r.maxTickDeg).toBeLessThanOrEqual(15);
     // Not left deep in the tube.
     expect(h.s.param.x).toBeGreaterThan(-h.cfg.wave.tubeDepth / 2);
@@ -974,7 +983,7 @@ describe('Surfer — held carves and the roundhouse', () => {
     expect(h.s.heading.x).toBeGreaterThan(0); // still running down the line, dropping down the face
     expect(h.surfer.worldSpeed(h.surfer.peelSpeed)).toBeGreaterThanOrEqual(0.6 * entry);
     expect(h.events.filter((e) => e.type === 'roundhouse')).toHaveLength(1);
-    expect(h.events.some((e) => e.type === 'snap')).toBe(false);
+    expect(h.events.filter((e) => e.type === 'snap')).toHaveLength(snaps);
   }
 
   // One held carve, started near enough the curl for the turn to come round into the whitewater
@@ -984,7 +993,7 @@ describe('Surfer — held carves and the roundhouse', () => {
     [8, 7, 0.35],
     [10, 8, 0.2],
     [10, 9, 0.2],
-  ])('one held carve at %d m/s from x = %d: round past 180° back toward the curl, rebounds off the whitewater and comes out down the line', (speed, x, t) => {
+  ])('one held carve at %d m/s from x = %d: round past 180° back toward the curl, rebounds off the whitewater and comes out down the line, no faster than it went in', (speed, x, t) => {
     const { h, r, entry } = roundhouse(speed, x, t);
     // Held on through the bounce, the spent carve does not start another turn: the board holds its line.
     expectCleanExit(h, r, entry, 1);
@@ -1001,7 +1010,7 @@ describe('Surfer — held carves and the roundhouse', () => {
     [12, 22, 0.35],
     [12, 28, 0.5],
     [12, 30, 0.2],
-  ])('two presses at %d m/s from x = %d: cut back, let go, press into the lip — one ROUNDHOUSE (no snap), back down the line', (speed, x, t) => {
+  ])('two presses at %d m/s from x = %d: cut back, let go, press into the lip — one ROUNDHOUSE (replacing any snap), back down the line, no faster than it went in', (speed, x, t) => {
     const h = moving(speed, x, t, 0);
     const entry = h.surfer.worldSpeed(h.surfer.peelSpeed);
     const e0 = h.events.length;
@@ -1010,19 +1019,22 @@ describe('Surfer — held carves and the roundhouse', () => {
     let minHx = Infinity;
     let phase: 'cut' | 'gap' | 'press' = 'cut';
     let backAt = -1;
+    let rhSpeed = NaN;
     for (let i = 0; i < 4 * 120 && h.s.mode === 'riding'; i++) {
       if (phase === 'cut' && h.s.heading.x < -0.7) {
         phase = 'gap';
         backAt = h.s.time;
       }
       if (phase === 'gap' && h.s.time - backAt >= 0.15) phase = 'press';
+      const n = h.events.length;
       h.surfer.step({ ...NO_INPUT, carve: phase === 'gap' ? 0 : 1 }, DT);
+      if (h.events.slice(n).some((e) => e.type === 'roundhouse')) rhSpeed = h.surfer.worldSpeed(h.surfer.peelSpeed);
       maxTick = Math.max(maxTick, prev.angleTo(h.s.heading) / DEG);
       prev.copy(h.s.heading);
       minHx = Math.min(minHx, h.s.heading.x);
       if (h.events.some((e) => e.type === 'roundhouse') && h.s.heading.x > 0.5) break;
     }
-    expectCleanExit(h, { yawDeg: 0, minRate: 0, maxTickDeg: maxTick, minHx, events: h.events.slice(e0) }, entry, 1);
+    expectCleanExit(h, { yawDeg: 0, minRate: 0, maxTickDeg: maxTick, minHx, events: h.events.slice(e0), rhSpeed }, entry, 1);
   });
 
   it('a cutback is forgotten after cutbackMemory s running at the curl: pressing into the lip later turns the board but is no ROUNDHOUSE', () => {

@@ -66,7 +66,7 @@ describe.each(CASES)('open barrel from the tube camera (%s mesh %i × %i, lip an
     while (shape.profile(x, t).y < frac * shape.crestY(x)) t += 0.001;
     const p = shape.profile(x, t);
     const normal = shape.normal(x, t);
-    const s = { p, normal, heading: new Vector3(1, 0, 0), mode: 'riding', launchKind: null, inTube: true } as unknown as SurferState;
+    const s = { p, normal, heading: new Vector3(1, 0, 0), v: new Vector3(), turnRate: 0, stanceFlipped: false, mode: 'riding', launchKind: null, inTube: true } as unknown as SurferState;
     const rig = new CameraRig(new PerspectiveCamera(), SURF_CONFIG.camera, shape);
     rig.snap(s, 'left');
     for (let i = 0; i < 60; i++) rig.update(s, p, 'left', false, 1 / 60);

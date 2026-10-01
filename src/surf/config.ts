@@ -99,11 +99,14 @@ export const SURF_CONFIG = {
     foamReboundX: 3,
     /** A rebound turns at this many times the carve rate (the lip / foam pushes the board round). */
     reboundBoost: 2,
-    /** Coming out of a rebound the board picks up this much speed along its new line (m/s): the wave throws it back down the line. */
+    /**
+     * Coming out of a rebound the board picks up this much speed along its new line (m/s): the wave
+     * throws it back down the line — back toward the speed the cutback began with, never beyond it.
+     */
     reboundKick: 2,
     /**
      * … and rebounding in the whitewater (x ≤ foamReboundX), which runs with the break, a slower board
-     * is pushed up toward this share of the peel speed at foamPush m/s².
+     * is pushed up toward this share of the peel speed (no faster than the cutback began) at foamPush m/s².
      */
     foamCarry: 1,
     foamPush: 15,
@@ -116,6 +119,8 @@ export const SURF_CONFIG = {
     roundhouseDeg: 150,
     /** A cutback is forgotten after this long (s) running back toward the curl without a rebound. */
     cutbackMemory: 1.5,
+    /** A snap that turns the board back toward the curl waits this long (s) at most for a ROUNDHOUSE to replace it. */
+    snapDeferMax: 0.35,
     /** For this long (s) after letting go of a cutback, still running back toward the curl, the lip doesn't launch. */
     cutbackLaunchGuard: 0.5,
     ollieImpulse: 4,

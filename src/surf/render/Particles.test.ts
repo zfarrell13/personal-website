@@ -146,12 +146,13 @@ describe('Particles — attract mode (the dimmed wave behind a site page)', () =
 
 describe('Particles — board spray', () => {
   /** Rider out on the open face past the shoulder (clear of the crashing-wave emitters), running down the line. */
-  function ride(speed: number, turnRate: number, carve: number) {
+  function ride(speed: number, turnRate: number, carve: number, x = 70) {
     const { wave, surfer, bus, p } = setup();
     const s = surfer.state;
-    const x = 70;
     const t = 0.35;
     s.mode = 'riding';
+    s.param.x = x;
+    s.param.t = t;
     wave.profile(x, t, s.p);
     wave.normal(x, t, s.normal);
     s.heading.set(1, 0, 0);
@@ -219,6 +220,17 @@ describe('Particles — board spray', () => {
     r.p.update(1 / 60, true);
     expect(r.near() - after).toBeLessThan(BOARD_SPRAY.cutbackBurst / 2);
     r.p.dispose();
+  });
+
+  it('bursts on a ROUNDHOUSE too, but in the pocket (where the view may cut in right behind the rider) the burst is kept down', () => {
+    const open = ride(9, 0, 0);
+    const pocket = ride(9, 0, 0, 1);
+    const before = { open: open.near(), pocket: pocket.near() };
+    for (const r of [open, pocket]) r.bus.emit({ type: 'roundhouse', time: 1, degrees: 250, replacesSnap: false });
+    expect(open.near() - before.open).toBeGreaterThanOrEqual(BOARD_SPRAY.snapBurst);
+    expect(pocket.near() - before.pocket).toBeLessThanOrEqual(Math.ceil(BOARD_SPRAY.snapBurst * BOARD_SPRAY.inTube));
+    open.p.dispose();
+    pocket.p.dispose();
   });
 
   it('bursts on a snap / lip turn (event-driven)', () => {

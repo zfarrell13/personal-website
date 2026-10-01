@@ -76,6 +76,10 @@ export class Scoring {
   longestTube = 0;
   tricksLanded = 0;
   private readonly distinct = new Set<TrickName>();
+  /** How many times each trick scored in the current combo (for taking one back). */
+  private readonly counts = new Map<TrickName, number>();
+  /** The last snap awarded in the current combo (a roundhouse out of it takes it back). */
+  private lastSnap: TrickAward | null = null;
   private lastActivity = -Infinity;
   private readonly unsubscribe: Array<() => void> = [];
 
@@ -99,6 +103,8 @@ export class Scoring {
     this.longestTube = 0;
     this.tricksLanded = 0;
     this.distinct.clear();
+    this.counts.clear();
+    this.lastSnap = null;
     this.lastActivity = -Infinity;
   }
 
@@ -113,8 +119,14 @@ export class Scoring {
         if (e.revert) this.award('Revert', TRICK_BASE.Revert, e.time);
         this.touch(e.time);
       }),
-      bus.on('snap', (e) => this.award('Snap', TRICK_BASE.Snap, e.time)),
-      bus.on('roundhouse', (e) => this.award('Roundhouse', TRICK_BASE.Roundhouse, e.time)),
+      bus.on('snap', (e) => {
+        this.lastSnap = this.award('Snap', TRICK_BASE.Snap, e.time);
+      }),
+      bus.on('roundhouse', (e) => {
+        // The roundhouse replaces the snap on the way round: one that already scored is taken back.
+        if (e.replacesSnap) this.takeBackSnap();
+        this.award('Roundhouse', TRICK_BASE.Roundhouse, e.time);
+      }),
       bus.on('floaterEnd', (e) => {
         if (e.landed) this.award('Floater', Math.round(TRICK_BASE.floaterBase + TRICK_BASE.floaterPerSec * e.duration), e.time);
       }),
@@ -135,12 +147,26 @@ export class Scoring {
     const repeated = this.distinct.has(name);
     const points = Math.round(repeated ? basePoints * this.cfg.repeatFactor : basePoints);
     this.distinct.add(name);
+    this.counts.set(name, (this.counts.get(name) ?? 0) + 1);
     this.pot += points;
     this.tricksLanded++;
     this.lastActivity = time;
     const a = { name, points, repeated };
     this.listener.onAward?.(a);
     return a;
+  }
+
+  /** Undo the last snap if it is still in the unbanked pot (no-op once it was banked or lost). */
+  private takeBackSnap(): void {
+    const a = this.lastSnap;
+    this.lastSnap = null;
+    if (!a) return;
+    const n = (this.counts.get(a.name) ?? 0) - 1;
+    if (n < 0) return;
+    this.pot -= a.points;
+    this.tricksLanded--;
+    this.counts.set(a.name, n);
+    if (n === 0) this.distinct.delete(a.name);
   }
 
   /** Keep an active combo alive (carves, launches) without scoring. */
@@ -170,12 +196,16 @@ export class Scoring {
     this.listener.onBank?.({ points, pot: this.pot, multiplier });
     this.pot = 0;
     this.distinct.clear();
+    this.counts.clear();
+    this.lastSnap = null;
   }
 
   lose(): void {
     const pot = this.pot;
     this.pot = 0;
     this.distinct.clear();
+    this.counts.clear();
+    this.lastSnap = null;
     if (pot > 0) this.listener.onLost?.(pot);
   }
 }

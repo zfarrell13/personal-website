@@ -130,13 +130,32 @@ export function travelYaw(heading: Vector3): number {
 /** |cos(camera yaw)| past which the carve keys' screen meaning follows the camera (hysteresis around side-on). */
 const FACING_SWITCH = 0.3;
 /**
- * Chase framing guard: the rider's chest is kept within this share of the half-height of the screen
- * from its centre (|ndc| ≤ 0.7, clear of the HUD along the bottom edge). Normally they sit well inside
- * it (≈ 17° below centre, ndc ≈ −0.5); a fast reversal (a roundhouse running back toward the curl
- * under the still-swinging camera) would otherwise carry them off the bottom of the screen, so the
- * camera tilts toward them instead (it never moves for this).
+ * Chase framing guard: points of the drawn rider (leaning into the turn, see `riderUp`) are kept within
+ * these shares of the half-height of the screen from its centre — the chest within 0.7 and the board
+ * within 0.8 (clear of the HUD along the bottom edge), the head on screen. Normally they sit well
+ * inside (chest ≈ 17° below centre, ndc ≈ −0.5); a fast reversal (a roundhouse running back toward the
+ * curl under the still-swinging camera, the body leaning hard) would otherwise carry them off the
+ * bottom of the screen, so the camera tilts toward them instead (it never moves for this). The guard
+ * aims a little inside the limits (render interpolation, the cone vs the screen rectangle).
  */
-const CHASE_FRAMING = 0.7;
+const CHASE_FRAMING = [
+  { up: 0, ndc: 0.75 }, // the board
+  { up: 0.9, ndc: 0.65 }, // the chest
+  { up: 1.5, ndc: 0.8 }, // the head
+] as const;
+/** Lean of the drawn body: as Character.ts, bank = clamp(turnRate · |v| · BANK_GAIN, ±BANK_MAX). */
+const BANK_GAIN = 0.04;
+const BANK_MAX = 0.6;
+
+/**
+ * The drawn rider's up direction (frame coordinates): the surface normal leaned into the turn about the
+ * board's line, as Character.ts banks the body (from the turn rate and speed only, not the pose).
+ */
+export function riderUp(s: Pick<SurferState, 'normal' | 'heading' | 'turnRate' | 'v' | 'stanceFlipped'>, out: Vector3, fwd = new Vector3()): Vector3 {
+  const bank = Math.max(-BANK_MAX, Math.min(BANK_MAX, s.turnRate * s.v.length() * BANK_GAIN)) * (s.stanceFlipped ? 1 : -1);
+  fwd.copy(s.heading).multiplyScalar(s.stanceFlipped ? -1 : 1).normalize();
+  return out.copy(s.normal).applyAxisAngle(fwd, bank);
+}
 
 /**
  * Where the camera wants to be (VIEW coordinates, i.e. already mirrored) for a shot.
@@ -378,7 +397,7 @@ export class CameraRig {
         }
       }
     }
-    if (this.shot === 'chase') this.keepInFrame(s.normal, side);
+    if (this.shot === 'chase') this.keepInFrame(s, side);
     const x = side === 'right' ? -this.pos.x : this.pos.x;
     this.apply(this.shot === 'underwater' ? 0 : shakeAmplitude(x, D, c.shake), time);
   }
@@ -399,19 +418,31 @@ export class CameraRig {
     return !this.sees(w as ProfileProbe, this.probeGoal.pos, chest);
   }
 
-  /** Chase: tilt the look target toward the rider's chest if it is further off the view axis than CHASE_FRAMING of the half-screen allows. */
-  private keepInFrame(normal: Vector3, side: Side): void {
-    const chest = this.tmpA.copy(this.viewP).addScaledVector(frameToView(normal, side, this.tmpB), 0.9);
-    const toRider = chest.sub(this.pos);
+  /**
+   * Chase: tilt the look target so the leaned rider's board, chest and head sit within CHASE_FRAMING
+   * of the screen centre: each pass turns the view axis toward the point furthest past its limit.
+   */
+  private keepInFrame(s: SurferState, side: Side): void {
+    const up = frameToView(riderUp(s, this.tmpB, this.tmpE), side, this.tmpB);
     const toLook = this.tmpC.subVectors(this.look, this.pos);
-    const limit = Math.atan(CHASE_FRAMING * Math.tan((this.cfg.fov / 2) * DEG));
-    const off = toLook.angleTo(toRider);
-    if (off <= limit || toRider.lengthSq() < 1e-6) return;
-    // Rotate the view axis toward the rider in the plane they span, until the rider is at the limit.
-    const axis = this.tmpD.crossVectors(toLook, toRider);
-    if (axis.lengthSq() < 1e-12) return;
-    axis.normalize();
-    toLook.applyAxisAngle(axis, off - limit);
+    const t = Math.tan((this.cfg.fov / 2) * DEG);
+    for (let pass = 0; pass < 6; pass++) {
+      let excess = 0;
+      for (const f of CHASE_FRAMING) {
+        const to = this.tmpA.copy(this.viewP).addScaledVector(up, f.up).sub(this.pos);
+        if (to.lengthSq() < 1e-6) continue;
+        const e = toLook.angleTo(to) - Math.atan(f.ndc * t);
+        if (e > excess) {
+          excess = e;
+          this.tmpH.copy(to);
+        }
+      }
+      if (excess <= 0) break;
+      // Rotate the view axis toward that point in the plane they span, until it is at its limit.
+      const axis = this.tmpD.crossVectors(toLook, this.tmpH);
+      if (axis.lengthSq() < 1e-12) break;
+      toLook.applyAxisAngle(axis.normalize(), excess + 1e-4);
+    }
     this.look.addVectors(this.pos, toLook);
   }
 

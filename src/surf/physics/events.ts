@@ -15,8 +15,11 @@ export type SurfEvent =
   | { type: 'grabEnd'; time: number; kind: GrabKind; heldSec: number }
   | { type: 'snap'; time: number }
   | { type: 'carve'; time: number; degrees: number }
-  /** A held turn of ≥ roundhouseDeg back toward the curl, rebounded off the whitewater / lip back down the line. */
-  | { type: 'roundhouse'; time: number; degrees: number }
+  /**
+   * A cutback of ≥ roundhouseDeg rebounded off the whitewater / lip back down the line. It replaces the
+   * snap on the way round; `replacesSnap`: that snap already scored (its wait ran out) and is taken back.
+   */
+  | { type: 'roundhouse'; time: number; degrees: number; replacesSnap: boolean }
   | { type: 'pump'; time: number; efficiency: number }
   | { type: 'floaterStart'; time: number }
   | { type: 'floaterEnd'; time: number; duration: number; landed: boolean }

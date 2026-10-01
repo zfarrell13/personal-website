@@ -8,7 +8,7 @@ import { Surfer } from '../physics/Surfer';
 import { buildWaveGeometry, columnsX, type OceanLayout } from '../render/waveGeometry';
 import { frameToView } from '../wave/mirror';
 import { WaveShape } from '../wave/WaveShape';
-import { CAMERA_FAR, CAMERA_OFFSETS, cameraGoal, CameraRig, shakeAmplitude, shakeOffset, TUBE_HOLD_MIN_DISTANCE } from './CameraRig';
+import { CAMERA_FAR, CAMERA_OFFSETS, cameraGoal, CameraRig, riderUp, shakeAmplitude, shakeOffset, TUBE_HOLD_MIN_DISTANCE } from './CameraRig';
 
 function world() {
   const cfg = structuredClone(SURF_CONFIG);
@@ -560,13 +560,17 @@ describe('a roundhouse: the camera follows the rider round, the held key keeps i
         ray.set(rig.pos, dir.clone().normalize());
         ray.far = dir.length() - 0.2;
         const ndc = chest.clone().project(cam);
-        // In frame and clear of the HUD along the bottom edge.
-        const inFrame = ndc.z < 1 && Math.abs(ndc.x) < 0.95 && Math.abs(ndc.y) < 0.75;
+        const inFrame = ndc.z < 1 && Math.abs(ndc.x) < 0.95 && Math.abs(ndc.y) < 0.95;
         const visible = inFrame && ray.intersectObject(front, false).length === 0;
         if (visible) seenAll++;
         if (rig.shot === 'chase') {
           chase++;
-          if (inFrame) framed++;
+          // The drawn rider leans into the turn (as Character.ts banks the body): its chest within 0.7
+          // of the half-screen and its board within 0.8 — on screen and clear of the HUD along the bottom.
+          const up = riderUp(s, new Vector3());
+          const leaned = frameToView(new Vector3().copy(s.p).addScaledVector(up, 0.9), side, new Vector3()).project(cam);
+          const board = frameToView(s.p, side, new Vector3()).project(cam);
+          if (leaned.z < 1 && Math.abs(leaned.x) < 0.95 && Math.abs(leaned.y) <= 0.7 && Math.abs(board.y) <= 0.8) framed++;
           if (visible) seen++;
         }
       }
@@ -583,10 +587,12 @@ describe('a roundhouse: the camera follows the rider round, the held key keeps i
     // Behind the rider along their (new, down-the-line) travel, in view space.
     const p = frameToView(s.p, side, new Vector3());
     const h = frameToView(s.heading, side, new Vector3());
-    if (rig.shot === 'chase') expect(flat(new Vector3().subVectors(p, rig.pos)).dot(flat(h))).toBeGreaterThan(0.7);
+    // (On the chase, or the tube / pocket view the hold ends on: either sits behind the new line.)
+    expect(['chase', 'tube']).toContain(rig.shot);
+    expect(flat(new Vector3().subVectors(p, rig.pos)).dot(flat(h))).toBeGreaterThan(0.7);
     expect(rig.keyFacing).toBe(1);
-    // The rider never leaves the frame or slips under the HUD while the chase swings round (it tilts to
-    // keep them in) …
+    // The leaning rider never leaves the frame or slips under the HUD while the chase swings round (it
+    // tilts to keep them in) …
     expect(framed).toBe(chase);
     // … the wave never hides them from the chase (spec Verification 5), and the pocket view picks them
     // up where the pitching lip would.
