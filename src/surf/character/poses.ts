@@ -24,6 +24,7 @@ export type PoseName =
   | 'topTurnToe'
   | 'topTurnHeel'
   | 'crouch'
+  | 'load'
   | 'pump'
   | 'stall'
   | 'ollie'
@@ -44,6 +45,7 @@ export const POSE_NAMES: readonly PoseName[] = [
   'topTurnToe',
   'topTurnHeel',
   'crouch',
+  'load',
   'pump',
   'stall',
   'ollie',
@@ -104,6 +106,9 @@ export const POSES: Record<PoseName, Pose> = {
   // heel rail (the lean the chase camera sees), chest opening toward the nose, arms up and out.
   topTurnHeel: pose({ ...TOP_LEGS, LeftUpLeg: [6, 0, 22], RightUpLeg: [6, 0, -22], LeftLeg: [4, 0, 0], RightLeg: [4, 0, 0], Hips: [-18, -25, 0], Spine: [-22, 0, -8], Spine1: [-5, 0, 0], Spine2: [0, -35, 0], Neck: [0, -20, 0], Head: [10, -40, 0], LeftArm: [10, 30, -5], RightArm: [-25, -30, 0] }),
   crouch: pose({ Hips: [30, -15, 0], Spine: [30, 0, 0], Spine1: [10, 0, 0], Head: [-35, -25, 0], LeftUpLeg: [-55, 0, 20], LeftLeg: [95, 0, 0], LeftFoot: [-40, 0, -10], RightUpLeg: [-55, 0, -20], RightLeg: [95, 0, 0], RightFoot: [-40, 0, 10], LeftArm: [0, -40, -30], RightArm: [20, -30, 60] }),
+  // Loading the ollie (key held): sat down low over the board, chest over the knees, arms drawn back
+  // ready to swing up — the spring before the pop.
+  load: pose({ Hips: [34, -15, 0], Spine: [26, 0, 0], Spine1: [8, 0, 0], Head: [-30, -30, 0], LeftUpLeg: [-70, 0, 30], LeftLeg: [115, 0, 0], LeftFoot: [-45, 0, -14], RightUpLeg: [-70, 0, -30], RightLeg: [115, 0, 0], RightFoot: [-45, 0, 14], LeftArm: [-35, 20, -35], RightArm: [-35, 20, 35] }),
   pump: pose({ Spine: [22, 0, 0], LeftUpLeg: [-42, 0, 22], LeftLeg: [75, 0, 0], RightUpLeg: [-42, 0, -22], RightLeg: [75, 0, 0] }),
   stall: pose({ Hips: [-12, -15, 0], Spine: [-22, 0, 0], LeftUpLeg: [-38, 0, 22], LeftLeg: [65, 0, 0], RightUpLeg: [-12, 0, -22], RightLeg: [18, 0, 0], LeftArm: [0, 0, -20], RightArm: [0, 0, 20] }),
   ollie: pose({ ...TUCK, Spine: [25, 0, 0], LeftArm: [0, 10, -30], RightArm: [0, 10, 30] }),

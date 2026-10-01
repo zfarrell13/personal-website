@@ -37,6 +37,8 @@ export interface SurferState {
   sincePump: number;
   /** Toggled by every Revert (riding switch/fakie). */
   stanceFlipped: boolean;
+  /** 0 … 1: how far the ollie is loaded (the rider crouching with the key down on the face); 0 when not. */
+  ollieCharge: number;
   wipeoutReason: WipeoutReason | null;
 }
 
@@ -230,6 +232,11 @@ export class Surfer {
    * front of the curl (frame x < 0, the closing section's lip) is a wipeout, CLOSED OUT.
    */
   closing = false;
+  /** The ollie is loading (a fresh press on the face, held), for this long (s). */
+  private charging = false;
+  private chargeHeld = 0;
+  /** The ollie key was down on the last tick (a press needs it up first: one held from the air never loads). */
+  private ollieWasDown = false;
 
   constructor(
     readonly wave: WaveShape,
@@ -258,6 +265,7 @@ export class Surfer {
       floatTime: 0,
       sincePump: 10,
       stanceFlipped: false,
+      ollieCharge: 0,
       wipeoutReason: null,
     };
     this.reset();
@@ -283,10 +291,14 @@ export class Surfer {
       floatTime: 0,
       sincePump: 10,
       stanceFlipped: false,
+      ollieCharge: 0,
       wipeoutReason: null,
     } satisfies Partial<SurferState>);
     s.param.x = x;
     this.closing = false;
+    this.charging = false;
+    this.chargeHeld = 0;
+    this.ollieWasDown = false;
     this.vp = this.wave.params.peelSpeed;
     this.yawRate = 0;
     this.line = null;
@@ -352,9 +364,56 @@ export class Surfer {
     this.prevHeading.copy(s.heading);
     s.time += dt;
     this.spinInput = input.spin;
-    if (s.mode === 'riding') this.ride(input, dt);
+    const pop = this.loadOllie(input, dt);
+    if (s.mode === 'riding') this.ride(input, dt, pop);
     else if (s.mode === 'airborne') this.air(input, dt);
     if (this.closing && s.param.x < 0) this.closeOut();
+  }
+
+  /**
+   * The charged ollie: a fresh press on the face (not on a floater) starts loading it, and while held
+   * it loads for up to ollieChargeTime; letting go pops it (true = pop this tick, at ollieGain()). A
+   * press and release inside one tick is a tap. Leaving the face cancels a load; a key pressed in the
+   * air (or held from it) does nothing until it is let go and pressed again.
+   */
+  private loadOllie(input: SurferInput, dt: number): boolean {
+    const s = this.state;
+    const fresh = (input.ollieDown || input.ollie) && !this.ollieWasDown;
+    this.ollieWasDown = input.ollieDown && !input.ollie;
+    if (s.mode !== 'riding' || s.floating) {
+      this.cancelOllie(false);
+      return false;
+    }
+    if (fresh && !this.charging) {
+      this.charging = true;
+      this.chargeHeld = 0;
+    }
+    if (!this.charging) return false;
+    if (input.ollie) {
+      this.charging = false;
+      s.ollieCharge = 0;
+      return true;
+    }
+    this.chargeHeld += dt;
+    s.ollieCharge = Math.min(1, this.chargeHeld / this.cfg.ollieChargeTime);
+    return false;
+  }
+
+  /** The pop of an ollie loaded for `held` s, as a share of ollieImpulse: tap → full load, capped. */
+  ollieGain(held: number): number {
+    const c = this.cfg;
+    return c.ollieTapGain + (c.ollieFullGain - c.ollieTapGain) * Math.min(1, held / c.ollieChargeTime);
+  }
+
+  /**
+   * Drop a loading ollie (no pop). `keyStillDown`: the key counts as held, so the release that follows
+   * (a pause / resume or focus loss lets go of every key) never pops a tap.
+   */
+  cancelOllie(keyStillDown = true): void {
+    this.charging = false;
+    this.chargeHeld = 0;
+    this.state.ollieCharge = 0;
+    if (keyStillDown) this.ollieWasDown = true;
   }
 
   /** The closing section lands on the rider (still up): CLOSED OUT. */
@@ -502,7 +561,7 @@ export class Surfer {
     this.bus.emit(e);
   }
 
-  private ride(input: SurferInput, dt: number): void {
+  private ride(input: SurferInput, dt: number, pop: boolean): void {
     const s = this.state;
     const c = this.cfg;
     const w = this.wave;
@@ -516,9 +575,9 @@ export class Surfer {
     if (!keyless) this.line = null;
     else if (this.line === null) this.line = this.lineAngle();
 
-    if (input.ollie && !s.floating) {
-      // Ollie: +ollieImpulse along the surface normal (on top of any speed already leaving it).
-      const vUp = (c.ollieImpulse + Math.max(0, s.v.dot(n))) * this.peakLift(s.param.x);
+    if (pop) {
+      // Ollie: +ollieImpulse × its load along the surface normal (on top of any speed already leaving it).
+      const vUp = (c.ollieImpulse * this.ollieGain(this.chargeHeld) + Math.max(0, s.v.dot(n))) * this.peakLift(s.param.x);
       this.enterAir('ollie');
       this.beginAir('jump', s.param.t, vUp);
       return;
@@ -950,6 +1009,8 @@ export class Surfer {
     s.turnRate = 0;
     this.yawRate = 0;
     this.line = null;
+    this.charging = false;
+    s.ollieCharge = 0;
     this.endTurn();
     s.stalling = false;
     this.atCrest = false;

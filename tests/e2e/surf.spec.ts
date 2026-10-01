@@ -57,6 +57,24 @@ test.describe('surf game', () => {
     expect(errors()).toEqual([]);
   });
 
+  test('the charged ollie: holding Space crouches without popping, letting go pops, and it scores', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await dropIn(page);
+    await page.keyboard.down('Space');
+    // Crouched (the load pose), still riding: pressing is not the ollie.
+    await page.waitForFunction(() => window.__surf?.pose === 'load', undefined, { timeout: 5_000 });
+    expect(await page.evaluate(() => window.__surf!.mode)).toBe('riding');
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.__surf!.mode)).toBe('riding');
+    await page.keyboard.up('Space');
+    // Letting go is the pop.
+    await page.waitForFunction(() => window.__surf?.mode === 'airborne', undefined, { timeout: 2_000 });
+    // A clean landing banks the Ollie after the combo window.
+    await page.waitForFunction(() => (window.__surf?.score ?? 0) > 0 || window.__surf?.mode === 'wipeout', undefined, { timeout: 8_000 });
+    expect(await page.evaluate(() => window.__surf!.score)).toBeGreaterThan(0);
+    expect(errors()).toEqual([]);
+  });
+
   test('Esc pauses and resumes', async ({ page }) => {
     await dropIn(page);
     await page.keyboard.press('Escape');

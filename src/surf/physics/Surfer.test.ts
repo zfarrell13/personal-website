@@ -727,19 +727,20 @@ describe('Surfer — air', () => {
     expect(landed!.revert).toBe(false);
   });
 
-  it.each([0.3, 0.5, 0.6])('ollie adds exactly ollieImpulse along the normal, even moving down the face (x=10, t=%d)', (t) => {
+  it.each([0.3, 0.5, 0.6])('a tapped ollie adds exactly ollieTapGain × ollieImpulse along the normal, even moving down the face (x=10, t=%d)', (t) => {
     const h = setup();
+    const pop = h.cfg.physics.ollieImpulse * h.cfg.physics.ollieTapGain;
     h.surfer.reset(10, t); // DROP-IN velocity: moving down the face
     const n = h.s.normal.clone();
     expect(h.s.v.y).toBeLessThan(0);
     const vn0 = h.s.v.dot(n);
     h.run(DT, () => ({ ollie: true }));
     expect(h.s.mode).toBe('airborne');
-    expect(h.s.v.dot(n) - vn0).toBeCloseTo(h.cfg.physics.ollieImpulse, 6);
+    expect(h.s.v.dot(n) - vn0).toBeCloseTo(pop, 6);
     let i = 0;
     while (h.s.mode === 'airborne' && i++ < 600) h.run(DT);
     const landed = h.events.find((e) => e.type === 'landed');
-    expect(landed && landed.type === 'landed' && landed.airTime).toBeCloseTo((2 * h.cfg.physics.ollieImpulse) / h.cfg.physics.gravity, 1);
+    expect(landed && landed.type === 'landed' && landed.airTime).toBeCloseTo((2 * pop) / h.cfg.physics.gravity, 1);
     expect(h.s.mode).toBe('riding');
   });
 
@@ -786,7 +787,7 @@ describe('Surfer — air', () => {
   });
 
   function bigOllie(spinTicks: number) {
-    const h = setup({ ollieImpulse: 9 });
+    const h = setup({ ollieImpulse: 9, ollieTapGain: 1 });
     h.run(1);
     h.run(DT, () => ({ ollie: true }));
     expect(h.s.mode).toBe('airborne');
@@ -807,7 +808,7 @@ describe('Surfer — air', () => {
 
   /** Air ticks of the big ollie with no input (its flight is fixed by the ollie impulse). */
   function bigOllieTicks(): number {
-    const h = setup({ ollieImpulse: 9 });
+    const h = setup({ ollieImpulse: 9, ollieTapGain: 1 });
     h.run(1);
     h.run(DT, () => ({ ollie: true }));
     let n = 0;
@@ -821,7 +822,7 @@ describe('Surfer — air', () => {
   it('a spin held right into the landing, 90° off, is a wipeout', () => {
     // Spin until just before touchdown, finishing a quarter turn past a half turn: too little time to settle.
     const n = bigOllieTicks();
-    const spun = setup({ ollieImpulse: 9 });
+    const spun = setup({ ollieImpulse: 9, ollieTapGain: 1 });
     spun.run(1);
     spun.run(DT, () => ({ ollie: true }));
     let i = 0;
@@ -846,7 +847,7 @@ describe('Surfer — air', () => {
   });
 
   it('a carve key still held from the face does not spin an ollie (a spin needs a fresh press)', () => {
-    const h = setup({ ollieImpulse: 9 });
+    const h = setup({ ollieImpulse: 9, ollieTapGain: 1 });
     h.run(1);
     h.run(0.05, () => ({ carve: 1, spin: 1 }));
     h.run(DT, () => ({ ollie: true, carve: 1, spin: 1 }));
@@ -856,7 +857,7 @@ describe('Surfer — air', () => {
     expect(h.s.mode).toBe('riding');
     expect(h.events.find((e) => e.type === 'landed')).toMatchObject({ spinDeg: 0, revert: false });
     // Released and pressed again in the air, it spins.
-    const f = setup({ ollieImpulse: 9 });
+    const f = setup({ ollieImpulse: 9, ollieTapGain: 1 });
     f.run(1);
     f.run(0.05, () => ({ carve: 1, spin: 1 }));
     f.run(DT, () => ({ ollie: true, carve: 1, spin: 1 }));
@@ -875,7 +876,7 @@ describe('Surfer — air', () => {
   });
 
   it('a grab held into the landing is let go just before touchdown: scored and clean', () => {
-    const held = setup({ ollieImpulse: 9 });
+    const held = setup({ ollieImpulse: 9, ollieTapGain: 1 });
     held.run(1);
     held.run(DT, () => ({ ollie: true }));
     held.run(3, () => ({ grab: 'indy' }));
@@ -884,13 +885,125 @@ describe('Surfer — air', () => {
     expect(landed && landed.type === 'landed' && landed.grabs[0]?.kind).toBe('indy');
     expect(landed && landed.type === 'landed' && landed.grabs[0]!.heldSec).toBeGreaterThan(1.4);
 
-    const released = setup({ ollieImpulse: 9 });
+    const released = setup({ ollieImpulse: 9, ollieTapGain: 1 });
     released.run(1);
     released.run(DT, () => ({ ollie: true }));
     released.run(0.4, () => ({ grab: 'method' }));
     released.run(3);
     const l2 = released.events.find((e) => e.type === 'landed');
     expect(l2 && l2.type === 'landed' && l2.grabs[0]?.kind).toBe('method');
+  });
+});
+
+describe('Surfer — the charged ollie (playtest 5: Space down crouches, Space up pops)', () => {
+  /** From (15, 0.4) trimming at 9 m/s: hold the ollie key for `hold` s, let go, and fly. Apex height above take-off, and the events. */
+  function charged(hold: number, physics: Partial<typeof SURF_CONFIG.physics> = {}) {
+    const h = setup(physics);
+    h.surfer.reset(15, 0.4);
+    h.s.v.set(9 - h.surfer.peelSpeed, 0, 0).addScaledVector(h.s.normal, -(9 - h.surfer.peelSpeed) * h.s.normal.x);
+    const ticks = Math.round(hold / DT);
+    let maxCharge = 0;
+    for (let i = 0; i < ticks; i++) {
+      h.surfer.step({ ...NO_INPUT, ollieDown: true }, DT);
+      maxCharge = Math.max(maxCharge, h.s.ollieCharge);
+      expect(h.s.mode).toBe('riding'); // no pop while held
+    }
+    const y0 = h.s.p.y;
+    h.surfer.step({ ...NO_INPUT, ollie: true }, DT); // let go: the pop
+    const popped = h.s.mode === 'airborne';
+    let apex = -Infinity;
+    for (let i = 0; i < 4 * 120 && h.s.mode === 'airborne'; i++) {
+      apex = Math.max(apex, h.s.p.y);
+      h.surfer.step(NO_INPUT, DT);
+    }
+    return { h, popped, apex: apex - y0, maxCharge };
+  }
+
+  it('pressing (and holding) does not ollie; letting go does, on that tick', () => {
+    const r = charged(0.3);
+    expect(r.popped).toBe(true);
+    expect(r.h.events.filter((e) => e.type === 'launched')).toHaveLength(1);
+    expect(r.h.s.mode).toBe('riding'); // and lands
+  });
+
+  it('the longer the hold, the higher the pop — up to ollieChargeTime, then no higher (no penalty for holding on)', () => {
+    const { ollieChargeTime } = SURF_CONFIG.physics;
+    const holds = [0, 0.1, 0.2, 0.3, 0.4, ollieChargeTime, ollieChargeTime + 0.4, 2];
+    const apex = holds.map((t) => charged(t).apex);
+    for (let i = 1; i < apex.length; i++) expect(apex[i]!).toBeGreaterThanOrEqual(apex[i - 1]! - 1e-6);
+    // Capped: a full load and a longer one pop the same.
+    expect(apex[apex.length - 1]!).toBeCloseTo(apex[5]!, 3);
+    expect(apex[6]!).toBeCloseTo(apex[5]!, 3);
+    // A full load clearly out-pops a tap (≈ (1.35 / 0.8)² ≈ 2.8× the height).
+    expect(apex[5]!).toBeGreaterThan(2 * apex[0]!);
+  });
+
+  it('a tap pops a bit lower than the old plain ollie; a full load clearly higher', () => {
+    const plain = charged(0, { ollieTapGain: 1, ollieFullGain: 1 }).apex; // the pre-charge ollie
+    const tap = charged(0).apex;
+    const full = charged(SURF_CONFIG.physics.ollieChargeTime).apex;
+    expect(tap).toBeLessThan(plain);
+    expect(tap).toBeGreaterThan(0.5 * plain);
+    expect(full).toBeGreaterThan(1.5 * plain);
+  });
+
+  it('the load shows: ollieCharge rises from the press to 1 at ollieChargeTime, and is 0 once popped', () => {
+    const r = charged(SURF_CONFIG.physics.ollieChargeTime + 0.1);
+    expect(r.maxCharge).toBe(1);
+    expect(r.h.s.ollieCharge).toBe(0);
+    const h = setup();
+    h.run(0.1, () => ({ ollieDown: true }));
+    expect(h.s.ollieCharge).toBeGreaterThan(0);
+    expect(h.s.ollieCharge).toBeLessThan(0.5);
+  });
+
+  it('the rider keeps riding and carving while loading', () => {
+    const h = setup();
+    h.surfer.reset(15, 0.4);
+    h.s.v.set(9 - h.surfer.peelSpeed, 0, 0).addScaledVector(h.s.normal, -(9 - h.surfer.peelSpeed) * h.s.normal.x);
+    h.run(0.4, () => ({ ollieDown: true, carve: 1 }));
+    expect(h.s.mode).toBe('riding');
+    expect(Math.abs(h.s.turnRate)).toBeGreaterThan(1);
+    expect(h.s.ollieCharge).toBeGreaterThan(0.5);
+  });
+
+  it('in the air the key does nothing: a press there, held to the landing and let go, never pops', () => {
+    const h = setup();
+    h.run(0.5);
+    h.run(DT, () => ({ ollie: true })); // a tap: airborne
+    expect(h.s.mode).toBe('airborne');
+    let i = 0;
+    while (h.s.mode === 'airborne' && i++ < 600) h.run(DT, () => ({ ollieDown: true }));
+    expect(h.s.mode).toBe('riding');
+    h.run(0.2, () => ({ ollieDown: true }));
+    expect(h.s.ollieCharge).toBe(0); // held from the air: no load
+    h.run(DT, () => ({ ollie: true }));
+    expect(h.s.mode).toBe('riding');
+    expect(h.events.filter((e) => e.type === 'launched')).toHaveLength(1);
+  });
+
+  it('leaving the face cancels a load (a crest launch with the key down); letting go in the air does nothing', () => {
+    const h = setup();
+    h.surfer.reset(10, 0.3);
+    const up = new Vector3().crossVectors(h.s.normal, new Vector3(1, 0, 0)).normalize();
+    h.s.v.copy(up).multiplyScalar(12);
+    let i = 0;
+    while (h.s.mode === 'riding' && i++ < 240) h.surfer.step({ ...NO_INPUT, ollieDown: true }, DT);
+    expect(h.s.mode).toBe('airborne');
+    expect(h.events.find((e) => e.type === 'launched')).toMatchObject({ kind: 'crest' });
+    expect(h.s.ollieCharge).toBe(0);
+    h.surfer.step({ ...NO_INPUT, ollie: true }, DT);
+    expect(h.events.filter((e) => e.type === 'launched')).toHaveLength(1);
+  });
+
+  it('a load dropped by a pause / resume (cancelOllie) does not pop when the key is let go', () => {
+    const h = setup();
+    h.run(0.3, () => ({ ollieDown: true }));
+    h.surfer.cancelOllie();
+    expect(h.s.ollieCharge).toBe(0);
+    h.run(DT, () => ({ ollie: true }));
+    expect(h.s.mode).toBe('riding');
+    expect(h.events.some((e) => e.type === 'launched')).toBe(false);
   });
 });
 

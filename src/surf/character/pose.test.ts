@@ -29,6 +29,21 @@ describe.each(TEST_RIGS)('pose layer on the %s rig', (_name, make) => {
     expect(toe).toBeGreaterThan(boneWorld(rig, 'Head').x + 0.2);
   });
 
+  it('the ollie load sits the rider down lower than the crouch, feet still on the board line', async () => {
+    const rig = await make();
+    const layer = new PoseLayer(rig);
+    layer.snap({ stance: 1 });
+    const standHead = boneWorld(rig, 'Head').y;
+    layer.snap({ crouch: 1 });
+    const crouchHips = boneWorld(rig, 'Hips').y;
+    const crouchSpread = boneWorld(rig, 'RightFoot').z - boneWorld(rig, 'LeftFoot').z;
+    layer.snap({ load: 1 });
+    expect(boneWorld(rig, 'Head').y).toBeLessThan(standHead - 0.15);
+    expect(boneWorld(rig, 'Hips').y).toBeLessThan(crouchHips + 1e-6);
+    // The stance stays as wide as a crouch's (Character plants the feet on the deck).
+    expect(boneWorld(rig, 'RightFoot').z - boneWorld(rig, 'LeftFoot').z).toBeGreaterThan(0.9 * crouchSpread);
+  });
+
   it('springs converge toward the target without overshoot', async () => {
     const layer = new PoseLayer(await make());
     layer.snap({ stance: 1 });
@@ -49,6 +64,25 @@ describe('poseWeights', () => {
     const cfg = structuredClone(SURF_CONFIG);
     return new Surfer(new WaveShape(cfg.wave), cfg.physics, new EventBus<SurfEvent>()).state;
   };
+  it('loading an ollie (key held) blends the load crouch in at once, deeper as the load builds, over a carve', () => {
+    const s = make();
+    expect(poseWeights(s, 10).load ?? 0).toBe(0);
+    s.ollieCharge = 0.1;
+    const light = poseWeights(s, 10).load!;
+    s.ollieCharge = 1;
+    const full = poseWeights(s, 10).load!;
+    expect(light).toBeGreaterThan(0.6);
+    expect(full).toBeGreaterThan(light);
+    expect(full).toBeCloseTo(1, 6);
+    // Over a carve the turn pose keeps some weight underneath a light load.
+    s.ollieCharge = 0.1;
+    s.v.set(8, 0, 0);
+    s.turnRate = 2.5;
+    const w = poseWeights(s, 10);
+    const turn = (w.bottomTurnToe ?? 0) + (w.carveToe ?? 0) + (w.topTurnToe ?? 0) + (w.bottomTurnHeel ?? 0) + (w.carveHeel ?? 0) + (w.topTurnHeel ?? 0);
+    expect(turn).toBeGreaterThan(0.1);
+  });
+
   it('picks the toe/heel rail by the board\'s yaw and stance', () => {
     const s = make();
     s.v.set(8, 0, 0);

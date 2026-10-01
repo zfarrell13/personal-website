@@ -149,17 +149,24 @@ describe('SurfGame', () => {
     game.dispose();
   });
 
-  it('delivers a key press as an edge on exactly one physics tick', async () => {
+  it('delivers Space held as the crouch on every tick and its release as the pop on exactly one tick', async () => {
     const { game } = await playing();
     const ollies: boolean[] = [];
+    const downs: boolean[] = [];
     const orig = game.surfer.step.bind(game.surfer);
     vi.spyOn(game.surfer, 'step').mockImplementation((input: SurferInput, dt: number) => {
       ollies.push(input.ollie);
+      downs.push(input.ollieDown);
       orig(input, dt);
     });
     key('keydown', 'Space');
     frame(1000 / 30); // 4 steps
-    expect(ollies).toEqual([true, false, false, false]);
+    expect(ollies).toEqual([false, false, false, false]);
+    expect(downs).toEqual([true, true, true, true]);
+    key('keyup', 'Space');
+    frame(1000 / 30);
+    expect(ollies).toEqual([false, false, false, false, true, false, false, false]);
+    expect(downs.slice(4)).toEqual([false, false, false, false]);
     game.dispose();
   });
 

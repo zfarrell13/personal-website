@@ -130,6 +130,14 @@ export const SURF_CONFIG = {
     /** For this long (s) after letting go of a cutback, still running back toward the curl, the lip doesn't launch. */
     cutbackLaunchGuard: 0.5,
     ollieImpulse: 4,
+    /**
+     * Charged ollie (playtest 5): Space down crouches (loads the board), Space up pops. A tap pops
+     * ollieTapGain × ollieImpulse, a load held ollieChargeTime s or longer ollieFullGain × (linearly
+     * between; holding longer keeps the full pop). Height grows with the square: a full load ≈ 2.8× a tap.
+     */
+    ollieTapGain: 0.8,
+    ollieFullGain: 1.35,
+    ollieChargeTime: 0.5,
     /** Crest launch: speed off the face along the normal = up-face speed × airGain, in [launchSpeed, maxAirSpeed]. */
     airGain: 0.75,
     /** Cap on the pop speed of a crest launch (m/s). */

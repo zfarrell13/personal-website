@@ -80,12 +80,12 @@ The soundtrack is the tracks in `content/tracks/tracks.json` that have `"surf": 
 | ← / → | Carve (screen-relative). Held, the board keeps turning: up, round past straight up and back toward the curl; let go and the turn stops on the spot — with no key held nothing turns the board (carve your own bottom turns). Held at the lip = snap. Cut back toward the curl, then carve up into the lip or the whitewater (keep holding, or let go and press again) = ROUNDHOUSE: it bounces you back down the line. **Let go at the lip to launch** (not just after letting go of a cutback) | Spin |
 | ↑ | Pump (works the face, not the flats; rhythm beats mashing) | — |
 | ↓ | Stall (the curl catches you; let go early to pump out of the barrel) | — |
-| Space | Ollie | — |
+| Space | Hold to crouch (you keep riding and carving), release to ollie — hold longer to pop higher (full height after ½ s; a tap is a small hop) | — |
 | W / A / S / D (hold) | — | Method / Rail / Stalefish / Indy |
 | G (title) | Toggle the GUIDE coach | — |
 | Esc | Pause (on the title: back to the menu) | Pause |
 
-- **Phones (landscape):** a four-way pad on the left; on the right, the grabs (METHOD, RAIL, STALE, INDY) in two columns with OLLIE under the thumb in the corner. Pause is at the top centre. Held portrait, the game asks you to rotate.
+- **Phones (landscape):** a four-way pad on the left; on the right, the grabs (METHOD, RAIL, STALE, INDY) in two columns with OLLIE under the thumb in the corner (hold it to crouch, let go to pop, like Space). Pause is at the top centre. Held portrait, the game asks you to rotate.
 - **RIGHT / LEFT** follow the surf convention: a RIGHT peels to your right as you face the beach.
 - **The break chases you.** Sit still and the curl swallows you in about 5 s. Carve down the line and pump on the face to stay ahead. Every 10–20 s a ⚡ FAST SECTION speeds the peel up by 30–50% and a **peak** starts to form 15–25 m down the line: a hump of wave rising taller and steeper, spray feathering off its top.
 - **Race the peak.** You have 3.5–4.5 s (the coach calls ▲ PUMP! if you are falling behind). Then it pitches and the whole stretch back to the curl breaks at once. On or past the peak: the new barrel is right behind you and you score SECTION MADE (500) — stall into it or keep racing. Short of it: **CLOSED OUT**.

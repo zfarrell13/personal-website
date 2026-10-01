@@ -331,6 +331,27 @@ ahead of the rider (hook.peak) and the run ends on the results screen; screensho
 peak rising, the pitch, a made section with the new barrel behind, short of the peak with the coach,
 CLOSED OUT, SECTION AIR.
 
+### Playtest 5: charged ollie
+
+User: "pressing the space bar down should be a crouch (prepare for jump), releasing the space bar
+should be the jump (ollie)"; "go higher the longer you hold Space".
+
+- Space (or the touch OLLIE button) **down crouches**: a fresh press on the face (not on a floater)
+  starts loading the ollie; the rider blends into the "load" pose at once (deeper as it loads:
+  `SurferState.ollieCharge` 0…1) and keeps riding and carving normally. **Up pops it**: ollieImpulse ×
+  a gain from `ollieTapGain` (0.8, a tap: a little lower than the old ollie) rising linearly to
+  `ollieFullGain` (1.35) at `ollieChargeTime` (0.5 s) and holding there (no penalty for holding on). A
+  press and release inside one tick is a tap.
+- In the air the key does nothing; one pressed in the air (or held from it into the landing) never
+  loads — it must be let go and pressed again on the face. Leaving the face (a crest launch, a drop,
+  a wipeout) cancels a load. A pause / resume drops a load without a pop. Landing rules (spin latch
+  etc.) are unchanged.
+- Verification: no ollie on the press, the ollie on the release; apex height monotonic in hold time
+  and capped (a full load > 2× a tap's height; a tap below and a full load ≥ 1.5× the old ollie);
+  the load pose weight while held; the key held from the air and a crest launch while loading never
+  pop; touch and keyboard give the same input; e2e: Space held shows the load pose while riding, the
+  release pops and the ollie scores.
+
 ## Playtest 2 amendments (user feedback)
 
 - **Camera:** close bird's-eye view from behind the rider — about 3–4 m behind along the direction of travel, 4–6 m above (always above the crest), looking down at the rider and a few metres ahead down the line; the rider is large in frame. Tube: behind the rider looking out.

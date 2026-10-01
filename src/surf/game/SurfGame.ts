@@ -261,6 +261,8 @@ export class SurfGame {
     if (this.phase !== 'paused') return;
     this.stepper.reset();
     this.actions.reset();
+    // A crouch held into the pause is dropped (the keys were all let go): no pop on resume.
+    this.surfer.cancelOllie();
     this.audio?.resume();
     this.music.setDuck(1);
     this.setPhase('playing');

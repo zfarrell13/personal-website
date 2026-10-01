@@ -37,7 +37,9 @@ export interface SurferInput {
   pump: boolean;
   /** Level: stall held. */
   stall: boolean;
-  /** Edge: ollie pressed this tick. */
+  /** Level: the ollie key is down (crouching — loading the pop — on the face). */
+  ollieDown: boolean;
+  /** Edge: the ollie key was let go this tick (the pop). */
   ollie: boolean;
   /** Held grab (first in W, A, S, D order), or null. */
   grab: GrabKind | null;
@@ -48,6 +50,7 @@ export const NO_INPUT: Readonly<SurferInput> = Object.freeze({
   spin: 0,
   pump: false,
   stall: false,
+  ollieDown: false,
   ollie: false,
   grab: null,
 });
@@ -72,7 +75,7 @@ export function carveFromKeys(left: boolean, right: boolean, side: Side, facing:
   return (side === 'right' ? raw : -raw) * facing || 0;
 }
 
-type Readable = Pick<ActionState<SurfAction>, 'isDown' | 'pressedThisFrame'>;
+type Readable = Pick<ActionState<SurfAction>, 'isDown' | 'pressedThisFrame' | 'releasedThisFrame'>;
 
 export function readSurferInput(actions: Readable, side: Side, out: SurferInput = { ...NO_INPUT }, facing: 1 | -1 = 1): SurferInput {
   const l = actions.isDown('carveLeft');
@@ -81,7 +84,9 @@ export function readSurferInput(actions: Readable, side: Side, out: SurferInput 
   out.spin = carveFromKeys(l, r, side, facing);
   out.pump = actions.pressedThisFrame('pump');
   out.stall = actions.isDown('stall');
-  out.ollie = actions.pressedThisFrame('ollie');
+  // Space / OLLIE down crouches, up pops (playtest 5): a press and release inside one tick is a tap.
+  out.ollieDown = actions.isDown('ollie');
+  out.ollie = actions.releasedThisFrame('ollie');
   out.grab = null;
   for (const [a, g] of GRAB_ORDER) {
     if (actions.isDown(a)) {
