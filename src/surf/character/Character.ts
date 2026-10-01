@@ -5,7 +5,7 @@ import { clamp, DEG } from '../math/scalar';
 import type { Surfer } from '../physics/Surfer';
 import { BOARD, boardRocker, buildBoard, makeDeckTexture } from './board';
 import { PoseLayer, poseWeights } from './PoseLayer';
-import type { PoseWeights } from './poses';
+import { POSE_NAMES, type PoseName, type PoseWeights } from './poses';
 import { buildProceduralRig, rigFromGltfScene, type SurferRig } from './rig';
 
 export const SURFER_MODEL_URL = '/surf/surfer.glb';
@@ -44,6 +44,14 @@ function disposeObject(root: Object3D): void {
 }
 
 const UP = new Vector3(0, 1, 0);
+
+/** How far up the face the rider is: 0 at the trough (y = 0) … 1 at the crest of the current column. */
+export function faceHeight(surfer: Surfer): number {
+  const s = surfer.state;
+  const crest = surfer.wave.crestY(s.param.x);
+  return crest > 1e-3 ? clamp(s.p.y / crest, 0, 1) : 0;
+}
+
 /**
  * The rendered board turns toward the physics heading at no more than this rate (deg/s): hides the
  * near-curl 15–21°/tick heading jumps and the rare bottom-out flip (a real board can't turn that fast).
@@ -159,8 +167,16 @@ export class Character {
     }
 
     const speed = s.v.length();
-    this.pose.update(poseWeights(s, this.sinceLand, this.weights, this.backside), dt, clamp(0.6 + speed / 20, 0.6, 1.3));
+    const weights = poseWeights(s, this.sinceLand, this.weights, this.backside, faceHeight(surfer));
+    this.pose.update(weights, dt, clamp(0.6 + speed / 20, 0.6, 1.3));
     this.plantFeet();
+  }
+
+  /** The pose with the heaviest weight on the last update (for the debug hook). */
+  dominantPose(): PoseName {
+    let best: PoseName = 'stance';
+    for (const n of POSE_NAMES) if ((this.weights[n] ?? 0) > (this.weights[best] ?? 0)) best = n;
+    return best;
   }
 
   /** Turn the rendered heading toward `target` (unit) by at most MAX_BOARD_TURN_RATE · dt. */

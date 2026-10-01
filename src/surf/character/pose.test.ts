@@ -4,6 +4,7 @@ import { EventBus, type SurfEvent } from '../physics/events';
 import { Surfer } from '../physics/Surfer';
 import { WaveShape } from '../wave/WaveShape';
 import { PoseLayer, poseWeights } from './PoseLayer';
+import type { PoseWeights } from './poses';
 import { boneWorld, TEST_RIGS } from './testRigs';
 
 describe.each(TEST_RIGS)('pose layer on the %s rig', (_name, make) => {
@@ -53,13 +54,16 @@ describe('poseWeights', () => {
     s.v.set(8, 0, 0);
     s.turnRate = 2.5;
     s.carve = 1;
-    expect(poseWeights(s, 10).carveToe).toBeGreaterThan(0.5);
+    // The turn's pose (bottom turn / carve / top turn) on the toe rail or the heel rail.
+    const toe = (w: PoseWeights) => (w.bottomTurnToe ?? 0) + (w.carveToe ?? 0) + (w.topTurnToe ?? 0);
+    const heel = (w: PoseWeights) => (w.bottomTurnHeel ?? 0) + (w.carveHeel ?? 0) + (w.topTurnHeel ?? 0);
+    expect(toe(poseWeights(s, 10))).toBeGreaterThan(0.5);
     s.stanceFlipped = true;
-    expect(poseWeights(s, 10).carveHeel).toBeGreaterThan(0.5);
+    expect(heel(poseWeights(s, 10))).toBeGreaterThan(0.5);
     // Backside (back to the wave), a turn toward the lip is on the heels.
     s.stanceFlipped = false;
-    expect(poseWeights(s, 10, {}, true).carveHeel).toBeGreaterThan(0.5);
-    expect(poseWeights(s, 10, {}, true).carveToe ?? 0).toBe(0);
+    expect(heel(poseWeights(s, 10, {}, true))).toBeGreaterThan(0.5);
+    expect(toe(poseWeights(s, 10, {}, true))).toBe(0);
   });
   it('uses grab, tube and wipeout poses', () => {
     const s = make();

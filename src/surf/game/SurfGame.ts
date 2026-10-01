@@ -96,7 +96,7 @@ export class SurfGame {
   private readonly renderP = new Vector3();
   private readonly debugLook = new Vector3();
   /** The one debug-hook object, mutated each frame (no per-frame allocation). */
-  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase', coach: this.coach.state };
+  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase', pose: 'stance', coach: this.coach.state };
   private readonly look: SurferLook;
   private character: Character | null = null;
   private audio: SurfAudio | null = null;
@@ -547,6 +547,7 @@ export class SurfGame {
     hook.fast = this.peel.active && (s.mode === 'riding' || s.mode === 'airborne');
     hook.seed = this.seed;
     hook.shot = this.rig.shot;
+    hook.pose = this.character?.dominantPose() ?? 'stance';
     window.__surf = hook;
   }
 

@@ -19,6 +19,8 @@ export interface SurfDebugHook {
   seed: number;
   /** Camera shot: 'chase' | 'tube' | 'underwater'. */
   shot: string;
+  /** The rider's heaviest-weighted body pose (e.g. 'bottomTurnToe', 'topTurnHeel'). */
+  pose: string;
   /** The in-game coach (live object): whether the ▲ PUMP prompt is up, pumps landed, beat phase. */
   coach: CoachState;
 }

@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three';
-import { clamp, DEG } from '../math/scalar';
+import { clamp, DEG, smoothstep } from '../math/scalar';
 import { springStep, type Spring1 } from '../math/spring';
 import type { SurferState } from '../physics/Surfer';
 import { POSE_NAMES, POSES, type BodyAngles, type PoseName, type PoseWeights } from './poses';
@@ -39,14 +39,45 @@ function mixIn(w: PoseWeights, name: PoseName, k: number): void {
   w[name] = (w[name] ?? 0) + k;
 }
 
+const TMP = new Vector3();
+
+/**
+ * Which way the turn swings the board's line on the face: +1 straight up the face (climbing out of a
+ * bottom turn), −1 back down it (off the top, round a cutback), 0 with no turn, on the flats, or with
+ * the line pointing straight up / down the face. It is d(heading · up-the-face)/dt per unit |turnRate|:
+ * a yaw about the normal at rate ω moves the heading at ω (n × heading), and n × heading has no part
+ * along n, so its up-face part is (n × heading).y / |ŷ − n·n_y| = (n × heading).y / √(1 − n_y²).
+ */
+export function turnPhase(s: SurferState): number {
+  if (s.turnRate === 0) return 0;
+  const n = s.normal;
+  const along = TMP.crossVectors(n, s.heading).y;
+  // The floor keeps it continuous (and small) as the face flattens out.
+  return clamp((Math.sign(s.turnRate) * along) / Math.max(Math.sqrt(Math.max(0, 1 - n.y * n.y)), 0.15), -1, 1);
+}
+
+/**
+ * Where a turn sits between a bottom turn (score ≤ BOTTOM_TURN_END) and a top turn / cutback
+ * (≥ TOP_TURN_START), with the plain carve between. The score is the height up the face, raised while
+ * the turn swings the line back down and while the board runs back toward the curl (−x).
+ */
+const PHASE_SHIFT = 0.25;
+const CURL_SHIFT = 0.45;
+const BOTTOM_TURN_END = 0.3;
+const CARVE_MID = 0.5;
+const TOP_TURN_START = 0.7;
+
 /**
  * Which poses to blend for the current surfer state. Weights sum to 1.
  * `sinceLand` = seconds since the last clean landing.
  * Trick-air poses are keyed on `launchKind !== null`: silent floater mount /
  * dismount / drop airs are mode 'airborne' with launchKind null and keep the
  * riding / floater pose.
+ * `faceHeight` = how far up the face the rider is, 0 at the trough … 1 at the crest. A turn low on the
+ * face swinging up it is a bottom turn (crouched, forward); high up, swinging back down or cutting back
+ * toward the curl, a top turn (tall, back on the tail); the plain carve pose sits between.
  */
-export function poseWeights(s: SurferState, sinceLand: number, out: PoseWeights = {}, backside = false): PoseWeights {
+export function poseWeights(s: SurferState, sinceLand: number, out: PoseWeights = {}, backside = false, faceHeight = 0.5): PoseWeights {
   const w = out;
   // A reused `out` may hold last frame's weights: zero them so no stale pose leaks through.
   for (let i = 0; i < POSE_NAMES.length; i++) if (w[POSE_NAMES[i]!] !== undefined) w[POSE_NAMES[i]!] = 0;
@@ -68,10 +99,20 @@ export function poseWeights(s: SurferState, sinceLand: number, out: PoseWeights 
   const lean = clamp((Math.abs(s.turnRate) / 2.5) * clamp(speed / 8, 0.3, 1.2), 0, 1);
   // carve > 0 = toward the lip (the wave), whichever way the rider is travelling, so it (not the
   // sign of turnRate, which also flips with travel direction) decides toe vs heel side. A backside
-  // rider (back to the wave) leans onto the heels to turn toward the lip.
-  const toeSide = s.carve > 0 !== s.stanceFlipped !== backside;
+  // rider (back to the wave) leans onto the heels to turn toward the lip. Once the key is let go the
+  // board is still easing out of its turn: the way it is still turning (toward the lip when the yaw
+  // swings the line the way it runs, +x or −x, up the face) keeps the rail it was on.
+  const towardLip = s.carve !== 0 ? s.carve > 0 : s.turnRate * s.heading.x > 0;
+  const toeSide = towardLip !== s.stanceFlipped !== backside;
   w.stance = 1 - lean;
-  if (lean > 0) w[toeSide ? 'carveToe' : 'carveHeel'] = lean;
+  if (lean > 0) {
+    const score = clamp(faceHeight, 0, 1) - PHASE_SHIFT * turnPhase(s) + CURL_SHIFT * smoothstep(0.1, 0.6, -s.heading.x);
+    const bottom = 1 - smoothstep(BOTTOM_TURN_END, CARVE_MID, score);
+    const top = smoothstep(CARVE_MID, TOP_TURN_START, score);
+    w[toeSide ? 'bottomTurnToe' : 'bottomTurnHeel'] = lean * bottom;
+    w[toeSide ? 'carveToe' : 'carveHeel'] = lean * (1 - bottom - top);
+    w[toeSide ? 'topTurnToe' : 'topTurnHeel'] = lean * top;
+  }
   if (s.inTube) mixIn(w, 'crouch', 0.85);
   if (s.sincePump < 0.35) mixIn(w, 'pump', 1 - s.sincePump / 0.35);
   if (s.stalling) mixIn(w, 'stall', 1);
