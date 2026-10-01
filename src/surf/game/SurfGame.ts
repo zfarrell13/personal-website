@@ -98,7 +98,7 @@ export class SurfGame {
   private readonly renderP = new Vector3();
   private readonly debugLook = new Vector3();
   /** The one debug-hook object, mutated each frame (no per-frame allocation). */
-  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase', pose: 'stance', coach: this.coach.state, peak: { phase: 'none', x: 0, amp: 0, xPitch: 0, made: null } };
+  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase', pose: 'stance', coach: this.coach.state, peak: { phase: 'none', x: 0, amp: 0, xPitch: 0, made: null }, steep: 0, heading: [1, 0, 0] };
   private readonly look: SurferLook;
   private character: Character | null = null;
   private audio: SurfAudio | null = null;
@@ -128,6 +128,7 @@ export class SurfGame {
   /** ?debug autopilot (window.__surfBot) and the pump rhythm it was made for. */
   private bot: ((dt: number) => SurferInput) | null = null;
   private botPump = NaN;
+  private botHigh = NaN;
   /** Carve keys' screen meaning (see CameraRig.keyFacing), latched while a carve key is held. */
   private keyFacing: 1 | -1 = 1;
   private endAt = -1;
@@ -488,9 +489,11 @@ export class SurfGame {
   private autopilot(dt: number): void {
     const want = window.__surfBot;
     if (!want) return;
-    if (!this.bot || this.botPump !== want.pumpEvery) {
-      this.bot = lineBot(this.surfer, this.wave, { pumpEvery: want.pumpEvery });
+    const high = want.high ?? 0.6;
+    if (!this.bot || this.botPump !== want.pumpEvery || this.botHigh !== high) {
+      this.bot = lineBot(this.surfer, this.wave, { pumpEvery: want.pumpEvery, high });
       this.botPump = want.pumpEvery;
+      this.botHigh = high;
     }
     const b = this.bot(dt);
     this.input.carve = b.carve;
@@ -614,6 +617,10 @@ export class SurfGame {
     hook.peak.amp = peak.amp;
     hook.peak.xPitch = peak.xPitch;
     hook.peak.made = this.sections.made;
+    hook.steep = s.normal.y <= 0 ? 1 : Math.sqrt(Math.max(0, 1 - s.normal.y * s.normal.y));
+    hook.heading[0] = s.heading.x;
+    hook.heading[1] = s.heading.y;
+    hook.heading[2] = s.heading.z;
     window.__surf = hook;
   }
 

@@ -28,6 +28,9 @@ export interface SurfDebugHook {
    * where it pitches, and whether the rider was on / past it at the pitch (null before the pitch).
    */
   peak: { phase: string; x: number; amp: number; xPitch: number; made: boolean | null };
+  /** The face under the rider: steepness (sin of the face angle) and the board heading (frame), for probes. */
+  steep: number;
+  heading: [number, number, number];
 }
 
 /** ?debug only: a free camera for screenshots, in wave-frame coordinates (set from the console or Playwright). */
@@ -42,6 +45,8 @@ export interface SurfDebugCamera {
  */
 export interface SurfDebugBot {
   pumpEvery: number;
+  /** Top turns at this share of the crest height (lineBot `high`; default 0.6). */
+  high?: number;
 }
 
 declare global {

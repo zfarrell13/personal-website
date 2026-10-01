@@ -4,7 +4,7 @@ import type { Side, SurferLook } from '../config';
 import { clamp, DEG } from '../math/scalar';
 import type { Surfer } from '../physics/Surfer';
 import { BOARD, boardRocker, buildBoard, makeDeckTexture } from './board';
-import { faceSteepness, leanBlend } from './lean';
+import { faceSteepness, layBackAngle, layBackAxis } from './lean';
 import { PoseLayer, poseWeights } from './PoseLayer';
 import { POSE_NAMES, type PoseName, type PoseWeights } from './poses';
 import { buildProceduralRig, rigFromGltfScene, type SurferRig } from './rig';
@@ -81,16 +81,27 @@ export class Character {
   private readonly tilt = new Group();
   /** Mirrors the body (not the board) across the model's x so the rider rides regular on a LEFT. */
   private readonly stanceMirror = new Group();
-  /** Leans the body (not the board) back about the line through its feet on the deck: the lip lean. */
+  /** Lays the body (not the board) back about the line through its ankles: the lip lean's roll part. */
   private readonly lean = new Group();
-  /** The lip lean's angle (rad), eased toward its target. */
+  /** The lip lean's lay-back angle (rad), eased toward its target, and its axis in the board's (tilt's) frame. */
   private leanRoll = 0;
-  private readonly bodyUp = new Vector3();
-  private readonly invTilt = new Quaternion();
+  /** Scales the lip lean (1 = as designed; 0 = none, a reference for tests and screenshots). */
+  leanScale = 1;
+  private readonly layAxis = new Vector3(0, 0, 1);
   private readonly leanAxis = new Vector3();
   private readonly leanPivot = new Vector3();
   private readonly leanQ = new Quaternion();
   private readonly cross = new Vector3();
+  private readonly qTilt = new Quaternion();
+  private readonly tiltInv = new Matrix4();
+  private readonly leanInv = new Matrix4();
+  private readonly mA = new Matrix4();
+  private readonly mB = new Matrix4();
+  private readonly footL0 = new Matrix4();
+  private readonly footR0 = new Matrix4();
+  private readonly pivot = new Vector3();
+  private readonly dScale = new Vector3();
+  private readonly dPos = new Vector3();
   /** True when the body is mirrored (a LEFT): the rider faces away from the wave (backside). */
   private backside = false;
   readonly board: Mesh;
@@ -145,6 +156,7 @@ export class Character {
     this.leanRoll = 0;
     this.lean.position.set(0, 0, 0);
     this.lean.quaternion.identity();
+    this.layAxis.set(0, 0, 1);
     this.pose.snap({ stance: 1 });
   }
 
@@ -192,41 +204,79 @@ export class Character {
   }
 
   /**
-   * The lip lean: the body pivots back on its feet — about the line through the two soles on the deck,
-   * so both stay planted — by the angle that brings its up as near as that turn can to the normal
-   * blended toward world up (leanBlend). (A board pointed straight up the face leans its rider back over
-   * the tail, along the board, as far as that line allows.) null = no lean (air, wipeout, floater).
-   * Runs after plantFeet: the feet are found in the lean's frame, which is the unleaned body's.
+   * The lip lean (character/lean.ts): the body lays back off the face by layBackAngle, about
+   * layBackAxis (turning the normal further from world up), on top of the bank. Planted, flat feet:
+   * the part of that rotation about the line through the ankles turns the whole body about that line
+   * (the ankles stay put); the rest — the lay-back over the tail when the board runs up the face — tips
+   * the upper body at the Spine (the legs hang off the Hips); then each foot is put back exactly as it
+   * was, so the soles stay flat on the deck. Runs after plantFeet (which measures in the lean's own,
+   * unleaned frame). null = no new lean (air, wipeout, floater): it eases out.
    */
   private leanBack(normal: Vector3 | null, dt: number): void {
     const bones = this.rig.bones;
-    // The soles in the lean's (unleaned) frame: plantFeet just updated the matrices.
-    this.lean.worldToLocal(bones.LeftFoot.getWorldPosition(this.footL));
-    this.lean.worldToLocal(bones.RightFoot.getWorldPosition(this.footR));
-    this.leanAxis.set(this.footR.x - this.footL.x, 0, this.footR.z - this.footL.z);
-    if (this.leanAxis.lengthSq() < 1e-6) this.leanAxis.set(0, 0, 1);
-    this.leanAxis.normalize();
     let target = 0;
     if (normal) {
-      const w = leanBlend(faceSteepness(normal.y));
-      if (w > 0) {
-        // The wanted up, in the tilt's (board's) frame; the angle about the feet line that best matches it.
-        this.bodyUp.copy(normal).lerp(UP, w).normalize();
-        this.tilt.getWorldQuaternion(this.invTilt).invert();
-        this.bodyUp.applyQuaternion(this.invTilt);
-        this.cross.crossVectors(this.leanAxis, UP);
-        target = Math.atan2(this.bodyUp.dot(this.cross), this.bodyUp.y);
+      target = this.leanScale * layBackAngle(faceSteepness(normal.y));
+      // The axis into the board's (banked) frame: the lean comes on top of the bank.
+      if (target > 0 && layBackAxis(normal, this.cross)) {
+        this.qTilt.copy(this.root.quaternion).multiply(this.tilt.quaternion).invert();
+        this.layAxis.copy(this.cross).applyQuaternion(this.qTilt);
       }
     }
     this.leanRoll += (target - this.leanRoll) * (1 - Math.exp(-LEAN_RATE * dt));
-    // Rotate about the pivot on the deck between the feet: position = p − R·p.
-    this.leanQ.setFromAxisAngle(this.leanAxis, this.leanRoll);
-    this.leanPivot.set((this.footL.x + this.footR.x) / 2, DECK_Y, (this.footL.z + this.footR.z) / 2);
+    // Start from the unleaned body (only the board's chain above and the body's subtree are updated).
+    this.lean.position.set(0, 0, 0);
+    this.lean.quaternion.identity();
+    this.tilt.updateWorldMatrix(true, false);
+    this.lean.updateMatrixWorld(true);
+    if (Math.abs(this.leanRoll) < 1e-4) return;
+    this.tiltInv.copy(this.tilt.matrixWorld).invert();
+    this.footL0.multiplyMatrices(this.tiltInv, bones.LeftFoot.matrixWorld);
+    this.footR0.multiplyMatrices(this.tiltInv, bones.RightFoot.matrixWorld);
+    // The ankle line (in the lean's frame = the board's, unleaned) and the split of the lay-back.
+    this.footL.setFromMatrixPosition(this.footL0);
+    this.footR.setFromMatrixPosition(this.footR0);
+    this.leanAxis.subVectors(this.footR, this.footL);
+    if (this.leanAxis.lengthSq() < 1e-8) this.leanAxis.set(0, 0, 1);
+    this.leanAxis.normalize();
+    const along = this.layAxis.dot(this.leanAxis);
+    const roll = this.leanRoll * along;
+    this.cross.copy(this.layAxis).addScaledVector(this.leanAxis, -along);
+    const rest = this.cross.length();
+    // 1. The whole body about the ankle line: position = p − R·p (the ankles stay put).
+    this.leanQ.setFromAxisAngle(this.leanAxis, roll);
+    this.pivot.addVectors(this.footL, this.footR).multiplyScalar(0.5);
     this.lean.quaternion.copy(this.leanQ);
-    this.lean.position.copy(this.leanPivot).sub(this.cross.copy(this.leanPivot).applyQuaternion(this.leanQ));
+    this.lean.position.copy(this.pivot).sub(this.leanPivot.copy(this.pivot).applyQuaternion(this.leanQ));
+    this.lean.updateMatrixWorld(true);
+    // 2. The rest at the Spine: about the remaining axis (into the leaned frame), pivoting on the Spine joint.
+    if (rest > 1e-6 && Math.abs(this.leanRoll * rest) > 1e-5) {
+      this.cross.multiplyScalar(1 / rest).applyQuaternion(this.leanQ.invert());
+      this.leanInv.copy(this.lean.matrixWorld).invert();
+      const spine = bones.Spine;
+      const rel = this.mA.multiplyMatrices(this.leanInv, spine.matrixWorld);
+      this.pivot.setFromMatrixPosition(rel);
+      // T(p) · R · T(−p): the rotation about the Spine joint p.
+      this.mB.makeRotationAxis(this.cross, this.leanRoll * rest);
+      this.leanPivot.copy(this.pivot).applyMatrix4(this.mB);
+      this.mB.setPosition(this.pivot.x - this.leanPivot.x, this.pivot.y - this.leanPivot.y, this.pivot.z - this.leanPivot.z);
+      rel.premultiply(this.mB);
+      const parentRel = this.mB.multiplyMatrices(this.leanInv, spine.parent!.matrixWorld).invert();
+      parentRel.multiply(rel).decompose(this.dPos, spine.quaternion, this.dScale);
+      spine.updateMatrixWorld(true);
+    }
+    // 3. The feet exactly as they were (flat on the deck, where they stood).
+    for (const [foot, was] of [
+      [bones.LeftFoot, this.footL0],
+      [bones.RightFoot, this.footR0],
+    ] as const) {
+      const parentRel = this.mA.multiplyMatrices(this.tiltInv, foot.parent!.matrixWorld).invert();
+      parentRel.multiply(was).decompose(this.dPos, foot.quaternion, this.dScale);
+      foot.updateMatrixWorld(true);
+    }
   }
 
-  /** The lip lean's current angle of the body about its feet line (rad; for tests). */
+  /** The lip lean's current lay-back (rad; for tests). */
   get leanAngle(): number {
     return this.leanRoll;
   }
@@ -264,7 +314,9 @@ export class Character {
    */
   plantFeet(): void {
     const model = this.rig.model;
-    this.root.updateMatrixWorld(true);
+    // The board's chain above, then the body's subtree (not the board mesh).
+    this.tilt.updateWorldMatrix(true, false);
+    this.lean.updateMatrixWorld(true);
     this.rig.bones.LeftFoot.getWorldPosition(this.footL);
     this.rig.bones.RightFoot.getWorldPosition(this.footR);
     this.lean.worldToLocal(this.footL);

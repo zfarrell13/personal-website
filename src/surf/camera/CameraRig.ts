@@ -3,7 +3,7 @@ import { SURF_CONFIG, type Side, type SurfConfig } from '../config';
 import { springStepVec3 } from '../math/spring';
 import { DEG, wrapAngle } from '../math/scalar';
 import type { SurferState } from '../physics/Surfer';
-import { faceSteepness, leanBlend } from '../character/lean';
+import { faceSteepness, layBackAngle, layBackAxis } from '../character/lean';
 import { impactDistance } from '../wave/impact';
 import { frameToView } from '../wave/mirror';
 
@@ -160,25 +160,25 @@ const CHASE_FRAMING = [
   { up: 0.9, ndc: 0.65 }, // the chest
   { up: 1.5, ndc: 0.8 }, // the head
 ] as const;
-const WORLD_UP = new Vector3(0, 1, 0);
 /** Lean of the drawn body: as Character.ts, bank = clamp(turnRate · |v| · BANK_GAIN, ±BANK_MAX). */
 const BANK_GAIN = 0.04;
 const BANK_MAX = 0.6;
 
 /**
- * The drawn rider's up direction (frame coordinates): the surface normal leaned back toward world up on
- * a steep face (the lip lean) and into the turn about the board's line, as Character.ts leans and banks
- * the body (from the face, the turn rate and speed only, not the pose).
+ * The drawn rider's up direction (frame coordinates): the surface normal leaned into the turn about the
+ * board's line, then laid back off a steep face away from world up (the lip lean), as Character.ts banks
+ * and leans the body (from the face, the turn rate and speed only, not the pose).
  */
 export function riderUp(s: Pick<SurferState, 'normal' | 'heading' | 'turnRate' | 'v' | 'stanceFlipped'>, out: Vector3, fwd = new Vector3()): Vector3 {
   const bank = Math.max(-BANK_MAX, Math.min(BANK_MAX, s.turnRate * s.v.length() * BANK_GAIN)) * (s.stanceFlipped ? 1 : -1);
   fwd.copy(s.heading).multiplyScalar(s.stanceFlipped ? -1 : 1).normalize();
-  // The lip lean (character/lean.ts): on a steep face the body leans back toward world up — as a roll
-  // about the board (Character pivots it on the feet, which stand along the board).
-  out.copy(s.normal).lerp(WORLD_UP, leanBlend(faceSteepness(s.normal.y)));
-  out.addScaledVector(fwd, -out.dot(fwd)).normalize();
-  return out.applyAxisAngle(fwd, bank);
+  out.copy(s.normal).applyAxisAngle(fwd, bank);
+  // The lip lean (character/lean.ts), on top of the bank: laid back off the face, away from world up.
+  const lay = layBackAngle(faceSteepness(s.normal.y));
+  if (lay > 0 && layBackAxis(s.normal, LAY_AXIS)) out.applyAxisAngle(LAY_AXIS, lay);
+  return out;
 }
+const LAY_AXIS = new Vector3();
 
 /**
  * Where the camera wants to be (VIEW coordinates, i.e. already mirrored) for a shot.

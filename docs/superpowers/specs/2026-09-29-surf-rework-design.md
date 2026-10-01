@@ -371,22 +371,32 @@ should be the jump (ollie)"; "go higher the longer you hold Space".
 
 ### Playtest 5: lip lean
 
-User: "the steeper the face, the further he should be leaning back (away from the wave)".
+User: "the steeper the face, the further he should be leaning back (away from the wave)"; asked which
+way, "Out, away from the wave": the upper body tips back off the face toward the open air and the
+shore, weight on the back foot, laid back like a big top turn, the head ending farther from the wave.
+(The first build blended the body toward world up — the rejected direction — and solved it in the
+banked frame, cancelling the rail bank; replaced.)
 
-- Riding (not in the air, on a floater or wiping out), the drawn body's up blends from the surface
-  normal toward world up by `LEAN_BACK` (0.5) × smoothstep(`LEAN_FROM` 0.35, 1, steepness)
-  (`character/lean.ts`; steepness = sin of the face angle, 1 when vertical or overhanging): on a
-  near-vertical lip face the rider stands leaned back out over the flats (about 45° from upright)
-  instead of sticking straight out from the face. The body pivots back on its feet — about the line
-  through the two soles on the deck, after the feet are planted — so the feet stay where they stand
-  and the board stays on the face; the angle eases in (no snap when a face end tips the normal). It
-  sits on top of the pose layer (bottom / top turn postures unchanged), the turn bank and the backside
-  mirror. The camera's framing guard (`riderUp`) models it.
-- Verification (both rigs, both sides): the lean back from the normal is monotonic in steepness (0 on
-  a flat face); on a vertical face the body is within 50° of upright, > 35° back from the normal and
-  still leaning toward shore; the soles stay within 1 cm of where they stand on a flat face; a
-  one-tick tip of the normal eases in over several frames; no lean in a trick air; screenshots at the
-  top of the face from the chase camera.
+- Riding (not in the air, on a floater or wiping out), the drawn body lays back past the surface
+  normal, away from world up — about the axis up × normal — by `LEAN_MAX` (35°) × smoothstep
+  (`LEAN_FROM` 0.2, 1, steepness) (`character/lean.ts`; steepness = sin of the face angle): ≈ 0 on
+  gentle faces, continuous from zero, 35° on a near-vertical face. In every heading: along the wave it
+  tips the body off the face; running up the face (a top turn) it is a lay-back over the tail, off the
+  face. It comes on top of the rail bank (applied in the banked board's frame) and eases in.
+- Feet planted, soles flat: the part of the lay-back about the line through the ankles turns the whole
+  body about that line (the ankles stay put); the rest tips the upper body at the Spine (the legs hang
+  off the Hips); each foot is then put back exactly as it was. Per frame only the board's chain and the
+  body's subtree are updated. `Character.leanScale` (1) scales it (0: none — the tests' and screenshots'
+  reference). The camera's framing guard (`riderUp`) applies the same lay-back on top of the bank.
+- Verification (both rigs, RIGHT and LEFT, down the line and up the face): the lay-back from the
+  unleaned body grows with steepness (< 3° to steepness 0.3, 25–42° at 0.98) and tips away from up; the
+  bank turns the body as much with the lean as without it, the lay-back is as big banked as straight,
+  and a banked rider's line moves < 1.5° per 0.01 of steepness where the lean starts; the feet stay
+  within 5 mm and their soles within 1° of the unleaned (exact on the procedural rig; the glTF rig's
+  bone scales leave ≈ 0.5° in the decomposition), banked or not; on the real wave's pocket face the
+  lay-back carries the head farther from the water the steeper the face (≈ 0 gentle, > 0.2 m steep);
+  it eases in; none in a trick air. Before / after screenshots: a steep down-the-line trim and a top
+  turn, RIGHT and LEFT.
 
 ## Playtest 2 amendments (user feedback)
 
