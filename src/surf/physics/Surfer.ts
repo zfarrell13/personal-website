@@ -124,11 +124,22 @@ export class Surfer {
   private readonly axis = new Vector3();
   private readonly water = new Vector3();
   private readonly rel = new Vector3();
+  /** Scratch tangents for headingFromMotion (never the riding frame's sx / st). */
+  private readonly hx = new Vector3();
+  private readonly ht = new Vector3();
   private anchorT = 0;
   /** Current peel speed (m/s): the water moves at −vp along x in the wave frame. */
   private vp = 0;
-  /** Carve yaw rate (rad/s), easing toward the input's target. */
+  /** Carve yaw rate (rad/s), easing toward the input's target while a carve key is held; 0 the tick it is let go. */
   private yawRate = 0;
+  /**
+   * With no carve key held the rail holds the board's line (playtest 6): its angle in the face, from
+   * along the wave (e1) toward up the face (eUp), latched when the key is let go (or on the first
+   * keyless tick). null while a key is held, in the air and on a floater.
+   */
+  private line: number | null = null;
+  /** Unit board line in the face at the current point (cos line · e1 + sin line · eUp). */
+  private readonly lineDir = new Vector3();
   /** +1 while the board runs toward +x (the shoulder), −1 toward the curl; see TURN_SENSE_HYSTERESIS. */
   private turnSense = 1;
   /** Sign of the carve input on the last tick: a change (press, release, other key) starts a new turn. */
@@ -272,6 +283,7 @@ export class Surfer {
     s.param.x = x;
     this.vp = this.wave.params.peelSpeed;
     this.yawRate = 0;
+    this.line = null;
     this.turnSense = 1;
     this.deferredSnap = false; // a fresh run: nothing from the last one scores
     this.endTurn();
@@ -339,17 +351,55 @@ export class Surfer {
   }
 
   /**
-   * The board points along its motion through the water: the world velocity v + vp·x̂ (the wave frame
-   * only translates, so world directions are frame directions). Kept when that is too slow to tell.
-   * (Airborne, setPeelSpeed shifts the path's x-velocity by −Δ, which assumes the launch tangent ≈ x̂.)
+   * The board points along its motion through the water: v − water, the water sliding along the
+   * surface at −vp·e1 at the board's param (as the riding forces see it — so the heading is the same
+   * line the rail holds when no key is down, with no jump on a press or a release; playtest 6: it was
+   * v + vp·x̂, which differs from it by vp·(x̂ − e1) where the hollow face tilts e1). Kept when that is
+   * too slow to tell. (Airborne, setPeelSpeed shifts the path's x-velocity by −Δ, which assumes the
+   * launch tangent ≈ x̂.)
    */
   private headingFromMotion(out: Vector3, horizontal = false): void {
-    const v = this.state.v;
-    const x = v.x + this.vp;
-    const y = horizontal ? 0 : v.y;
-    const len = Math.hypot(x, y, v.z);
-    if (len > this.cfg.minSpeed) out.set(x / len, y / len, v.z / len);
+    const s = this.state;
+    this.wave.tangents(s.param.x, s.param.t, this.hx, this.ht);
+    const e1 = this.hx.normalize();
+    const x = s.v.x + this.vp * e1.x;
+    const y = horizontal ? 0 : s.v.y + this.vp * e1.y;
+    const z = s.v.z + this.vp * e1.z;
+    const len = Math.hypot(x, y, z);
+    if (len > this.cfg.minSpeed) out.set(x / len, y / len, z / len);
     else if (horizontal) out.set(out.x, 0, out.z).normalize();
+  }
+
+  /** The board's line angle in the face (from e1 toward eUp) at the current frame: its motion through the water, else its heading. */
+  private lineAngle(): number {
+    const s = this.state;
+    const rel = this.tmp.copy(s.v).addScaledVector(this.e1, this.vp);
+    const d = rel.length() > this.cfg.minSpeed ? rel : s.heading;
+    return Math.atan2(d.dot(this.eUp), d.dot(this.e1));
+  }
+
+  /** lineDir = the line at `angle` in the current face frame (e1, eUp). */
+  private lineAt(angle: number): Vector3 {
+    return this.lineDir.copy(this.e1).multiplyScalar(Math.cos(angle)).addScaledVector(this.eUp, Math.sin(angle)).normalize();
+  }
+
+  /**
+   * Keyless, after the move: the board's motion through the water is put back on its held line in
+   * the face frame where it now is (the same angle from along the wave toward up the face): only its
+   * part across that line is removed.
+   */
+  private holdLine(): void {
+    const s = this.state;
+    this.frameAt(s.param.x, s.param.t);
+    const L = this.lineAt(this.line!);
+    // Only the cross-line part of the motion through the water here goes (the rail holds it).
+    const along = this.rel.copy(s.v).addScaledVector(this.e1, this.vp).dot(L);
+    s.v.copy(L).multiplyScalar(along).addScaledVector(this.e1, -this.vp);
+  }
+
+  /** Keyless heading: the held line (never flipped by sliding back along it). */
+  private lineHeading(out: Vector3): void {
+    out.copy(this.lineAt(this.line!));
   }
 
   /** Crest param and height at column x, memoized (crestT is expensive). */
@@ -438,6 +488,11 @@ export class Surfer {
     this.frameAt(s.param.x, s.param.t);
     s.carve = input.carve;
     s.stalling = input.stall && !s.floating;
+    // No carve key held: nothing turns the board (playtest 6). The rail holds its line — the angle in
+    // the face latched here — and the forces below only change its speed along that line.
+    const keyless = input.carve === 0 && !s.floating;
+    if (!keyless) this.line = null;
+    else if (this.line === null) this.line = this.lineAngle();
 
     if (input.ollie && !s.floating) {
       // Ollie: +ollieImpulse along the surface normal (on top of any speed already leaving it).
@@ -477,6 +532,16 @@ export class Surfer {
     rel.subVectors(s.v, water);
     // Stalling holds the board's height on the face: its motion up / down the face dies away.
     if (s.stalling) rel.addScaledVector(this.eUp, -rel.dot(this.eUp) * (1 - Math.exp(-c.stallHold * dt)));
+    // Keyless, the rail holds the line: only the part of the motion along it is kept (all of the
+    // cross-line gravity is held; a stall's damping slows the board along its line instead of
+    // flattening it). The board may slow to a stop and slide back along its line, tail first.
+    if (keyless) {
+      // Holding the stall (↓) is the player setting the rail: its damping may flatten the held line.
+      if (s.stalling && rel.length() > c.minSpeed) this.line = Math.atan2(rel.dot(this.eUp), rel.dot(this.e1));
+      const L = this.lineAt(this.line!);
+      const along = rel.dot(L);
+      rel.copy(L).multiplyScalar(along);
+    }
 
     // --- carve: rotate the board's line about the normal. A held carve keeps turning the way it
     // started (heldSense, latched on the press: toward the lip = +carve) for as long as it is held —
@@ -536,10 +601,10 @@ export class Surfer {
       // Snapping at the lip (a snap armed, held there), the rail bites harder.
       target = Math.abs(input.carve) * rate * this.heldSense * (this.snapArmed && this.atCrest ? c.snapCarveBoost : 1);
     }
-    // Let go: the rail releases. Any extra bite (a snap at the lip, a rebound) goes at once; the plain
-    // carve rate that is left eases out over carveLag, exactly as any release.
-    if (sign === 0) this.yawRate = clamp(this.yawRate, -rate, rate);
-    this.yawRate += (target - this.yawRate) * (1 - Math.exp(-dt / c.carveLag));
+    // Let go: the turn stops on that tick (playtest 6: no easing out, no turning without a key). A
+    // pressed key eases in over carveLag (a weighty rail).
+    if (sign === 0) this.yawRate = 0;
+    else this.yawRate += (target - this.yawRate) * (1 - Math.exp(-dt / c.carveLag));
     const ang = this.yawRate * dt;
     if (ang !== 0) rel.applyAxisAngle(n, ang);
     s.turnRate = this.yawRate;
@@ -606,15 +671,19 @@ export class Surfer {
           return;
         }
         if (this.faceEdge(tb, tc, input.carve, dt)) return;
+        if (keyless) this.holdLine();
       } else {
         this.atCrest = false;
         w.profile(s.param.x, s.param.t, s.p);
         w.normal(s.param.x, s.param.t, n);
         s.v.addScaledVector(n, -s.v.dot(n));
-        if (s.param.t <= 0) this.bottomTurn(dt, this.turningSense());
+        // Bottoming out on the flats turns the board only with a turn held (keyless, it bogs down there).
+        if (keyless) this.holdLine();
+        else if (s.param.t <= 0) this.bottomTurn(dt, this.turningSense());
       }
     }
-    this.headingFromMotion(s.heading);
+    if (keyless) this.lineHeading(s.heading);
+    else this.headingFromMotion(s.heading);
 
     // --- snap arming on the open face: a climb can top out near the crest without reaching the face
     // edge, so the apex of a climb into the top band arms it too.
@@ -727,6 +796,10 @@ export class Surfer {
     // Too slow to launch: the lip sheds the rider back down the face (no balancing on the ridge),
     // over a few ticks (crestShedRate) so the board's heading turns rather than flips.
     const up = s.v.dot(out);
+    // Keyless the line is held (playtest 6): nothing turns the board off the lip. Gravity along its
+    // line slows a board whose line climbs into the lip until it slides back down that line, tail
+    // first, with no yaw (and a line along the lip runs along the top of the face).
+    if (this.line !== null) return false;
     if (up > -c.crestShed) s.v.addScaledVector(out, -Math.min(up + c.crestShed, c.crestShedRate * dt));
     return false;
   }
@@ -854,6 +927,7 @@ export class Surfer {
     s.airTime = 0;
     s.turnRate = 0;
     this.yawRate = 0;
+    this.line = null;
     this.endTurn();
     s.stalling = false;
     this.atCrest = false;

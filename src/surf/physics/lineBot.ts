@@ -1,5 +1,6 @@
 import { clamp } from '../math/scalar';
 import type { WaveShape } from '../wave/WaveShape';
+import { faceYaw } from './faceYaw';
 import { NO_INPUT, type SurferInput } from './input';
 import type { Surfer } from './Surfer';
 
@@ -7,8 +8,18 @@ import type { Surfer } from './Surfer';
  * Turn early by this share of the height the board still travels while the turn comes round: the
  * vertical speed × (carve lag + the time to turn the line flat at the current speed). A competent
  * rider reads the speed; a fixed lead either cuts steep climbs short or plunges fast drops onto the flats.
+ * (Playtest 6: 0.6 → 0.3. Letting go now stops the turn on the spot — no release overshoot carries a
+ * climb on past the slope the bot let go at — so it can let a climb run further before turning down.)
  */
-const ANTICIPATE = 0.6;
+const ANTICIPATE = 0.3;
+/**
+ * The bot's slope is a 3D climb (heading.y), which reads small on the flat bottom of the face even on a
+ * line straight up it. There (steepness below FLAT) it never holds a turn past FLAT_MAX_YAW in the
+ * face (from along the wave). (Playtest 6: no auto bottom turn levels the line off any more — the
+ * bot's own carve must.)
+ */
+const FLAT = 0.3;
+const FLAT_MAX_YAW = (50 * Math.PI) / 180;
 /** The bot's read of which way the board runs only flips once |heading.x| clears this (like the Surfer's turn sense). */
 const SENSE_HYSTERESIS = 0.2;
 
@@ -57,7 +68,9 @@ export function lineBot(surfer: Surfer, wave: WaveShape, o: LineBotOptions): (dt
     // A held carve keeps turning (the Surfer latches its sense on the press), so the bot holds a
     // carve until the line reaches the slope it wants, then lets go and the board holds that line.
     // Heading toward the curl: turn on round, down through the fall line, toward the shoulder.
-    const rot = sense < 0 ? 1 : climbing ? (hy < lim ? 1 : 0) : hy > -lim ? -1 : 0;
+    const yaw = faceYaw(wave, s.param, s.heading);
+    const cap = wave.steepness(s.param.x, s.param.t) < FLAT ? FLAT_MAX_YAW : Infinity;
+    const rot = sense < 0 ? 1 : climbing ? (hy < lim && yaw < cap ? 1 : 0) : hy > -lim && yaw > -cap ? -1 : 0;
     if (rot !== heldRot) {
       // A different turn needs a fresh press: let go for a tick first if a key is down.
       if (heldRot !== 0 && rot !== 0) {

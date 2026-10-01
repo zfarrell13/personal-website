@@ -85,9 +85,10 @@ carving **weighty / realistic**.
     toward-the-trough meaning at that moment); there is no settling straight
     up / down and no swing toward the shoulder. Let go and the yaw rate eases to
     0 (`carveLag`): the board holds its line. Rate, lag and `carveBleed` are
-    unchanged. A held turn that reaches the trough carries on round the way it
+    unchanged. (Playtest 6: the yaw rate now drops to 0 on the release tick — see below.) A held turn that reaches the trough carries on round the way it
     is turning (the bottom turn follows it, never fights it into the flats).
-  - **Letting go always stops the turn** (playtest 4 bug: "if i hold the arrow
+  - **Letting go always stops the turn** (superseded in detail by the playtest 6
+    amendment below: no ease-out, no turning at all without a key) (playtest 4 bug: "if i hold the arrow
     for too long, the roundhouse is held, even if i take my finger off"). With
     no carve key down nothing turns the board: a rebound in progress ends at
     once (no ROUNDHOUSE for a bounce let go of; the cutback is remembered for a
@@ -157,6 +158,53 @@ carving **weighty / realistic**.
     the snap / roundhouse burst) is kept down as in the tube, so spray thrown
     just before that cut doesn't sit at the lens over the rider.
 
+- **Playtest 6 amendment: release stops the turn** (user, verbatim: "im still
+  experiencing stickyness of the turn arrow. when i let go during what i think the
+  game thinks is a roundhouse, the character does not stop turning. there shouldnt
+  be any automated turning. when i let go, the turning must stop"). Supersedes the
+  playtest 4 "eases out over `carveLag`" release.
+  - **On the tick a carve key is let go the yaw rate is 0.** Pressing a key still
+    eases the rail in over `carveLag` (the weighty rail); releasing never eases out.
+  - **With no carve key held nothing changes the board's yaw.** No rebound (it
+    already needed the key), no snap / lip bite, no cutback memory turning, no
+    bottom turn at the trough, no lip shed by rotation. The only turning without a
+    key left is the air spin settle (the accepted landing assist). Landings, floater
+    mounts / dismounts and drops off a face end restore a face velocity as before
+    (leaving or rejoining the face, not a turn while riding).
+  - **The rail holds the line.** With no carve key held the board's line — its angle
+    in the face from along the wave (e1) toward up the face (eUp) — is latched on the
+    release (or the first keyless tick, e.g. the drop-in or a landing) and held where
+    the board goes: every force (gravity, wave drive, drag, a pump) only changes the
+    speed along that line; the part across it is held by the rail (no sag). A board
+    whose line climbs slows on it and can slide back down it tail first, its heading
+    unchanged. Holding the stall (↓, a player input) is the one thing that may still
+    flatten the held line (stall-to-barrel).
+  - **Trough:** with no key held there is no auto bottom turn: the board bogs on the
+    flats (`flatsDragMultiplier`) on its line until the player carves; carving there
+    is the bottom turn (`bottomTurnRate`, `bottomTurnLoss`, as before).
+  - **Lip:** with no key held and too slow to launch, nothing turns the board off
+    the lip: gravity along a line that climbs into the lip slows it until it slides
+    back down that line (a line along the lip runs along the top of the face).
+    Letting go at the lip with up-face speed still launches; the cutback launch
+    guard still applies.
+  - **Heading:** the board's heading is its motion through the water as the
+    physics sees it (v − water, the water sliding at −Vp·e1), so it is the held line
+    exactly and doesn't jump on a press or a release where the hollow face tilts e1
+    (it was v + Vp·x̂).
+  - **Re-tuned to keep the targets' intent** (the release ease-out and the rail sag
+    had been doing part of the work): `drag` 0.025 → 0.032 (no-input catch ≈ 4.6 s,
+    unpumped lines still lost within 10 s, pumping targets met with margin);
+    `roundhouseDeg` 150 → 130 (the ease-out used to add ≈ 20–25° to every cutback:
+    the same two presses read ≈ 139°); the lineBot anticipates less (`ANTICIPATE`
+    0.6 → 0.3: no overshoot carries its climbs on) and, on the flat bottom of the
+    face (steepness < 0.3), never holds a turn past 50° of yaw (its 3D climb reads
+    small there). Test scripts that relied on the auto bottom turn or the ease-out
+    now carve those turns (camera cutback probes: the lip turn is held round to
+    heading.x < −0.97, its bot tops out at 0.8 × crest; the non-reversing carve hands
+    back to the lineBot; the roundhouse framing rides on with the lineBot after the
+    exit). One-tick turning checks measure the board's yaw in the face (`faceYaw`),
+    not the 3D heading, which also pitches with the surface (e.g. up the pocket wall).
+
 ## 5. Camera: behind, from the curl side
 
 - Chase camera sits **behind the rider on the curl side and high** (above the
@@ -191,14 +239,15 @@ Pumping targets (playtest 2, Task 2b — headless, `lineBot` + scripted inputs, 
    (x = 25) it loses no ground over 20 s. Pumping every 0.5–0.7 s on a slope-0.3 line gains ≥ 10 m in 20 s;
    every 0.6 s on a straight-ish line (slope 0.15) at least holds for 30 s. (Replaces the old
    "pumping alone, no carving, dies in < 7 s" test.)
-8. No input is swallowed in 4–6 s (tuned ≈ 5.0 s); the same lines without pumps still lose the wave
-   within 10 s.
+8. No input is swallowed in 4–6 s (tuned ≈ 4.6 s since playtest 6); the same lines without pumps still
+   lose the wave within 10 s.
 9. Pump feel: a full-efficiency pump mid-face at riding speed (8–12 m/s) adds +1.5–3 m/s of world speed;
    spamming faster than ~0.35 s has diminishing returns (speed per second at 0.2 s < 80%, at 0.1 s < 50%
    of a 0.6 s rhythm); a pump low on the face or in the flats is weaker than mid-face but never nothing
    (`pumpFlatGain`: half strength on the flats, full from steepness 0.35); pumps do nothing in the air.
-10. Slamming the trough is a bottom turn, not a dead stop: the line swings toward along the wave (the
-    way it already runs; from straight down, toward the shoulder) at `bottomTurnRate`, bleeding
+10. Slamming the trough and carving is a bottom turn, not a dead stop (playtest 6: with no key held
+    there is no turn — the line holds and the flats bog the board down): the line swings toward along
+    the wave (the way it is carved: from straight down, toward the shoulder) at `bottomTurnRate`, bleeding
     `bottomTurnLoss` per 90°; at 6 and 10 m/s the rider keeps ≥ 70% of its speed through the turn and
     the heading never changes > 15° in one tick. Once on the flats (t = 0) the board bogs down
     (`flatsDragMultiplier` × drag).
@@ -206,13 +255,18 @@ Pumping targets (playtest 2, Task 2b — headless, `lineBot` + scripted inputs, 
     past the fall line into a bottom turn), never a one-tick heading snap; far-out reversals must
     leave settled-line samples.
 12. Roundhouse (playtest 4): a held carve from down the line at 8 and 12 m/s turns on past 180° without
-    settling; released, the yaw rate dies within a few `carveLag`. At 8–12 m/s, a roundhouse — one held
+    settling; released, the yaw rate is 0 from the release tick (playtest 6). At 8–12 m/s, a roundhouse — one held
     carve near the pocket, or two presses (cut back, let go, press into the lip) from x = 20–30 — emits
     one `roundhouse` (no snap, or one taken back), comes out down the line with ≤ 15° per tick, no faster
     than it went in, ends shallower than −D/2, and 0.5 s later (back on its line down the face) runs at
     ≥ 60% of the entry speed. A short turn into the foam rebounds without one. During a roundhouse the
     leaning rider is framed in every chase frame (chest |ndc y| ≤ 0.7, board ≤ 0.8) and seen in ≥ 90%
     of them.
+13. Release (playtest 6): let go mid cutback, mid foam / lip rebound, at the lip with a snap armed, at
+    the trough mid bottom turn, after a 3 s hold, and in the two-press gap and just after the re-press:
+    the yaw rate is exactly 0 on every riding tick from the release and the board's yaw in the face
+    changes by under 2° over the next 1 s; no ROUNDHOUSE for a turn let go of. With no key, the trough
+    does not turn the board (< 2° over 0.5 s).
 
 ## Playtest 2 amendments (user feedback)
 

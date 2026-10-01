@@ -41,8 +41,12 @@ export const SURF_CONFIG = {
     gripSpeed: 5,
     /** Wave drive gain along +x, multiplied by local steepness (m/s²). */
     drive: 1.3,
-    /** Quadratic drag against the water (moving at −Vp in the frame). */
-    drag: 0.025,
+    /**
+     * Quadratic drag against the water (moving at −Vp in the frame). Playtest 6: 0.025 → 0.032 — with
+     * the rail holding the line on release (no sag, no release overshoot) unpumped lines kept more
+     * speed; this keeps "the same lines without pumps lose the wave within 10 s" and the no-input catch.
+     */
+    drag: 0.032,
     stallDragMultiplier: 4,
     /**
      * Stalling sets the rail: it holds the line on the face (full rail grip at any speed) and damps
@@ -114,9 +118,11 @@ export const SURF_CONFIG = {
     roundhouseRebound: 0.05,
     /**
      * A cutback of at least this many degrees (the carve yaw since the board last ran down the line,
-     * across releases) that ends in a rebound scores a ROUNDHOUSE.
+     * across releases) that ends in a rebound scores a ROUNDHOUSE. (Playtest 6: 150 → 130. Letting go
+     * now stops the turn on the spot; the old release easing added ≈ 20–25° to every cutback, so the
+     * same two presses — cut back until running at the curl, let go, press into the lip — read ≈ 139°.)
      */
-    roundhouseDeg: 150,
+    roundhouseDeg: 130,
     /** A cutback is forgotten after this long (s) running back toward the curl without a rebound. */
     cutbackMemory: 1.5,
     /** A snap that turns the board back toward the curl waits this long (s) at most for a ROUNDHOUSE to replace it. */

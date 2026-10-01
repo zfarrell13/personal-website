@@ -3,7 +3,9 @@ import { DoubleSide, Mesh, MeshBasicMaterial, PerspectiveCamera, Raycaster, Vect
 import { SURF_CONFIG, type Side } from '../config';
 import { EventBus, type SurfEvent } from '../physics/events';
 import { carveFromKeys, NO_INPUT, type SurferInput } from '../physics/input';
+import { faceYaw } from '../physics/faceYaw';
 import { lineBot } from '../physics/lineBot';
+import { wrapAngle } from '../math/scalar';
 import { Surfer } from '../physics/Surfer';
 import { buildWaveGeometry, columnsX, type OceanLayout } from '../render/waveGeometry';
 import { frameToView } from '../wave/mirror';
@@ -343,13 +345,14 @@ describe('CameraRig on the real wave (ray / visibility probes)', () => {
 
 describe('a cutback: the camera swings round behind the new travel direction', () => {
   // [start x, script, turn time (s), reverses toward the curl, far out (the reversal must leave settled-line samples)]
-  // 'lip': down the line with lineBot until the first climb into the top band (≥ 0.72 × crest) after 1 s,
-  //   then hold a carve-back (−1) through the lip snap until the board heads back toward the curl
-  //   (heading.x < −0.5), then straight: a genuine turn back toward the curl (snap + bottom turn).
+  // 'lip': down the line with lineBot (top turns at 0.8 × crest) until the first climb into the top band (≥ 0.72 × crest) after 1 s,
+  //   then hold a carve-back (−1) through the lip snap until the board runs back toward the curl
+  //   (heading.x < −0.97; playtest 6: letting go stops the turn, so it is held all the way round), then
+  //   straight: a genuine turn back toward the curl (snap + carve).
   // 'carve': lineBot until the turn time, then hold carve −1 (down the face). Held (≤ 1.2 s), the turn
   //   carries on through the fall line and round the bottom toward the curl (playtest 4: a held carve
-  //   keeps turning); let go after 0.45 s, before the fall line, the bottom turn takes the board back
-  //   down the line.
+  //   keeps turning); let go after 0.45 s, before the fall line, and the rider (lineBot again) carves
+  //   the bottom turn back down the line (playtest 6: nothing turns the board without a key).
   it.each([
     [30, 'lip', 1, true, true],
     [28, 'lip', 1, true, true],
@@ -383,7 +386,9 @@ describe('a cutback: the camera swings round behind the new travel direction', (
       const cam = new PerspectiveCamera(cfg.camera.fov, 16 / 9, 0.1, 650);
       const rig = new CameraRig(cam, cfg.camera, wave);
       rig.snap(s, 'left');
-      const bot = lineBot(surfer, wave, { pumpEvery: 1 });
+      // Going for a lip turn, the rider climbs into the top band (playtest 6: no release overshoot carries
+      // the bot's climbs there any more).
+      const bot = lineBot(surfer, wave, script === 'lip' ? { pumpEvery: 1, high: 0.8 } : { pumpEvery: 1 });
       const ray = new Raycaster();
       const UP = new Vector3(0, 1, 0);
       const back = new Vector3();
@@ -403,18 +408,25 @@ describe('a cutback: the camera swings round behind the new travel direction', (
       let maxStep = 0;
       let reversedAt = -1;
       let phase: 'line' | 'turn' | 'straight' = 'line';
+      let carveDone = false;
       let turnStart = -1;
       let backAt = -1;
       let maxTick = 0;
       const lastHeading = s.heading.clone();
       const input = (): SurferInput => {
         const t = s.time;
-        if (script === 'carve') return t < turnAt ? bot(1 / 120) : t < turnAt + (reverses ? 1.2 : 0.45) && s.heading.x > -0.9 ? { ...NO_INPUT, carve: -1 } : NO_INPUT;
+        if (script === 'carve') {
+          if (t < turnAt) return bot(1 / 120);
+          // (Let go once: the held line's 3D heading moves with the face under it.)
+          carveDone ||= t >= turnAt + (reverses ? 1.2 : 0.45) || s.heading.x <= -0.95;
+          if (!carveDone) return { ...NO_INPUT, carve: -1 };
+          return reverses ? NO_INPUT : bot(1 / 120);
+        }
         if (phase === 'line' && t > turnAt && s.heading.y > 0.05 && s.p.y > 0.72 * wave.crestY(s.param.x)) {
           phase = 'turn';
           turnStart = t;
         }
-        if (phase === 'turn' && (s.heading.x < -0.5 || t - turnStart > 2)) phase = 'straight';
+        if (phase === 'turn' && (s.heading.x < -0.97 || t - turnStart > 2)) phase = 'straight';
         return phase === 'line' ? bot(1 / 120) : phase === 'turn' ? { ...NO_INPUT, carve: -1 } : NO_INPUT;
       };
       for (let f = 0; f < 6 * 60; f++) {
@@ -489,6 +501,7 @@ describe('a roundhouse: the camera follows the rider round, the held key keeps i
    * 'hold': one held carve from down the line near the pocket (x = 7) round into the whitewater.
    * 'two-press': from further out (x = 20), hold round until running back toward the curl, let go
    * for 0.15 s, then press the key that is toward the lip on screen at that moment.
+   * Out of it the rider lets go and rides on down the line (lineBot, no pumps).
    * Keys are latched as SurfGame does: their meaning is read when a key goes down and kept while held.
    */
   it.each([
@@ -531,7 +544,11 @@ describe('a roundhouse: the camera follows the rider round, the held key keeps i
     let backAt = -1;
     let outAt = -1;
     let maxTick = 0;
-    const prev = s.heading.clone();
+    let prevYaw = faceYaw(wave, s.param, s.heading);
+    let wasRiding = true;
+    // Out of the roundhouse the rider rides on down the line (playtest 6: nothing turns the board without
+    // a key, so the bottom turn off the exit line is the rider's own carve).
+    const rideOn = lineBot(surfer, wave, { pumpEvery: 0 });
     for (let f = 0; f < 5 * 60 && s.mode === 'riding'; f++) {
       for (let k = 0; k < 2; k++) {
         if (script === 'two-press' && backAt >= 0 && down && s.time - backAt < 0.15) down = false;
@@ -541,14 +558,17 @@ describe('a roundhouse: the camera follows the rider round, the held key keeps i
           right = towardLip();
           latched = rig.keyFacing;
         }
-        const carve = down && outAt < 0 ? carveFromKeys(!right, right, side, latched) : 0;
+        const carve = down && outAt < 0 ? carveFromKeys(!right, right, side, latched) : outAt >= 0 ? rideOn(1 / 120).carve : 0;
         if (down && outAt < 0) {
           expect(carve).toBe(1); // whichever key, it means "toward the lip" for as long as it is held
           if (script === 'hold' && carveFromKeys(!right, right, side, rig.keyFacing) !== carve) unlatchedFlip = true;
         }
         surfer.step({ ...NO_INPUT, carve }, 1 / 120);
-        if (s.mode === 'riding') maxTick = Math.max(maxTick, prev.angleTo(s.heading));
-        prev.copy(s.heading);
+        // The board's yaw in the face (the 3D heading also pitches as it climbs the steep pocket wall).
+        const yaw = faceYaw(wave, s.param, s.heading);
+        if (s.mode === 'riding' && wasRiding) maxTick = Math.max(maxTick, Math.abs(wrapAngle(yaw - prevYaw)));
+        prevYaw = yaw;
+        wasRiding = s.mode === 'riding';
         if (backAt < 0 && s.heading.x < -0.7) backAt = s.time;
       }
       rig.update(s, s.p, side, false, 1 / 60, s.time);

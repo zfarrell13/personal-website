@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { Vector3 } from 'three';
 import { bumpConfig, SURF_CONFIG } from '../config';
-import { DEG } from '../math/scalar';
+import { DEG, wrapAngle } from '../math/scalar';
 import { mulberry32 } from '../audio/synth';
 import { WaveShape } from '../wave/WaveShape';
 import { EventBus, type SurfEvent } from './events';
 import { NO_INPUT, type SurferInput } from './input';
+import { faceYaw } from './faceYaw';
 import { lineBot } from './lineBot';
 import { Surfer } from './Surfer';
 
@@ -365,7 +366,7 @@ describe('Surfer — riding', () => {
   it('a pump mid-face at riding speed is a clear kick: +1.5–3 m/s', () => {
     for (const speed of [8, 10, 12]) {
       expect(pumpKick(speed, 0.4)).toBeGreaterThanOrEqual(1.5);
-      expect(pumpKick(speed, 0.4)).toBeLessThanOrEqual(3);
+      expect(pumpKick(speed, 0.4)).toBeLessThanOrEqual(3 + 1e-9);
     }
   });
 
@@ -422,11 +423,15 @@ describe('Surfer — riding', () => {
     expect(climb(-1)).toBeLessThan(straight - 0.1);
   });
 
+  // Playtest 6: a held carve keeps turning round (over the top), and letting go stops the turn — so the
+  // rider aims the climb: carve up until the line points up the face (75° in the face), then let go.
   it.each([8, 15, 25])('from speed, trough → top of the face (85% of the crest) in ≤ 1.5 s (x = %d)', (x) => {
     const h = trimming(10, x, 0.2);
     let top = -1;
+    let aimed = false;
     for (let i = 0; i < 3 * 120 && top < 0; i++) {
-      h.run(DT, () => ({ carve: 1 }));
+      aimed ||= faceYaw(h.wave, h.s.param, h.s.heading) >= 75 * DEG;
+      h.run(DT, () => ({ carve: aimed ? 0 : 1 }));
       if (h.s.mode === 'airborne' || h.s.p.y >= 0.85 * h.wave.crestY(h.s.param.x)) top = h.s.time;
     }
     expect(top).toBeGreaterThan(0);
@@ -493,10 +498,13 @@ describe('Surfer — riding', () => {
 
   /**
    * From (15, 0.15), riding at world `speed` down the face at `angle` from the fall line (+ toward
-   * the shoulder), with no input into the trough: the speed just before the bottom, the lowest speed
-   * through the bottom turn (0.2 s), the largest one-tick heading change and the final heading.
+   * the shoulder), with no input into the trough; there, a carve turning the line `turn` round (+1:
+   * from straight down toward the shoulder, −1 toward the curl, 0 none) is held until the board runs along the wave (|heading.x| >
+   * 0.7), then let go. Returns the speed just before the bottom, the lowest speed through the bottom
+   * turn (0.2 s), the largest one-tick change of the board's yaw in the face, the yaw change over the
+   * 0.5 s after the bottom and the final heading.
    */
-  function slamTrough(speed: number, angleDeg: number) {
+  function slamTrough(speed: number, angleDeg: number, turn: -1 | 0 | 1) {
     const h = setup();
     h.surfer.reset(15, 0.15);
     const up = new Vector3().crossVectors(h.s.normal, new Vector3(1, 0, 0)).normalize();
@@ -510,21 +518,29 @@ describe('Surfer — riding', () => {
     let hitAt = -1;
     let minAfter = Infinity;
     let maxTurn = 0;
-    const prev = h.s.heading.clone();
+    let yawAtHit = NaN;
+    let turned = false;
+    // The carve key that turns the board `turn`'s way round from how it runs now (+1 = toward the lip).
+    const key = () => turn * (h.surfer as unknown as { turnSense: number }).turnSense;
+    let yaw = faceYaw(h.wave, h.s.param, h.s.heading);
     for (let i = 0; i < 2 * 120 && h.s.mode === 'riding'; i++) {
       const sp = h.surfer.worldSpeed(h.surfer.peelSpeed);
-      h.run(DT);
+      turned ||= hitAt >= 0 && Math.abs(h.s.heading.x) > 0.7;
+      h.run(DT, () => ({ carve: hitAt >= 0 && !turned ? key() : 0 }));
       if (hitAt < 0 && h.s.param.t <= 0) {
         hitAt = h.s.time;
         before = sp;
+        yawAtHit = faceYaw(h.wave, h.s.param, h.s.heading);
       }
       // The turn itself (≈ 0.13 s); afterwards the flats bog the board down (flatsDragMultiplier) on purpose.
       if (hitAt >= 0 && h.s.time <= hitAt + 0.2) minAfter = Math.min(minAfter, h.surfer.worldSpeed(h.surfer.peelSpeed));
-      maxTurn = Math.max(maxTurn, prev.angleTo(h.s.heading));
-      prev.copy(h.s.heading);
+      const y = faceYaw(h.wave, h.s.param, h.s.heading);
+      maxTurn = Math.max(maxTurn, Math.abs(wrapAngle(y - yaw)));
+      yaw = y;
       if (hitAt >= 0 && h.s.time > hitAt + 0.5) break;
     }
-    return { hit: hitAt >= 0, before, minAfter, maxTurnDeg: maxTurn / DEG, heading: h.s.heading.clone() };
+    const yawAfter = Math.abs(wrapAngle(yaw - yawAtHit)) / DEG;
+    return { hit: hitAt >= 0, before, minAfter, maxTurnDeg: maxTurn / DEG, yawAfterDeg: yawAfter, heading: h.s.heading.clone() };
   }
 
   it.each([
@@ -533,14 +549,30 @@ describe('Surfer — riding', () => {
     [6, 20],
     [10, 20],
     [10, -20],
-  ])('slamming the trough at %d m/s (%d° off the fall line) is a bottom turn: keeps ≥ 70% of the speed, no heading snap (≤ 15° per tick)', (speed, angle) => {
-    const r = slamTrough(speed, angle);
+  ])('slamming the trough at %d m/s (%d° off the fall line) and carving is a bottom turn: keeps ≥ 70% of the speed, no heading snap (≤ 15° per tick)', (speed, angle) => {
+    // Playtest 6: the bottom turn is the player's carve (from straight down, toward the shoulder; off
+    // the fall line, the way the board already runs).
+    const r = slamTrough(speed, angle, angle < 0 ? -1 : 1);
     expect(r.hit).toBe(true);
     expect(r.minAfter).toBeGreaterThanOrEqual(0.7 * r.before);
     expect(r.maxTurnDeg).toBeLessThanOrEqual(15);
     // It comes out running along the wave, the way it was already going (straight down → the shoulder).
     if (angle < 0) expect(r.heading.x).toBeLessThan(-0.7);
     else expect(r.heading.x).toBeGreaterThan(0.7);
+  });
+
+  // Playtest 6: with no carve key held nothing turns the board — not even the trough. It bogs down on
+  // the flats, its line held, until the player carves.
+  it.each([
+    [6, 0],
+    [10, 20],
+    [10, -20],
+  ])('slamming the trough at %d m/s (%d° off the fall line) with no key held: no auto bottom turn, the line holds and the flats bog the board down', (speed, angle) => {
+    const r = slamTrough(speed, angle, 0);
+    expect(r.hit).toBe(true);
+    expect(r.yawAfterDeg).toBeLessThan(2);
+    expect(r.maxTurnDeg).toBeLessThan(1);
+    expect(r.minAfter).toBeLessThan(r.before);
   });
 
   it('the board points along its motion through the water, even while losing ground to the curl', () => {
@@ -911,35 +943,38 @@ describe('Surfer — held carves and the roundhouse', () => {
     expect(r.events.some((e) => e.type === 'launched')).toBe(false); // a held turn at the lip never launches
   });
 
-  it('releasing mid-turn holds the line: the yaw rate dies away within a few carveLag', () => {
+  it('releasing mid-turn stops the turn on that tick and holds the line', () => {
     const h = moving(10, 30, 0.3, 0);
     hold(h, 1, 0.35);
     expect(Math.abs(h.s.turnRate)).toBeGreaterThan(1);
-    h.run(5 * h.cfg.physics.carveLag);
-    expect(Math.abs(h.s.turnRate)).toBeLessThan(0.05);
+    expectReleaseStops(h);
   });
 
   /**
-   * Playtest 4 bug ("if i hold the arrow for too long, the roundhouse is held, even if i take my finger
-   * off"): letting go always stops the turn. From the release: the carve yaw rate (any extra bite —
-   * snap, rebound — dropped at once) is below 0.1 rad/s within 4 × carveLag, and the yaw the carve
-   * turns after it (Σ|turnRate|·dt over 1 s) is that of a plain release, ≤ 35°.
+   * Playtest 6 ("when i let go, the turning must stop"; supersedes playtest 4's ease-out over carveLag):
+   * from the release tick the yaw rate is exactly 0 on every riding tick, and over the next 1 s the
+   * board's yaw in the face (its line from along the wave toward up the face — the 3D heading also
+   * moves with the surface under it) changes by under 2° in all. Nothing scores a ROUNDHOUSE for a
+   * turn the player let go of. (Leaving the face — a launch off the lip, the curl — ends the check.)
    */
   function expectReleaseStops(h: ReturnType<typeof setup>) {
-    const lag = h.cfg.physics.carveLag;
-    const t0 = h.s.time;
     const e0 = h.events.length;
-    let yaw = 0;
-    let rateAfter = Infinity;
+    let yaw = faceYaw(h.wave, h.s.param, h.s.heading);
+    let turned = 0;
+    let ticks = 0;
     for (let i = 0; i < 120 && h.s.mode === 'riding'; i++) {
       h.surfer.step(NO_INPUT, DT);
-      yaw += Math.abs(h.s.turnRate) * DT;
-      if (h.s.time - t0 >= 4 * lag && rateAfter === Infinity) rateAfter = Math.abs(h.s.turnRate);
+      if (h.s.mode !== 'riding') break;
+      ticks++;
+      expect(h.s.turnRate).toBe(0);
+      const y = faceYaw(h.wave, h.s.param, h.s.heading);
+      turned += Math.abs(wrapAngle(y - yaw));
+      yaw = y;
     }
-    if (rateAfter !== Infinity) expect(rateAfter).toBeLessThan(0.1);
-    expect(yaw / DEG).toBeLessThanOrEqual(35);
-    // Nothing scores a ROUNDHOUSE for a turn the player let go of.
+    expect(ticks).toBeGreaterThan(0);
+    expect(turned / DEG).toBeLessThan(2);
     expect(h.events.slice(e0).some((e) => e.type === 'roundhouse')).toBe(false);
+    return ticks;
   }
   type Internals = { rebound: 'foam' | 'lip' | null; snapArmed: boolean; atCrest: boolean };
   const internals = (h: ReturnType<typeof setup>) => h.surfer as unknown as Internals;
@@ -989,6 +1024,36 @@ describe('Surfer — held carves and the roundhouse', () => {
     expect(internals(h).snapArmed && internals(h).atCrest).toBe(true);
     hold(h, 1, 0.05);
     expectReleaseStops(h);
+  });
+
+  it('let go after a long (3 s) held carve, the board stops turning at once', () => {
+    const h = moving(10, 40, 0.3, 0);
+    hold(h, 1, 3);
+    expect(h.s.mode).toBe('riding');
+    expect(Math.abs(h.s.turnRate)).toBeGreaterThan(1);
+    expectReleaseStops(h);
+  });
+
+  it('let go mid bottom turn at the trough (a carve held into the flats), the board stops turning: no auto bottom turn', () => {
+    const h = moving(9, 30, 0.3, -80); // dropping almost straight down the face
+    hold(h, 0, 1, () => h.s.param.t <= 0);
+    expect(h.s.param.t).toBeLessThanOrEqual(0);
+    hold(h, 1, 0.04); // the turn under way on the flats
+    expect(Math.abs(h.s.turnRate)).toBeGreaterThan(1);
+    expectReleaseStops(h);
+  });
+
+  it('two presses: let go in the gap after the cutback, and again just after the re-press, the board stops turning each time', () => {
+    const h = moving(10, 25, 0.3, 0);
+    hold(h, 1, 3, () => h.s.heading.x < -0.7);
+    expect(Math.abs(h.s.turnRate)).toBeGreaterThan(2);
+    expectReleaseStops(h);
+    const g = moving(10, 25, 0.3, 0);
+    hold(g, 1, 3, () => g.s.heading.x < -0.7);
+    g.run(0.15);
+    hold(g, 1, 0.05); // the re-press, before the rebound has turned it far
+    expect(Math.abs(g.s.turnRate)).toBeGreaterThan(0.5);
+    expectReleaseStops(g);
   });
 
   it('a held carve toward the trough turns through the fall line, round the bottom and back up the face (never stuck on the flats)', () => {
