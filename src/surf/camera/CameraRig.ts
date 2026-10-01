@@ -132,11 +132,12 @@ const FACING_SWITCH = 0.3;
 /**
  * Chase framing guard: points of the drawn rider (leaning into the turn, see `riderUp`) are kept within
  * these shares of the half-height of the screen from its centre — the chest within 0.7 and the board
- * within 0.8 (clear of the HUD along the bottom edge), the head on screen. Normally they sit well
- * inside (chest ≈ 17° below centre, ndc ≈ −0.5); a fast reversal (a roundhouse running back toward the
- * curl under the still-swinging camera, the body leaning hard) would otherwise carry them off the
- * bottom of the screen, so the camera tilts toward them instead (it never moves for this). The guard
- * aims a little inside the limits (render interpolation, the cone vs the screen rectangle).
+ * within 0.8 (clear of the HUD along the bottom edge), the head within 0.8. The chest normally sits
+ * ≈ 17° below centre (ndc ≈ −0.5); a fast reversal (a roundhouse running back toward the curl under the
+ * still-swinging camera, the body leaning hard) would otherwise carry the rider off the bottom of the
+ * screen, so the camera tilts toward them instead (it never moves for this). In ordinary riding it
+ * also nudges the view a little (a few % of frames, ≤ ≈ 7°) when the leaned head on a hard carve nears
+ * its limit. The guard aims a little inside the limits (render interpolation, the cone vs the screen).
  */
 const CHASE_FRAMING = [
   { up: 0, ndc: 0.75 }, // the board

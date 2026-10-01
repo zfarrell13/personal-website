@@ -919,6 +919,78 @@ describe('Surfer — held carves and the roundhouse', () => {
     expect(Math.abs(h.s.turnRate)).toBeLessThan(0.05);
   });
 
+  /**
+   * Playtest 4 bug ("if i hold the arrow for too long, the roundhouse is held, even if i take my finger
+   * off"): letting go always stops the turn. From the release: the carve yaw rate (any extra bite —
+   * snap, rebound — dropped at once) is below 0.1 rad/s within 4 × carveLag, and the yaw the carve
+   * turns after it (Σ|turnRate|·dt over 1 s) is that of a plain release, ≤ 35°.
+   */
+  function expectReleaseStops(h: ReturnType<typeof setup>) {
+    const lag = h.cfg.physics.carveLag;
+    const t0 = h.s.time;
+    const e0 = h.events.length;
+    let yaw = 0;
+    let rateAfter = Infinity;
+    for (let i = 0; i < 120 && h.s.mode === 'riding'; i++) {
+      h.surfer.step(NO_INPUT, DT);
+      yaw += Math.abs(h.s.turnRate) * DT;
+      if (h.s.time - t0 >= 4 * lag && rateAfter === Infinity) rateAfter = Math.abs(h.s.turnRate);
+    }
+    if (rateAfter !== Infinity) expect(rateAfter).toBeLessThan(0.1);
+    expect(yaw / DEG).toBeLessThanOrEqual(35);
+    // Nothing scores a ROUNDHOUSE for a turn the player let go of.
+    expect(h.events.slice(e0).some((e) => e.type === 'roundhouse')).toBe(false);
+  }
+  type Internals = { rebound: 'foam' | 'lip' | null; snapArmed: boolean; atCrest: boolean };
+  const internals = (h: ReturnType<typeof setup>) => h.surfer as unknown as Internals;
+
+  it('let go mid cutback (turning back toward the curl), the board stops turning', () => {
+    const h = moving(10, 30, 0.3, 0);
+    hold(h, 1, 3, () => h.s.heading.x < -0.3);
+    expect(Math.abs(h.s.turnRate)).toBeGreaterThan(2);
+    expectReleaseStops(h);
+  });
+
+  it('let go mid foam rebound (a long hold into the whitewater), the bounce stops: no auto-rotation, no ROUNDHOUSE', () => {
+    for (const [speed, x, t] of [
+      [10, 8, 0.2],
+      [8, 7, 0.35],
+    ] as const) {
+      const h = moving(speed, x, t, 0);
+      hold(h, 1, 3, () => internals(h).rebound === 'foam');
+      expect(internals(h).rebound).toBe('foam');
+      hold(h, 1, 0.08); // well into the bounce, the boosted rail biting
+      expect(internals(h).rebound).toBe('foam');
+      expect(Math.abs(h.s.turnRate)).toBeGreaterThan(4);
+      expectReleaseStops(h);
+      expect(internals(h).rebound).toBe(null);
+    }
+  });
+
+  it('let go mid lip rebound (the second press of a two-press roundhouse), the bounce stops', () => {
+    const h = moving(10, 25, 0.3, 0);
+    hold(h, 1, 3, () => h.s.heading.x < -0.7);
+    h.run(0.15);
+    hold(h, 1, 1, () => internals(h).rebound === 'lip');
+    expect(internals(h).rebound).toBe('lip');
+    hold(h, 1, 0.1);
+    expect(Math.abs(h.s.turnRate)).toBeGreaterThan(3);
+    expectReleaseStops(h);
+  });
+
+  it('let go at the lip with a snap armed (the rail biting harder there), the board stops turning', () => {
+    const h = setup();
+    h.surfer.reset(15, 0.3);
+    const n = h.wave.normal(15, 0.3);
+    const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
+    h.s.v.set(3 - h.surfer.peelSpeed, 0, 0).addScaledVector(up, 4.5);
+    h.run(DT);
+    hold(h, 1, 3, () => internals(h).snapArmed && internals(h).atCrest);
+    expect(internals(h).snapArmed && internals(h).atCrest).toBe(true);
+    hold(h, 1, 0.05);
+    expectReleaseStops(h);
+  });
+
   it('a held carve toward the trough turns through the fall line, round the bottom and back up the face (never stuck on the flats)', () => {
     const h = moving(10, 30, 0.3, 0);
     let wentBack = false;

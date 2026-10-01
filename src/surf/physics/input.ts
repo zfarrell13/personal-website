@@ -68,7 +68,8 @@ const GRAB_ORDER: ReadonlyArray<readonly [SurfAction, GrabKind]> = [
  */
 export function carveFromKeys(left: boolean, right: boolean, side: Side, facing: 1 | -1 = 1): number {
   const raw = (right ? 1 : 0) - (left ? 1 : 0);
-  return (side === 'right' ? raw : -raw) * facing;
+  // (`|| 0`: no key is plain 0, never −0.)
+  return (side === 'right' ? raw : -raw) * facing || 0;
 }
 
 type Readable = Pick<ActionState<SurfAction>, 'isDown' | 'pressedThisFrame'>;

@@ -525,6 +525,9 @@ export class Surfer {
         this.reboundYaw = 0;
       }
     }
+    // Letting go always wins: a rebound only turns the board while the key is held. Released mid-way,
+    // the bounce is over (no roundhouse out of it; the cutback is remembered for a re-press).
+    if (this.rebound && sign === 0) this.rebound = null;
     let target = 0;
     if (this.rebound) {
       // Round toward the shoulder, the rail biting hard (the lip / foam pushes the board round).
@@ -533,6 +536,9 @@ export class Surfer {
       // Snapping at the lip (a snap armed, held there), the rail bites harder.
       target = Math.abs(input.carve) * rate * this.heldSense * (this.snapArmed && this.atCrest ? c.snapCarveBoost : 1);
     }
+    // Let go: the rail releases. Any extra bite (a snap at the lip, a rebound) goes at once; the plain
+    // carve rate that is left eases out over carveLag, exactly as any release.
+    if (sign === 0) this.yawRate = clamp(this.yawRate, -rate, rate);
     this.yawRate += (target - this.yawRate) * (1 - Math.exp(-dt / c.carveLag));
     const ang = this.yawRate * dt;
     if (ang !== 0) rel.applyAxisAngle(n, ang);

@@ -187,6 +187,41 @@ describe('SurfGame', () => {
     game.dispose();
   });
 
+  it('letting go of a carve key always reaches the physics as carve 0 — with the latch flipped, mid-frame, or on blur', async () => {
+    const facing = vi.spyOn(CameraRig.prototype, 'keyFacing', 'get').mockReturnValue(1);
+    const { game } = await playing();
+    const carves: number[] = [];
+    const orig = game.surfer.step.bind(game.surfer);
+    vi.spyOn(game.surfer, 'step').mockImplementation((input: SurferInput, dt: number) => {
+      carves.push(input.carve);
+      orig(input, dt);
+    });
+    // Held while the camera swings round (the key's meaning stays latched), then let go: carve 0.
+    key('keydown', 'ArrowRight');
+    frame();
+    facing.mockReturnValue(-1);
+    frame();
+    expect(carves.at(-1)).toBe(1);
+    key('keyup', 'ArrowRight');
+    frame();
+    expect(carves.at(-1)).toBe(0);
+    // A press and release between two frames (mid-frame): one tick of carve, then 0.
+    key('keydown', 'ArrowLeft');
+    key('keyup', 'ArrowLeft');
+    carves.length = 0;
+    frame(1000 / 30);
+    expect(carves[0]).not.toBe(0);
+    expect(carves.slice(1).every((c) => c === 0)).toBe(true);
+    // Held when the window loses focus (the key-up never arrives): released.
+    key('keydown', 'ArrowRight');
+    frame();
+    expect(carves.at(-1)).not.toBe(0);
+    window.dispatchEvent(new Event('blur'));
+    frame();
+    expect(carves.at(-1)).toBe(0);
+    game.dispose();
+  });
+
   it('resets the character (snapping its rate-limited board heading) at the start of every run', async () => {
     const reset = vi.spyOn(Character.prototype, 'reset');
     const { game } = await playing();
