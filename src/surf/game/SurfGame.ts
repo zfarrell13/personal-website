@@ -576,7 +576,9 @@ export class SurfGame {
     // The scenery scrolls with `travel` blended between the last two steps, like the rider (the surge
     // moves it up to ~0.4 m a step).
     const travel = this.phase === 'playing' ? this.prevTravel + (this.travel - this.prevTravel) * alpha : this.travel;
-    this.env.update(Number.isFinite(now) ? now / 1000 : 0, travel, sideSign(this.side));
+    this.env.update(Number.isFinite(now) ? now / 1000 : 0, travel, sideSign(this.side), this.waterTime);
+    // Stepped per rendered frame (no gameplay effect): spawn times are seeded but land on frame
+    // boundaries, so a run's sea life replays only at the same frame rate.
     this.seaLife.update(this.frameSimDt, travel);
     this.particles.tubeView = this.rig.shot === 'tube';
     this.particles.peakPitching = this.peel.peak.phase === 'pitching';

@@ -1,4 +1,4 @@
-import { Color, Group, InstancedMesh, Matrix4, Mesh, MeshLambertMaterial, Quaternion, Vector3, type BufferGeometry } from 'three';
+import { Color, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, MeshLambertMaterial, Quaternion, Vector3, type BufferGeometry } from 'three';
 import { retroMaterial } from '@/retro/retroMaterial';
 import { mulberry32 } from '../math/random';
 import { fadeUnderwaterIntoFog } from './Environment';
@@ -21,8 +21,11 @@ export const SEA_LIFE = {
   pierClearance: 14,
   /** Starfish: `count` per `span` metres of beach (repeating), in frame z ∈ z; drawn over [start, start + span). */
   starfish: { count: 5, span: 180, start: -50, z: [SHALLOWS.troughZ + 3.5, SHALLOWS.troughZ + 14] as const, radius: 0.45 },
-  /** Sheepshead: a school of `fish` every `every` s (seeded), cruising at `speed` m/s for up to `life` s. */
-  school: { every: [14, 32] as const, fish: [5, 8] as const, z: [SHALLOWS.troughZ + 4.5, SHALLOWS.troughZ + 18] as const, speed: 0.7, life: 40, spread: 2.4 },
+  /**
+   * Sheepshead: a school of `fish` every `every` s (seeded), cruising at `speed` m/s for up to `life` s;
+   * drawn `size` × life-size-ish (~0.75 m → ~1.1 m) so a school reads as barred fish at chase distance.
+   */
+  school: { every: [14, 32] as const, fish: [5, 8] as const, z: [SHALLOWS.troughZ + 4.5, SHALLOWS.troughZ + 18] as const, speed: 0.7, life: 40, spread: 3.4, size: 1.5 },
   /**
    * The shark: first after `first` s, then every `every` s (seeded per run), `size` × the ~2.6 m model.
    * Mostly cruising down the line with the wave, so it stays in view a little longer as it goes by.
@@ -37,7 +40,7 @@ export const SEA_LIFE = {
   despawnAhead: 260,
   /** A frame scrolling faster than this (m/s) spawns ahead. */
   scrolling: 2,
-  /** Fade in / out (s): scaled up from nothing and back. */
+  /** Fade in / out (s): dissolved in and out (a screen-door dither, still opaque), never scaled. */
   fade: 1.2,
   /** A spawn whose path would cross the pier's band waits this long (s) and tries again. */
   retry: 2,
@@ -189,7 +192,7 @@ export class SeaLifeSchedule {
       const r = this.rand;
       const n = Math.round(between(r, SEA_LIFE.school.fish));
       const spread = SEA_LIFE.school.spread;
-      for (let i = 0; i < n; i++) members.push({ dx: (r() - 0.5) * spread, dz: (r() - 0.5) * spread * 0.6, dy: (r() - 0.5) * 0.25, phase: r() * Math.PI * 2, scale: 1.3 + 0.4 * r() });
+      for (let i = 0; i < n; i++) members.push({ dx: (r() - 0.5) * spread, dz: (r() - 0.5) * spread * 0.6, dy: (r() - 0.5) * 0.25, phase: r() * Math.PI * 2, scale: SEA_LIFE.school.size * (1.3 + 0.4 * r()) });
     }
     return { kind, worldX, z, heading, speed: cfg.speed, age: 0, life: cfg.life, members };
   }
@@ -320,6 +323,40 @@ export function buildStarfish(): BufferGeometry {
   return b.build();
 }
 
+/**
+ * The sea life's material: lit vertex colours, plus a per-instance `aFade` (0 … 1) that dissolves a
+ * creature in and out with an ordered 4×4 screen-door dither — it stays opaque (drawn before the
+ * water, depth-tested), and the pattern suits the retro look.
+ */
+export function createSeaLifeMaterial(): MeshLambertMaterial {
+  const m = new MeshLambertMaterial({ vertexColors: true });
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aFade;\nvarying float vFade;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = aFade;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vFade;')
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+  {
+    // 4×4 Bayer threshold: 4 · B2(fine 2×2 cell) + B2(coarse), B2(a, b) = (2a + 3b) mod 4.
+    vec2 cell = mod(floor(gl_FragCoord.xy), 4.0);
+    vec2 fine = mod(cell, 2.0);
+    vec2 coarse = floor(cell / 2.0);
+    float bayer = (4.0 * mod(2.0 * fine.x + 3.0 * fine.y, 4.0) + mod(2.0 * coarse.x + 3.0 * coarse.y, 4.0)) / 16.0;
+    if (vFade < 0.999 && bayer + 0.03125 > vFade) discard;
+  }`,
+      );
+  };
+  m.customProgramCacheKey = () => 'sealife-fade';
+  return m;
+}
+
+function withFade(mesh: InstancedMesh, fade: Float32Array): void {
+  mesh.geometry.setAttribute('aFade', new InstancedBufferAttribute(fade, 1));
+}
+
 const STAR_TINTS = [new Color('#ffffff'), new Color('#ff9a8c'), new Color('#c9a6ff')];
 
 /**
@@ -329,10 +366,13 @@ const STAR_TINTS = [new Color('#ffffff'), new Color('#ff9a8c'), new Color('#c9a6
 export class SeaLife {
   readonly group = new Group();
   readonly schedule = new SeaLifeSchedule();
-  private readonly material = retroMaterial(fadeUnderwaterIntoFog(new MeshLambertMaterial({ vertexColors: true })));
+  private readonly material = retroMaterial(fadeUnderwaterIntoFog(createSeaLifeMaterial()));
   private readonly stars: InstancedMesh;
   private readonly fish: InstancedMesh;
-  private readonly shark: Mesh;
+  /** One instance (0 or 1 drawn): an instanced mesh like the others, for the per-instance fade. */
+  private readonly shark: InstancedMesh;
+  private readonly fishFade = new Float32Array(MAX_FISH);
+  private readonly sharkFade = new Float32Array(1);
   private readonly spots = starfishLayout();
   private readonly m = new Matrix4();
   private readonly q = new Quaternion();
@@ -348,9 +388,12 @@ export class SeaLife {
     this.fish = new InstancedMesh(buildSheepshead(), this.material, MAX_FISH);
     this.fish.name = 'sheepshead';
     this.fish.count = 0;
-    this.shark = new Mesh(buildShark(), this.material);
+    this.shark = new InstancedMesh(buildShark(), this.material, 1);
     this.shark.name = 'shark';
-    this.shark.visible = false;
+    this.shark.count = 0;
+    withFade(this.stars, new Float32Array(this.spots.length).fill(1));
+    withFade(this.fish, this.fishFade);
+    withFade(this.shark, this.sharkFade);
     for (const o of [this.stars, this.fish, this.shark]) {
       o.frustumCulled = false;
       this.group.add(o);
@@ -396,26 +439,33 @@ export class SeaLife {
         const x = school.worldX - travel + f.dx + 0.3 * Math.sin(t * 0.7 + f.phase);
         const z = school.z + f.dz + 0.2 * Math.sin(t * 0.5 + f.phase * 1.7);
         q.setFromAxisAngle(up, -(school.heading + 0.22 * Math.sin(t * 7 + f.phase)));
-        const k = fade * f.scale;
+        this.fishFade[i] = fade;
+        const k = f.scale;
         m.compose(p.set(x, Math.min(-0.7, sandY(z) + 0.35 + f.dy), z), q, s.set(k, k, k));
         this.fish.setMatrixAt(i, m);
       });
       this.fish.instanceMatrix.needsUpdate = true;
+      this.fish.geometry.getAttribute('aFade').needsUpdate = true;
     }
 
     const shark = sch.shark;
-    this.shark.visible = shark !== null;
+    this.shark.count = shark ? 1 : 0;
     if (shark) {
-      this.shark.position.set(shark.worldX - travel, Math.min(-1.0, sandY(shark.z) + 0.6), shark.z);
-      this.shark.rotation.set(0, -(shark.heading + 0.12 * Math.sin(t * 2.6)), 0);
-      this.shark.scale.setScalar(swimmerFade(shark) * SEA_LIFE.shark.size);
+      q.setFromAxisAngle(up, -(shark.heading + 0.12 * Math.sin(t * 2.6)));
+      const k = SEA_LIFE.shark.size;
+      m.compose(p.set(shark.worldX - travel, Math.min(-1.0, sandY(shark.z) + 0.6), shark.z), q, s.set(k, k, k));
+      this.shark.setMatrixAt(0, m);
+      this.shark.instanceMatrix.needsUpdate = true;
+      this.sharkFade[0] = swimmerFade(shark);
+      this.shark.geometry.getAttribute('aFade').needsUpdate = true;
     }
   }
 
   dispose(): void {
-    for (const o of [this.stars, this.fish, this.shark]) o.geometry.dispose();
-    this.stars.dispose();
-    this.fish.dispose();
+    for (const o of [this.stars, this.fish, this.shark]) {
+      o.geometry.dispose();
+      o.dispose();
+    }
     this.material.dispose();
   }
 }

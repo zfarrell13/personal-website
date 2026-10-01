@@ -3,7 +3,12 @@ import { retroTexture } from '@/retro/retroMaterial';
 import { SURF_CONFIG } from '../config';
 import { clamp, smoothstep } from '../math/scalar';
 import { SWELL } from '../wave/sections';
+import { seaReflection } from './sky';
 
+/**
+ * z of the trough, fixed at import from the configured wave height: the ?debug height slider moves the
+ * trough but not the clear band or the sandbar (debug only; make it a uniform if H ever changes in play).
+ */
 const TROUGH_Z = SWELL[0]![0] * SURF_CONFIG.wave.height;
 
 /**
@@ -22,14 +27,14 @@ export const SHALLOWS = {
   fadeTo: TROUGH_Z + 55,
   /** Up the face, clarity is gone by this height (m above sea level): the face keeps its colour. */
   faceRise: 0.6,
-  /** Opacity of clear shallow water seen from above (the open sea's is SEA.alpha = 0.7). */
-  alpha: 0.3,
+  /** Opacity of the shallows seen from above (the open sea's is SEA.alpha = 0.7): a little see-through. */
+  alpha: 0.5,
   /** Shallow water turns opaque with view distance over [near, far] (m) instead of the deep water's [8, 35]. */
-  opaqueNear: 16,
-  opaqueFar: 55,
+  opaqueNear: 12,
+  opaqueFar: 45,
   /** Share of the near-water Fresnel opacity / sky reflection the clear shallows lose. */
-  fresnelCut: 0.6,
-  reflectCut: 0.6,
+  fresnelCut: 0.4,
+  reflectCut: 0.35,
   /** The sand ripple texture's tile (m). */
   rippleTile: 6,
 } as const;
@@ -97,10 +102,11 @@ export function sandY(z: number): number {
 /** Along-shore extent of the sand bed (frame x, m): far past where the water is clear (≤ ~55 m). */
 const BED_X = [-320, -120, -40, 0, 40, 120, 220, 450];
 /** Sunlit sand under clear water reads brighter than the low sun lights it (colours > 1 are fine: linear). */
-const SAND = { shallow: new Color('#f6e4b4'), deep: new Color('#a9c9b4') };
+// Cool and dim: warm, bright sand under the teal reads as a dry flat, not water.
+const SAND = { shallow: new Color('#d6d0a8'), deep: new Color('#9fbfae') };
 /** Sunlight through clear shallow water: the sand's own glow (share of its colour) and the caustics' strength. */
-const SAND_GLOW = 0.45;
-const CAUSTIC = 0.22;
+const SAND_GLOW = 0.15;
+const CAUSTIC = 0.14;
 
 /**
  * The sand bed: one strip along the break, lit pale sand on the bar, cooling to the floor's colour with
@@ -183,25 +189,25 @@ export const CAUSTIC_REPEAT = (2 * Math.PI) / 0.3;
 export interface SandUniforms {
   /** Frame travel (m, wrapped at CAUSTIC_REPEAT): the caustics are fixed to the reef like the ripples. */
   uTravel: { value: number };
-  /** Caustics clock (s); their rates (0.9, 0.7 rad/s) repeat every 20π s, so it may wrap there. */
+  /** Caustics clock (s, the water clock: still on pause); their rates (0.9, 0.7 rad/s) repeat every 20π s, so it may wrap there. */
   uTime: { value: number };
 }
 
 /**
  * The sand's material: vertex colours × the ripple map, lit, plus sunlight through clear shallow water
  * — a glow of its own colour and moving caustics (two warped sine fields; bright where they cancel),
- * both fading out with depth (by the vertex height).
+ * both fading out with depth (by the vertex height), and off in the underwater cut.
  */
 export function createSandMaterial(ripples: Texture): { material: MeshLambertMaterial; uniforms: SandUniforms } {
   const uniforms: SandUniforms = { uTravel: { value: 0 }, uTime: { value: 0 } };
   const material = new MeshLambertMaterial({ vertexColors: true, map: ripples });
   material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
+    Object.assign(shader.uniforms, uniforms, seaReflection);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vSand;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vSand = position;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uTravel;\nuniform float uTime;\nvarying vec3 vSand;')
+      .replace('#include <common>', '#include <common>\nuniform float uTravel;\nuniform float uTime;\nuniform float uReflect;\nvarying vec3 vSand;')
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
@@ -211,7 +217,8 @@ export function createSandMaterial(ripples: Texture): { material: MeshLambertMat
     float ca = sin(q.x + 1.1 * sin(q.y * 1.7 + uTime * 0.9));
     float cb = sin(q.y * 1.3 + 1.2 * sin(q.x * 1.2 - uTime * 0.7));
     float caustic = pow(clamp(1.0 - 0.5 * abs(ca + cb), 0.0, 1.0), 8.0);
-    totalEmissiveRadiance += lit * (${f(SAND_GLOW)} * diffuseColor.rgb + ${f(CAUSTIC)} * caustic * vec3(0.95, 1.0, 0.9));
+    // Sunlight through the surface: none in the underwater cut (uReflect = 0), like the foam's glow.
+    totalEmissiveRadiance += uReflect * lit * (${f(SAND_GLOW)} * diffuseColor.rgb + ${f(CAUSTIC)} * caustic * vec3(0.95, 1.0, 0.9));
   }`,
       );
   };

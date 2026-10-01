@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Mesh, MeshLambertMaterial, PerspectiveCamera, Scene, Vector3 } from 'three';
-import { Environment } from './Environment';
+import { Environment, fadeUnderwaterIntoFog } from './Environment';
+import { seaReflection } from './sky';
 import { SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
 import { CAUSTIC_REPEAT, createSandMaterial, makeRippleTexture, SAND_PROFILE, SHALLOWS, SHALLOWS_GLSL, sandY, shallowClarity, waterOpacity } from './shallows';
@@ -57,9 +58,10 @@ describe('water opacity', () => {
     }
   });
 
-  it('is see-through over the shallows near the rider, and opaque far out all the same', () => {
-    expect(waterOpacity(0.7, 0.1, 8, 1)).toBeLessThan(0.45);
-    expect(waterOpacity(0.7, 0.1, 8, 1)).toBeLessThan(waterOpacity(0.7, 0.1, 8, 0) - 0.3);
+  it('is a little see-through over the shallows near the rider (still water), and opaque far out all the same', () => {
+    expect(waterOpacity(0.7, 0.1, 8, 1)).toBeLessThan(0.6);
+    expect(waterOpacity(0.7, 0.1, 8, 1)).toBeGreaterThan(0.45);
+    expect(waterOpacity(0.7, 0.1, 8, 1)).toBeLessThan(waterOpacity(0.7, 0.1, 8, 0) - 0.15);
     expect(waterOpacity(0.7, 0.2, 60, 1)).toBeCloseTo(1, 6);
     expect(waterOpacity(0.7, 0.98, 30, 1)).toBeGreaterThan(0.8);
   });
@@ -89,6 +91,18 @@ describe('sand bed', () => {
     }
   });
 
+  it('runs its caustics on the water clock (still under the pause menu), not the page clock', () => {
+    const env = new Environment(new Scene(), new PerspectiveCamera(60, 1, 0.1, 650));
+    const bed = env.frameStuff.getObjectByName('sandbed') as Mesh<BufferGeometry, MeshLambertMaterial>;
+    const shader = { uniforms: {} as Record<string, { value: number }>, vertexShader: '#include <common>\n#include <begin_vertex>\n#include <project_vertex>', fragmentShader: '#include <common>\n#include <emissivemap_fragment>\n#include <fog_fragment>' };
+    bed.material.onBeforeCompile(shader as never, undefined as never);
+    env.update(100, 0, 1, 3);
+    expect(shader.uniforms.uTime!.value).toBeCloseTo(3, 9);
+    env.update(250, 0, 1, 3);
+    expect(shader.uniforms.uTime!.value).toBeCloseTo(3, 9);
+    env.dispose();
+  });
+
   it('is one opaque mesh in the frame whose ripples scroll with the frame travel', () => {
     const env = new Environment(new Scene(), new PerspectiveCamera(60, 1, 0.1, 650));
     const bed = env.frameStuff.getObjectByName('sandbed') as Mesh<BufferGeometry, MeshLambertMaterial>;
@@ -116,6 +130,9 @@ describe('sand caustics', () => {
     expect(shader.fragmentShader).toContain('uTime * 0.9');
     expect(shader.fragmentShader).toContain('uTime * 0.7');
     expect(shader.uniforms.uTravel).toBeDefined();
+    // No sunlight through the surface in the underwater cut.
+    expect(shader.uniforms.uReflect).toBe(seaReflection.uReflect);
+    expect(shader.fragmentShader).toContain('totalEmissiveRadiance += uReflect * lit');
     material.dispose();
   });
 });
@@ -138,5 +155,23 @@ describe('wave shader: clear shallows and the concave face', () => {
     expect(fs.indexOf('streakSlope =')).toBeLessThan(fs.indexOf('#include <normal_fragment_maps>'));
     expect(fs.indexOf('normal = normalize(normal + vAlongView')).toBeGreaterThan(fs.indexOf('#include <normal_fragment_maps>'));
     expect(fs).toContain('lipRim');
+    // The streak fetches only where there is a face.
+    expect(fs.indexOf('if (vFace > 0.001)')).toBeLessThan(fs.indexOf('texture2D(uFoamTex, vec2(faceU, faceV))'));
+  });
+});
+
+describe('fadeUnderwaterIntoFog', () => {
+  it('chains after an earlier shader hook and keeps its program apart (default cache key or not)', () => {
+    const plain = fadeUnderwaterIntoFog(new MeshLambertMaterial());
+    const hooked = new MeshLambertMaterial();
+    hooked.onBeforeCompile = (sh) => {
+      sh.fragmentShader += '\n// hooked';
+    };
+    fadeUnderwaterIntoFog(hooked);
+    expect(hooked.customProgramCacheKey()).not.toBe(plain.customProgramCacheKey());
+    const shader = { uniforms: {}, vertexShader: '', fragmentShader: '#include <fog_fragment>' };
+    hooked.onBeforeCompile(shader as never, undefined as never);
+    expect(shader.fragmentShader).toContain('// hooked');
+    expect(shader.fragmentShader).toContain('fogColor, smoothstep');
   });
 });

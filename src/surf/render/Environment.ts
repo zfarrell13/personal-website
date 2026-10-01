@@ -60,7 +60,9 @@ export const FLOOR_FOG_FADE = [40, 120] as const;
  */
 export function fadeUnderwaterIntoFog<M extends Material>(m: M): M {
   const prev = m.onBeforeCompile;
-  const prevKey = m.customProgramCacheKey === Material.prototype.customProgramCacheKey ? '' : `${m.customProgramCacheKey()}|`;
+  // As retroMaterial: three's default key is onBeforeCompile.toString(), so capture the original hook's
+  // (an earlier hook with the default key must not share a program with the plain floor).
+  const prevKey = `${m.customProgramCacheKey === Material.prototype.customProgramCacheKey ? prev.toString() : m.customProgramCacheKey()}|`;
   m.onBeforeCompile = (shader, renderer) => {
     prev.call(m, shader, renderer);
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -320,17 +322,17 @@ export class Environment {
    * `time` — free-running ambient clock (drives gulls; keeps animating on the
    * title screen). `travel` — frame distance along the reef (Vp · sim time);
    * drives scenery scroll only. `sideSign` mirrors the sun and its light
-   * (+1 = right, −1 = left).
+   * (+1 = right, −1 = left). `waterTime` — the water clock (stops on pause): the sand's caustics.
    */
-  update(time: number, travel: number, sideSign: number): void {
+  update(time: number, travel: number, sideSign: number, waterTime = time): void {
     for (const s of this.scrollers) s.obj.position.x = scrollWrap(s.worldX, travel, s.span, s.start);
     // The sand is fixed to the reef: its ripples move past at the travel (uv.x = frame x / tile).
     const tile = SHALLOWS.rippleTile;
     this.sandbed.material.map!.offset.x = (((travel / tile) % 1) + 1) % 1;
     this.sandUniforms.uTravel.value = travel % CAUSTIC_REPEAT;
     // The caustics' rates are multiples of 0.1 rad/s: wrapping the clock every 20π s is seamless, and
-    // keeps the shader's sin() arguments small (the ambient clock is the page's).
-    this.sandUniforms.uTime.value = time % (20 * Math.PI);
+    // keeps the shader's sin() arguments small. They run on the water clock (still on pause).
+    this.sandUniforms.uTime.value = waterTime % (20 * Math.PI);
 
     for (let i = 0; i < 5; i++) {
       const a = time * (0.25 + i * 0.03) + i * 1.3;

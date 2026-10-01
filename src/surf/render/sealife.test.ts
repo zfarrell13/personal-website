@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { InstancedMesh, Matrix4, Mesh, Vector3, type Material } from 'three';
 import { SHORE } from './shore';
 import { SHALLOWS, sandY } from './shallows';
-import { clearOfPier, pierDistance, SEA_LIFE, SeaLife, SeaLifeSchedule, starfishLayout, type Swimmer } from './sealife';
+import { clearOfPier, createSeaLifeMaterial, pierDistance, SEA_LIFE, SeaLife, SeaLifeSchedule, starfishLayout, type Swimmer } from './sealife';
 
 const PEEL = 8;
 const DT = 0.1;
@@ -152,17 +152,52 @@ describe('SeaLife (render)', () => {
     life.dispose();
   });
 
-  it('fish and shark swim under the water, above the sand, and show only while there is one', () => {
+  it('fish and shark swim under the water, above the sand, and are drawn only while there is one', () => {
     const life = new SeaLife();
     life.reset(1);
     life.update(DT, 0);
-    const shark = life.group.getObjectByName('shark') as Mesh;
-    expect(shark.visible).toBe(false);
+    const shark = life.group.getObjectByName('shark') as InstancedMesh;
+    expect(shark.count).toBe(0);
     life.spawnShark(0, 20);
     for (let i = 0; i < 20; i++) life.update(DT, 0);
-    expect(shark.visible).toBe(true);
-    expect(shark.position.y).toBeLessThan(-0.8);
-    expect(shark.position.y).toBeGreaterThan(sandY(shark.position.z));
+    expect(shark.count).toBe(1);
+    const [p] = instancesOf(shark);
+    expect(p!.y).toBeLessThan(-0.8);
+    expect(p!.y).toBeGreaterThan(sandY(p!.z));
     life.dispose();
+  });
+
+  it('fades swimmers in and out by dissolving them (per-instance aFade), never by scaling from nothing', () => {
+    const life = new SeaLife();
+    life.reset(2);
+    const fish = life.group.getObjectByName('sheepshead') as InstancedMesh;
+    // A still frame (title): the school spawns in view, so it must fade in.
+    let t = 0;
+    while (!life.schedule.school && t < 60) {
+      life.update(DT, 0);
+      t += DT;
+    }
+    expect(life.schedule.school).not.toBeNull();
+    life.update(DT, 0);
+    const fade = fish.geometry.getAttribute('aFade');
+    expect(fade.getX(0)).toBeGreaterThan(0);
+    expect(fade.getX(0)).toBeLessThan(1);
+    const mat = new Matrix4();
+    fish.getMatrixAt(0, mat);
+    const sc = new Vector3().setFromMatrixScale(mat);
+    expect(sc.x).toBeGreaterThanOrEqual(SEA_LIFE.school.size * 1.3 - 1e-6);
+    for (let i = 0; i < 20; i++) life.update(DT, 0);
+    expect(fade.getX(0)).toBe(1);
+    life.dispose();
+  });
+
+  it('the dither fade keeps the material opaque', () => {
+    const m = createSeaLifeMaterial();
+    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <begin_vertex>', fragmentShader: '#include <common>\n#include <clipping_planes_fragment>' };
+    m.onBeforeCompile(shader as never, undefined as never);
+    expect(m.transparent).toBe(false);
+    expect(shader.vertexShader).toContain('attribute float aFade;');
+    expect(shader.fragmentShader).toContain('discard');
+    m.dispose();
   });
 });

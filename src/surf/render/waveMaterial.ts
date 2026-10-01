@@ -127,19 +127,24 @@ const FOAM_GLSL = /* glsl */ `
  */
 const FACE_GLSL = /* glsl */ `
   float shallowClear = shallowClarity(vSea.y, vHeight);
-  float faceU = (vSea.x + uTravel) / 9.0;
-  float faceV = vT * 0.18 + uTime * 0.012;
-  float streakA = texture2D(uFoamTex, vec2(faceU, faceV)).r;
-  float streakB = texture2D(uFoamTex, vec2(faceU * 2.6 + 0.43, faceV * 1.7 + 0.2)).r;
-  float streak = smoothstep(0.42, 0.78, 0.65 * streakA + 0.35 * streakB);
-  float streakSlope = texture2D(uFoamTex, vec2(faceU + 0.025, faceV)).r - texture2D(uFoamTex, vec2(faceU - 0.025, faceV)).r;
+  // The streaks' four fetches only where there is a face (vFace > 0): not over the whole open sea.
+  float streak = 0.5;
+  float streakSlope = 0.0;
+  if (vFace > 0.001) {
+    float faceU = (vSea.x + uTravel) / 9.0;
+    float faceV = vT * 0.18 + uTime * 0.012;
+    float streakA = texture2D(uFoamTex, vec2(faceU, faceV)).r;
+    float streakB = texture2D(uFoamTex, vec2(faceU * 2.6 + 0.43, faceV * 1.7 + 0.2)).r;
+    streak = smoothstep(0.42, 0.78, 0.65 * streakA + 0.35 * streakB);
+    streakSlope = texture2D(uFoamTex, vec2(faceU + 0.025, faceV)).r - texture2D(uFoamTex, vec2(faceU - 0.025, faceV)).r;
+  }
   float faceClean = 1.0 - foamCover;
   float troughCurve = smoothstep(0.0, 0.15, vRise) * (1.0 - smoothstep(0.15, 0.6, vRise));
   float faceWall = smoothstep(0.5, 0.92, vRise);
   diffuseColor.rgb *= (1.0 - 0.24 * troughCurve * faceClean) * (1.0 + 0.12 * faceWall * faceClean);
   diffuseColor.rgb *= 1.0 + 0.08 * vFace * (streak - 0.5);
-  // Clear shallow water over pale sand: a brighter, greener aqua than the open sea.
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.12, 0.62, 0.55), 0.45 * shallowClear * faceClean);
+  // The shallows over the sand: a deeper, clearer teal, so they read as water you see into.
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.03, 0.48, 0.5), 0.7 * shallowClear * faceClean);
   float lipRim = smoothstep(0.86, 0.98, vRise) * faceClean;
 `;
 
