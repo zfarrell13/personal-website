@@ -126,6 +126,9 @@ export class Surfer {
   private readonly axis = new Vector3();
   private readonly water = new Vector3();
   private readonly rel = new Vector3();
+  /** The board runs tail first (its motion against its heading); its motion was too slow to tell last time (see headingFromMotion). */
+  private tailFirst = false;
+  private stopped = false;
   /** Scratch tangents for headingFromMotion (never the riding frame's sx / st). */
   private readonly hx = new Vector3();
   private readonly ht = new Vector3();
@@ -296,6 +299,8 @@ export class Surfer {
     } satisfies Partial<SurferState>);
     s.param.x = x;
     this.closing = false;
+    this.tailFirst = false;
+    this.stopped = false;
     this.charging = false;
     this.chargeHeld = 0;
     this.ollieWasDown = false;
@@ -312,7 +317,7 @@ export class Surfer {
     this.frameAt(x, t);
     this.wave.profile(x, t, s.p);
     s.v.copy(this.e1).multiplyScalar(DROP_IN.along).addScaledVector(this.eUp, -DROP_IN.down);
-    this.headingFromMotion(s.heading);
+    this.headingFromMotion(s.heading, false, false);
     this.prevP.copy(s.p);
     this.prevHeading.copy(s.heading);
     this.atCrest = false;
@@ -435,9 +440,12 @@ export class Surfer {
    * line the rail holds when no key is down, with no jump on a press or a release; playtest 6: it was
    * v + vp·x̂, which differs from it by vp·(x̂ − e1) where the hollow face tilts e1). Kept when that is
    * too slow to tell. (Airborne, setPeelSpeed shifts the path's x-velocity by −Δ, which assumes the
-   * launch tangent ≈ x̂.)
+   * launch tangent ≈ x̂.) `keepSense`: a board already running tail first (sliding back down its held
+   * line), or whose motion has just come through a stop, keeps pointing the way it did — ± the motion,
+   * whichever is nearer its last heading — so the heading never flips in a tick (carved while sliding
+   * back, it carves tail first). Off only for a fresh start (reset).
    */
-  private headingFromMotion(out: Vector3, horizontal = false): void {
+  private headingFromMotion(out: Vector3, horizontal = false, keepSense = true): void {
     const s = this.state;
     this.wave.tangents(s.param.x, s.param.t, this.hx, this.ht);
     const e1 = this.hx.normalize();
@@ -445,16 +453,33 @@ export class Surfer {
     const y = horizontal ? 0 : s.v.y + this.vp * e1.y;
     const z = s.v.z + this.vp * e1.z;
     const len = Math.hypot(x, y, z);
-    if (len > this.cfg.minSpeed) out.set(x / len, y / len, z / len);
-    else if (horizontal) out.set(out.x, 0, out.z).normalize();
+    if (len > this.cfg.minSpeed) {
+      const against = x * out.x + y * out.y + z * out.z < 0;
+      const sign = keepSense && against && (this.tailFirst || this.stopped) ? -1 : 1;
+      this.tailFirst = sign < 0;
+      this.stopped = false;
+      out.set((sign * x) / len, (sign * y) / len, (sign * z) / len);
+    } else {
+      this.stopped = true;
+      if (horizontal) out.set(out.x, 0, out.z).normalize();
+    }
   }
 
   /** The board's line angle in the face (from e1 toward eUp) at the current frame: its motion through the water, else its heading. */
   private lineAngle(): number {
     const s = this.state;
     const rel = this.tmp.copy(s.v).addScaledVector(this.e1, this.vp);
-    const d = rel.length() > this.cfg.minSpeed ? rel : s.heading;
-    return Math.atan2(d.dot(this.eUp), d.dot(this.e1));
+    const h = Math.atan2(s.heading.dot(this.eUp), s.heading.dot(this.e1));
+    if (rel.length() <= this.cfg.minSpeed) return h;
+    // The line is the board's: the motion's line — pointing the way the board points if it already runs
+    // tail first or its motion just came through a stop (see headingFromMotion), so it never flips.
+    const m = Math.atan2(rel.dot(this.eUp), rel.dot(this.e1));
+    return this.tailFirst || this.stopped ? this.signedTo(m, h) : m;
+  }
+
+  /** `angle` or `angle + π`, whichever is nearer `ref` (a line's two senses; never a flip). */
+  private signedTo(angle: number, ref: number): number {
+    return Math.cos(angle - ref) < 0 ? angle + Math.PI : angle;
   }
 
   /** lineDir = the line at `angle` in the current face frame (e1, eUp). */
@@ -479,6 +504,9 @@ export class Surfer {
   /** Keyless heading: the held line (never flipped by sliding back along it). */
   private lineHeading(out: Vector3): void {
     out.copy(this.lineAt(this.line!));
+    const along = this.rel.copy(this.state.v).addScaledVector(this.e1, this.vp).dot(out);
+    this.tailFirst = along < 0;
+    this.stopped = Math.abs(along) <= this.cfg.minSpeed;
   }
 
   /** Crest param and height at column x, memoized (crestT is expensive). */
@@ -618,7 +646,8 @@ export class Surfer {
     // flattening it). The board may slow to a stop and slide back along its line, tail first.
     if (keyless) {
       // Holding the stall (↓) is the player setting the rail: its damping may flatten the held line.
-      if (s.stalling && rel.length() > c.minSpeed) this.line = Math.atan2(rel.dot(this.eUp), rel.dot(this.e1));
+      // (Signed to the held line: a stall flattens it, never flips it.)
+      if (s.stalling && rel.length() > c.minSpeed) this.line = this.signedTo(Math.atan2(rel.dot(this.eUp), rel.dot(this.e1)), this.line!);
       const L = this.lineAt(this.line!);
       const along = rel.dot(L);
       rel.copy(L).multiplyScalar(along);

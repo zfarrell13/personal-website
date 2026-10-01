@@ -191,6 +191,11 @@ carving **weighty / realistic**.
     physics sees it (v − water, the water sliding at −Vp·e1), so it is the held line
     exactly and doesn't jump on a press or a release where the hollow face tilts e1
     (it was v + Vp·x̂).
+  - **No flips** (review fix): a board running tail first down its held line, or whose motion has
+    just come through a stop, keeps pointing the way it did when a key is pressed (± the motion,
+    whichever is nearer its last heading): carved while sliding back, it carves tail first. Holding
+    the stall flattens the held line without ever flipping it. Tests: press while sliding back and
+    stall on steep / backward lines, ≤ 15° per tick.
   - **Re-tuned to keep the targets' intent** (the release ease-out and the rail sag
     had been doing part of the work): `drag` 0.025 → 0.032 (no-input catch ≈ 4.6 s,
     unpumped lines still lost within 10 s, pumping targets met with margin);

@@ -1142,6 +1142,57 @@ describe('Surfer — held carves and the roundhouse', () => {
     expectReleaseStops(h);
   });
 
+  /** Board-through-water motion runs against the heading (the board slides back, tail first). */
+  const slidingBack = (h: ReturnType<typeof setup>) => {
+    const sx = new Vector3();
+    h.wave.tangents(h.s.param.x, h.s.param.t, sx, new Vector3());
+    const rel = h.s.v.clone().addScaledVector(sx.normalize(), h.surfer.peelSpeed);
+    return rel.length() > 0.5 && rel.dot(h.s.heading) < 0;
+  };
+
+  it.each([1, -1])('pressing a carve key (%d) while the board slides back down its line never flips the heading: it carves tail first (≤ 15° per tick)', (carve) => {
+    for (const [x, t, speed, deg] of [
+      [20, 0.4, 3, 80],
+      [30, 0.3, 4, 85],
+      [12, 0.45, 3, 110],
+    ] as const) {
+      const h = moving(speed, x, t, deg); // climbing slowly, keyless: it stops and slides back
+      let i = 0;
+      while (!slidingBack(h) && h.s.mode === 'riding' && i++ < 360) h.run(DT);
+      expect(slidingBack(h)).toBe(true);
+      let prev = h.s.heading.clone();
+      let maxTick = 0;
+      for (let k = 0; k < 120 && h.s.mode === 'riding'; k++) {
+        h.surfer.step({ ...NO_INPUT, carve }, DT);
+        if (h.s.mode !== 'riding') break;
+        maxTick = Math.max(maxTick, prev.angleTo(h.s.heading) / DEG);
+        prev = h.s.heading.clone();
+      }
+      expect(maxTick).toBeLessThanOrEqual(15);
+    }
+  });
+
+  it('holding the stall on steep or backward lines flattens the held line without ever flipping it (≤ 15° per tick)', () => {
+    let worst = 0;
+    for (const x of [6, 20]) {
+      for (const t of [0.3, 0.6]) {
+        for (const deg of [-150, -120, -90, 90, 120, 150, 180]) {
+          const h = moving(6, x, t, deg);
+          // (Yaw in the face: the 3D heading also pitches as the face steepens under the board.)
+          let prev = faceYaw(h.wave, h.s.param, h.s.heading);
+          for (let k = 0; k < 180 && h.s.mode === 'riding' && !h.s.floating; k++) {
+            h.surfer.step({ ...NO_INPUT, stall: true }, DT);
+            if (h.s.mode !== 'riding') break;
+            const y = faceYaw(h.wave, h.s.param, h.s.heading);
+            worst = Math.max(worst, Math.abs(wrapAngle(y - prev)) / DEG);
+            prev = y;
+          }
+        }
+      }
+    }
+    expect(worst).toBeLessThanOrEqual(15);
+  });
+
   it('let go after a long (3 s) held carve, the board stops turning at once', () => {
     const h = moving(10, 40, 0.3, 0);
     hold(h, 1, 3);
