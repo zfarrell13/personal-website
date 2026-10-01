@@ -352,6 +352,25 @@ should be the jump (ollie)"; "go higher the longer you hold Space".
   pop; touch and keyboard give the same input; e2e: Space held shows the load pose while riding, the
   release pops and the ollie scores.
 
+### Playtest 5: lip lean
+
+User: "the steeper the face, the further he should be leaning back (away from the wave)".
+
+- Riding (not in the air, on a floater or wiping out), the drawn body's up blends from the surface
+  normal toward world up by `LEAN_BACK` (0.5) × smoothstep(`LEAN_FROM` 0.35, 1, steepness)
+  (`character/lean.ts`; steepness = sin of the face angle, 1 when vertical or overhanging): on a
+  near-vertical lip face the rider stands leaned back out over the flats (about 45° from upright)
+  instead of sticking straight out from the face. The body pivots back on its feet — about the line
+  through the two soles on the deck, after the feet are planted — so the feet stay where they stand
+  and the board stays on the face; the angle eases in (no snap when a face end tips the normal). It
+  sits on top of the pose layer (bottom / top turn postures unchanged), the turn bank and the backside
+  mirror. The camera's framing guard (`riderUp`) models it.
+- Verification (both rigs, both sides): the lean back from the normal is monotonic in steepness (0 on
+  a flat face); on a vertical face the body is within 50° of upright, > 35° back from the normal and
+  still leaning toward shore; the soles stay within 1 cm of where they stand on a flat face; a
+  one-tick tip of the normal eases in over several frames; no lean in a trick air; screenshots at the
+  top of the face from the chase camera.
+
 ## Playtest 2 amendments (user feedback)
 
 - **Camera:** close bird's-eye view from behind the rider — about 3–4 m behind along the direction of travel, 4–6 m above (always above the crest), looking down at the rider and a few metres ahead down the line; the rider is large in frame. Tube: behind the rider looking out.

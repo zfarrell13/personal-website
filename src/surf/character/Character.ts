@@ -4,6 +4,7 @@ import type { Side, SurferLook } from '../config';
 import { clamp, DEG } from '../math/scalar';
 import type { Surfer } from '../physics/Surfer';
 import { BOARD, boardRocker, buildBoard, makeDeckTexture } from './board';
+import { faceSteepness, leanBlend } from './lean';
 import { PoseLayer, poseWeights } from './PoseLayer';
 import { POSE_NAMES, type PoseName, type PoseWeights } from './poses';
 import { buildProceduralRig, rigFromGltfScene, type SurferRig } from './rig';
@@ -61,6 +62,9 @@ export const MAX_BOARD_TURN_RATE = 720;
 const FOOT_SOLE = 0.06;
 const DECK_Y = BOARD.thickness + boardRocker(0.5);
 
+/** The lean eases toward its target at this rate (1/s): a face end can tip the normal in one tick. */
+const LEAN_RATE = 14;
+
 /**
  * Surfer + board. root: positioned at the (interpolated) contact point and
  * oriented board-forward (+z = nose) with up = surface normal. tilt: stall
@@ -77,6 +81,16 @@ export class Character {
   private readonly tilt = new Group();
   /** Mirrors the body (not the board) across the model's x so the rider rides regular on a LEFT. */
   private readonly stanceMirror = new Group();
+  /** Leans the body (not the board) back about the line through its feet on the deck: the lip lean. */
+  private readonly lean = new Group();
+  /** The lip lean's angle (rad), eased toward its target. */
+  private leanRoll = 0;
+  private readonly bodyUp = new Vector3();
+  private readonly invTilt = new Quaternion();
+  private readonly leanAxis = new Vector3();
+  private readonly leanPivot = new Vector3();
+  private readonly leanQ = new Quaternion();
+  private readonly cross = new Vector3();
   /** True when the body is mirrored (a LEFT): the rider faces away from the wave (backside). */
   private backside = false;
   readonly board: Mesh;
@@ -105,7 +119,8 @@ export class Character {
     const deck = typeof document !== 'undefined' ? makeDeckTexture(look) : null;
     this.board = buildBoard(look, deck);
     this.stanceMirror.add(this.rig.model);
-    this.tilt.add(this.board, this.stanceMirror);
+    this.lean.add(this.stanceMirror);
+    this.tilt.add(this.board, this.lean);
     this.root.add(this.tilt);
     this.pose = new PoseLayer(rig);
     this.pose.snap({ stance: 1 });
@@ -127,6 +142,9 @@ export class Character {
     this.sinceLand = 10;
     this.root.quaternion.identity();
     this.heading = null;
+    this.leanRoll = 0;
+    this.lean.position.set(0, 0, 0);
+    this.lean.quaternion.identity();
     this.pose.snap({ stance: 1 });
   }
 
@@ -170,6 +188,47 @@ export class Character {
     const weights = poseWeights(s, this.sinceLand, this.weights, this.backside, faceHeight(surfer));
     this.pose.update(weights, dt, clamp(0.6 + speed / 20, 0.6, 1.3));
     this.plantFeet();
+    this.leanBack(s.mode === 'riding' && !s.floating ? s.normal : null, dt);
+  }
+
+  /**
+   * The lip lean: the body pivots back on its feet — about the line through the two soles on the deck,
+   * so both stay planted — by the angle that brings its up as near as that turn can to the normal
+   * blended toward world up (leanBlend). (A board pointed straight up the face leans its rider back over
+   * the tail, along the board, as far as that line allows.) null = no lean (air, wipeout, floater).
+   * Runs after plantFeet: the feet are found in the lean's frame, which is the unleaned body's.
+   */
+  private leanBack(normal: Vector3 | null, dt: number): void {
+    const bones = this.rig.bones;
+    // The soles in the lean's (unleaned) frame: plantFeet just updated the matrices.
+    this.lean.worldToLocal(bones.LeftFoot.getWorldPosition(this.footL));
+    this.lean.worldToLocal(bones.RightFoot.getWorldPosition(this.footR));
+    this.leanAxis.set(this.footR.x - this.footL.x, 0, this.footR.z - this.footL.z);
+    if (this.leanAxis.lengthSq() < 1e-6) this.leanAxis.set(0, 0, 1);
+    this.leanAxis.normalize();
+    let target = 0;
+    if (normal) {
+      const w = leanBlend(faceSteepness(normal.y));
+      if (w > 0) {
+        // The wanted up, in the tilt's (board's) frame; the angle about the feet line that best matches it.
+        this.bodyUp.copy(normal).lerp(UP, w).normalize();
+        this.tilt.getWorldQuaternion(this.invTilt).invert();
+        this.bodyUp.applyQuaternion(this.invTilt);
+        this.cross.crossVectors(this.leanAxis, UP);
+        target = Math.atan2(this.bodyUp.dot(this.cross), this.bodyUp.y);
+      }
+    }
+    this.leanRoll += (target - this.leanRoll) * (1 - Math.exp(-LEAN_RATE * dt));
+    // Rotate about the pivot on the deck between the feet: position = p − R·p.
+    this.leanQ.setFromAxisAngle(this.leanAxis, this.leanRoll);
+    this.leanPivot.set((this.footL.x + this.footR.x) / 2, DECK_Y, (this.footL.z + this.footR.z) / 2);
+    this.lean.quaternion.copy(this.leanQ);
+    this.lean.position.copy(this.leanPivot).sub(this.cross.copy(this.leanPivot).applyQuaternion(this.leanQ));
+  }
+
+  /** The lip lean's current angle of the body about its feet line (rad; for tests). */
+  get leanAngle(): number {
+    return this.leanRoll;
   }
 
   /** The pose with the heaviest weight on the last update (for the debug hook). */
@@ -198,15 +257,20 @@ export class Character {
     h.applyAxisAngle(this.axis.normalize(), max).normalize();
   }
 
-  /** Move the rider so the lower foot's sole sits on the deck (knee bend lowers the body). */
+  /**
+   * Move the rider so the lower foot's sole sits on the deck (knee bend lowers the body). Measured in
+   * the lean's frame — the unleaned body's, in the board's (tilt's) axes — and then the lip lean pivots
+   * the body about its feet, so they stay there.
+   */
   plantFeet(): void {
     const model = this.rig.model;
-    model.updateMatrixWorld(true);
+    this.root.updateMatrixWorld(true);
     this.rig.bones.LeftFoot.getWorldPosition(this.footL);
     this.rig.bones.RightFoot.getWorldPosition(this.footR);
-    this.tilt.worldToLocal(this.footL);
-    this.tilt.worldToLocal(this.footR);
+    this.lean.worldToLocal(this.footL);
+    this.lean.worldToLocal(this.footR);
     model.position.y += DECK_Y + FOOT_SOLE - Math.min(this.footL.y, this.footR.y);
+    model.updateMatrixWorld(true);
   }
 
   dispose(): void {

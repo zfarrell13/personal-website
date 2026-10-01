@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Group, Vector3 } from 'three';
+import { Group, Quaternion, Vector3 } from 'three';
 import { SURF_CONFIG, SURFER_LOOK } from '../config';
 import { DEG } from '../math/scalar';
 import { EventBus, type SurfEvent } from '../physics/events';
@@ -135,5 +135,99 @@ describe('loadSurferRig', () => {
     expect(r.rig.mesh).toBeDefined();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+describe.each(TEST_RIGS)('the lip lean on the %s rig (playtest 5: the steeper the face, the further he leans back)', (_name, makeRig) => {
+  const UP = new Vector3(0, 1, 0);
+  /** A face normal of this steepness (sin of the face angle), tilted toward shore (+z); past vertical it overhangs. */
+  const faceNormal = (steep: number, overhang = false) => {
+    const a = Math.asin(Math.min(1, steep)) + (overhang ? 15 * DEG : 0);
+    return new Vector3(0, Math.cos(a), Math.sin(a));
+  };
+
+  async function rider(side: 'left' | 'right') {
+    const cfg = structuredClone(SURF_CONFIG);
+    const surfer = new Surfer(new WaveShape(cfg.wave), cfg.physics, new EventBus<SurfEvent>());
+    const ch = new Character(await makeRig(), SURFER_LOOK);
+    ch.setSide(side);
+    const s = surfer.state;
+    /** Riding down the line (heading +x) on a face with normal n, no turn; `frames` updates at 60 fps. */
+    const ride = (n: Vector3, frames = 60) => {
+      for (let i = 0; i < frames; i++) {
+        s.mode = 'riding';
+        s.turnRate = 0;
+        s.v.set(8, 0, 0);
+        s.normal.copy(n);
+        s.heading.set(1, 0, 0);
+        surfer.prevHeading.set(1, 0, 0);
+        surfer.prevP.copy(s.p);
+        ch.update(surfer, 1, 1 / 60);
+      }
+      ch.root.updateMatrixWorld(true);
+      const q = ch.rig.model.getWorldQuaternion(new Quaternion());
+      return new Vector3(0, 1, 0).applyQuaternion(q);
+    };
+    return { ch, s, ride };
+  }
+
+  it.each(['right', 'left'] as const)('%s: the lean back from the surface normal grows with steepness; on a vertical face he stands within 50° of upright, still leaning back away from the wave', async (side) => {
+    const { ride } = await rider(side);
+    const steeps = [0, 0.3, 0.5, 0.7, 0.85, 0.95, 1];
+    let prev = -1;
+    for (const st of steeps) {
+      const n = faceNormal(st);
+      const body = ride(n);
+      const back = body.angleTo(n) / DEG;
+      expect(back).toBeGreaterThanOrEqual(prev - 0.2);
+      prev = back;
+      if (st === 0) expect(back).toBeLessThan(0.5);
+      if (st === 1) {
+        expect(body.angleTo(UP) / DEG).toBeLessThanOrEqual(50);
+        expect(back).toBeGreaterThan(35);
+        expect(body.z).toBeGreaterThan(0.3); // leaned back out over the flats, not into the wave
+      }
+    }
+    // Overhanging: at least as far back as on the vertical face.
+    expect(ride(faceNormal(1, true)).angleTo(UP) / DEG).toBeLessThanOrEqual(65);
+  });
+
+  it.each(['right', 'left'] as const)('%s: the feet stay planted on the deck where they stand on a flat face, however far he leans', async (side) => {
+    const { ch, ride } = await rider(side);
+    /** The soles, in the board's frame: the ankle bones less their 6 cm height along the body's up. */
+    const soles = (bodyUp: Vector3) => {
+      ch.root.updateMatrixWorld(true);
+      return [ch.rig.bones.LeftFoot, ch.rig.bones.RightFoot].map((b) => ch.root.worldToLocal(b.getWorldPosition(new Vector3()).addScaledVector(bodyUp, -0.06)));
+    };
+    const flat = soles(ride(faceNormal(0)));
+    for (const st of [0.7, 1]) {
+      const leaned = soles(ride(faceNormal(st)));
+      // Both soles where they stood on the flat face: the body leans back on its feet.
+      for (let k = 0; k < 2; k++) expect(leaned[k]!.distanceTo(flat[k]!)).toBeLessThan(0.01);
+    }
+  });
+
+  it('no snapping: a face end tipping the normal in one tick eases the lean in over a few frames', async () => {
+    const { ch, ride } = await rider('right');
+    ride(faceNormal(0));
+    let prev = ch.leanAngle;
+    let maxStep = 0;
+    for (let i = 0; i < 40; i++) {
+      ride(faceNormal(1), 1);
+      maxStep = Math.max(maxStep, Math.abs(ch.leanAngle - prev));
+      prev = ch.leanAngle;
+    }
+    expect(Math.abs(ch.leanAngle)).toBeGreaterThan(30 * DEG);
+    expect(maxStep).toBeLessThan(0.25 * Math.abs(ch.leanAngle) + 1e-6);
+  });
+
+  it('no lean in a trick air, on a floater or in a wipeout (the body back on the board frame)', async () => {
+    const { ch, s, ride } = await rider('right');
+    ride(faceNormal(1));
+    expect(Math.abs(ch.leanAngle)).toBeGreaterThan(30 * DEG);
+    s.mode = 'airborne';
+    s.launchKind = 'crest';
+    for (let i = 0; i < 60; i++) ch.update({ state: s, prevP: s.p, prevHeading: s.heading, wave: { crestY: () => 2.4 } } as never, 1, 1 / 60);
+    expect(Math.abs(ch.leanAngle)).toBeLessThan(1 * DEG);
   });
 });
