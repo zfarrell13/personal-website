@@ -5,7 +5,7 @@ import type { Season, SiteContent } from './types';
  * (placeholder URLs carry "SAMPLE" inside them); replace them, and the files under public/site/, with your own.
  */
 export const site: SiteContent = {
-  homeTagline: 'Principal PM shipping AI platforms, music tech and one very retro surf game',
+  homeTagline: 'Principal PM shipping AI platforms, music tech, and one very retro surf game',
   profile: {
     name: 'Zach Farrell',
     title: 'Principal Product Manager',
