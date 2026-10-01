@@ -185,6 +185,47 @@ test.describe('surf game', () => {
     expect(Math.max(...samples.map((s) => s.triangles))).toBeLessThan(150_000);
   });
 
+  test('stays inside the budget with the heaviest scenery, the pier set, in view', async ({ page }) => {
+    await page.goto('/surf?debug');
+    await page.getByRole('button', { name: 'DROP IN' }).click();
+    await page.waitForFunction(() => window.__surf?.phase === 'playing');
+    await page.getByTestId('debug-panel').evaluate((el) => ((el as HTMLElement).style.display = 'none'));
+    // The pier set (pier, Oceanic, houses) starts 300 m down the line (SHORE.landmarkU) and nears at
+    // the peel speed: look at it from rider height down the line, and from above over the whole beach.
+    const views = [
+      { pos: [0, 5, 5], look: [280, 4, 80] },
+      { pos: [150, 70, -30], look: [280, 0, 160] },
+      { pos: [-60, 40, 0], look: [300, 0, 140] },
+    ];
+    const worst = { calls: 0, triangles: 0 };
+    for (const cam of views) {
+      await page.evaluate((c) => {
+        window.__surfCam = c as never;
+      }, cam);
+      const f0 = await page.evaluate(() => window.__surf!.frames);
+      await page.waitForFunction((f) => (window.__surf?.frames ?? 0) > f + 5, f0);
+      const s = await page.evaluate(async () => {
+        const out = { calls: 0, triangles: 0 };
+        let last = -1;
+        for (let n = 0; n < 10; ) {
+          await new Promise((r) => requestAnimationFrame(r));
+          const h = window.__surf!;
+          if (h.frames === last) continue;
+          last = h.frames;
+          n++;
+          out.calls = Math.max(out.calls, h.calls);
+          out.triangles = Math.max(out.triangles, h.triangles);
+        }
+        return out;
+      });
+      worst.calls = Math.max(worst.calls, s.calls);
+      worst.triangles = Math.max(worst.triangles, s.triangles);
+    }
+    expect(worst.calls).toBeGreaterThan(0);
+    expect(worst.calls).toBeLessThan(80);
+    expect(worst.triangles).toBeLessThan(150_000);
+  });
+
   test('the horizon is seamless: sea fades into the fog-coloured haze with no step, band or dip', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/surf?debug');

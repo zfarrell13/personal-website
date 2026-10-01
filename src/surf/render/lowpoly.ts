@@ -10,11 +10,15 @@ const c = new Color();
 export class LowPoly {
   private pos: number[] = [];
   private col: number[] = [];
+  private mark: number[] = [];
+  /** Landmark weight (0 … 1) given to the triangles added while it is set: the `aLandmark` attribute. */
+  landmark = 0;
 
   tri(a: readonly number[], b: readonly number[], d: readonly number[], color: ColorRepresentation | Color): this {
     c.set(color);
     this.pos.push(a[0]!, a[1]!, a[2]!, b[0]!, b[1]!, b[2]!, d[0]!, d[1]!, d[2]!);
     for (let i = 0; i < 3; i++) this.col.push(c.r, c.g, c.b);
+    this.mark.push(this.landmark, this.landmark, this.landmark);
     return this;
   }
 
@@ -119,6 +123,7 @@ export class LowPoly {
     const g = new BufferGeometry();
     g.setAttribute('position', new BufferAttribute(new Float32Array(this.pos), 3));
     g.setAttribute('color', new BufferAttribute(new Float32Array(this.col), 3));
+    g.setAttribute('aLandmark', new BufferAttribute(new Float32Array(this.mark), 1));
     g.computeVertexNormals();
     g.computeBoundingBox();
     g.computeBoundingSphere();

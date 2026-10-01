@@ -1,4 +1,4 @@
-import { BufferGeometry, Color, DoubleSide, MeshLambertMaterial } from 'three';
+import { BufferGeometry, Color, MeshLambertMaterial } from 'three';
 import { clamp, smoothstep } from '../math/scalar';
 import { LowPoly } from './lowpoly';
 
@@ -24,11 +24,18 @@ export const SHORE = {
   /** Scroll window start: chunks cover [start + chunk/2, start + span − chunk/2] = ±1200 m, past full fog. */
   start: -1300,
   /**
-   * Strip u of the landmark sets (pier, Oceanic, lifeguard stand, water tower, resort tower): at travel 0
-   * the pier is 300 m down the line (in view from the title and the drop-in, not on top of the rider).
+   * Strip u of the landmark sets (pier, Oceanic, lifeguard stand, resort tower): at travel 0 the pier is
+   * 300 m down the line (≈ 37 s away at the 8 m/s peel), then every 1300 m (≈ 2.7 min).
    */
   landmarkU: [300, 1600] as readonly number[],
-  /** The pier's seaward end (m). Shoreward of the trough and the flats the rider uses, so no piling stands in the wave. */
+  /** The water tower stands at these offsets (m along the beach) from each landmark set: every 650 m. */
+  waterTowerAt: [-140, 510] as readonly number[],
+  /** The resort tower's offset from each landmark set (m along the beach). */
+  resortAt: 330,
+  /**
+   * The pier's seaward end (z, m): the one knob for its length — the deck, bents, bracing and railings
+   * are all generated from here to the pier house. Shoreward of the trough and the flats for now.
+   */
   pierEndZ: 22,
   /** Near / far mesh split (m beyond the waterline) and the far edge of the land (z, m). */
   splitZr: 300,
@@ -41,17 +48,43 @@ export const SHORE = {
  * reference.
  */
 export const SHORE_GLOW = 0.4;
+/**
+ * Landmarks (the `aLandmark` vertex weight, e.g. the water tower) glow this much more and keep up to
+ * this share of the haze off in the middle distance, so the white tower stands out against the sky
+ * instead of fading into it. The clearing eases out from 75 % of fog far to fog far, so a landmark is
+ * still fully fogged beyond it (it never shows through the far haze or where chunks wrap), and only
+ * applies in the open-air fog (fog far > 100 m), never through the short underwater fog.
+ */
+export const LANDMARK_GLOW = 0.2;
+export const LANDMARK_CLEAR = 0.45;
 
-/** The scenery's one material: vertex colours, lit, fogged, both sides, plus SHORE_GLOW of its colour. */
+/** The scenery's one material: vertex colours, lit, fogged, plus SHORE_GLOW of its colour (more on landmarks). */
 export function createShoreMaterial(): MeshLambertMaterial {
-  const m = new MeshLambertMaterial({ vertexColors: true, side: DoubleSide });
+  const m = new MeshLambertMaterial({ vertexColors: true });
   m.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <emissivemap_fragment>',
-      `#include <emissivemap_fragment>\n  totalEmissiveRadiance += ${SHORE_GLOW.toFixed(2)} * vColor.rgb;`,
-    );
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aLandmark;\nvarying float vLandmark;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLandmark = aLandmark;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vLandmark;')
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>\n  totalEmissiveRadiance += (${SHORE_GLOW.toFixed(2)} + ${LANDMARK_GLOW.toFixed(2)} * vLandmark) * vColor.rgb;`,
+      )
+      .replace(
+        '#include <fog_fragment>',
+        `#ifdef USE_FOG
+  #ifdef FOG_EXP2
+    float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+  #else
+    float clearHaze = ${LANDMARK_CLEAR.toFixed(2)} * vLandmark * step(100.0, fogFar) * (1.0 - smoothstep(0.75 * fogFar, fogFar, vFogDepth));
+    float fogFactor = smoothstep(fogNear, fogFar, vFogDepth) * (1.0 - clearHaze);
+  #endif
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+#endif`,
+      );
   };
-  m.customProgramCacheKey = () => 'shore-glow';
+  m.customProgramCacheKey = () => 'shore-glow-landmark';
   return m;
 }
 
@@ -173,24 +206,25 @@ function groundColor(u: number, zr: number, y: number, out: Color): Color {
 /** Ground grid over strip [u0, u1] and the given waterline-relative rows; x is local to cx. */
 function terrain(b: LowPoly, u0: number, u1: number, cx: number, zrs: readonly number[], step: number): void {
   const nx = Math.round((u1 - u0) / step);
-  const pt = (i: number, j: number) => {
+  // Grid points and their colours, computed once each.
+  const pts: number[][][] = [];
+  const cols: Color[][] = [];
+  for (let i = 0; i <= nx; i++) {
     const u = u0 + i * step;
-    const z = shoreZ(u) + zrs[j]!;
-    return [u - cx, groundY(u, z), z];
-  };
-  const cl = (i: number, j: number) => {
-    const u = u0 + i * step;
-    const p = pt(i, j);
-    return groundColor(u, zrs[j]!, p[1]!, new Color());
-  };
+    pts.push(zrs.map((zr) => {
+      const z = shoreZ(u) + zr;
+      return [u - cx, groundY(u, z), z];
+    }));
+    cols.push(zrs.map((zr, j) => groundColor(u, zr, pts[i]![j]![1]!, new Color())));
+  }
+  const avg = (p: Color, q: Color, r: Color) => tmp.copy(p).add(q).add(r).multiplyScalar(1 / 3);
   for (let j = 0; j + 1 < zrs.length; j++) {
     for (let i = 0; i < nx; i++) {
-      // Flat-coloured per triangle (retro look): average of the corner colours.
-      const [a, bb, d, e] = [pt(i, j), pt(i + 1, j), pt(i + 1, j + 1), pt(i, j + 1)];
-      const c1 = tmp.copy(cl(i, j)).add(cl(i + 1, j)).add(cl(i + 1, j + 1)).multiplyScalar(1 / 3).clone();
-      const c2 = tmp.copy(cl(i, j)).add(cl(i + 1, j + 1)).add(cl(i, j + 1)).multiplyScalar(1 / 3).clone();
+      // Flat-coloured per triangle (retro look): the average of its corner colours.
+      const [a, bb, d, e] = [pts[i]![j]!, pts[i + 1]![j]!, pts[i + 1]![j + 1]!, pts[i]![j + 1]!];
+      const [ca, cb, cd, ce] = [cols[i]![j]!, cols[i + 1]![j]!, cols[i + 1]![j + 1]!, cols[i]![j + 1]!];
       // Wound to face up (+y): toward shore is +z, so a → e is +z and a → b is +x.
-      b.tri(a, e, d, c1).tri(a, d, bb, c2);
+      b.tri(a, e, d, avg(ca, ce, cd)).tri(a, d, bb, avg(ca, cd, cb));
     }
   }
 }
@@ -302,7 +336,6 @@ function oceanic(b: LowPoly, x: number, zr0: number, u: number, lite: boolean): 
   b.box(x - 1, g(0, ph.z0) - 0.5, (ph.z0 + ph.z1) / 2, ph.w, phY - g(0, ph.z0) + 0.5, ph.z1 - ph.z0, OCEANIC_WALL, '#e9e7df');
   b.box(x - 1, phY, (ph.z0 + ph.z1) / 2, ph.w + 0.8, 0.35, ph.z1 - ph.z0 + 0.8, TRIM, '#dedcd2');
   for (const s of [-1, 1]) b.box(x - 1 + s * (ph.w / 2 + 0.05), PIER.deckY + 0.9, (ph.z0 + ph.z1) / 2, 0.12, 1.8, ph.z1 - ph.z0 - 2, WINDOW);
-  for (let z = ph.z0 + 2; z < ph.z1 - 1 && !lite; z += 4) b.box(x - 1, -4.6, z, ph.w - 1, PIER.deckY + 4.6, 0.4, PILING);
   // Main building: beside the pier house (−x), two storeys, windows all round.
   const mx = x - 19;
   const mz = sz + zr0 + 6;
@@ -348,14 +381,19 @@ function lifeguard(b: LowPoly, x: number, z: number, ground: number): void {
   b.hip(x, ground + ph + 0.18 + 2.5 * s, z + hd * 0.4, hw * 2.6, hd * 2.6, 0.5 * s, '#f2c230');
 }
 
-/** The white Wrightsville Beach water tower: tall stem, flared neck, round tank. */
+/** Water tower stem height above the ground (m): the tank rises well above every house roof (≤ 15 m). */
+export const WATER_TOWER_STEM = 44;
+
+/** The white Wrightsville Beach water tower: tall stem, flared neck, round tank; drawn as a landmark (brighter, less haze). */
 function waterTower(b: LowPoly, x: number, z: number, ground: number, lite: boolean): void {
-  const n = lite ? 6 : 8;
-  const stem = 36;
-  b.prism(x, ground - 0.5, z, 2.0, 1.6, stem + 0.5, n, '#ecebe6');
-  b.prism(x, ground + stem - 4, z, 1.6, 5, 4.5, n, '#f2f1ec');
-  b.ball(x, ground + stem + 5.5, z, 7, n + 2, lite ? 4 : 6, '#f7f7f3');
-  b.prism(x, ground + stem + 11.8, z, 0.6, 0, 1.6, 4, '#d9d8d2');
+  const n = lite ? 8 : 10;
+  const stem = WATER_TOWER_STEM;
+  b.landmark = 1;
+  b.prism(x, ground - 0.5, z, 2.4, 1.9, stem + 0.5, n, '#f4f4f0');
+  b.prism(x, ground + stem - 5, z, 1.9, 6.2, 5.5, n, '#fafaf6');
+  b.ball(x, ground + stem + 7, z, 8.5, n + 2, lite ? 5 : 7, '#ffffff');
+  b.prism(x, ground + stem + 15.3, z, 0.7, 0, 2, 4, '#e2e1dc');
+  b.landmark = 0;
 }
 
 /** Everything in one strip chunk: terrain, houses, dunes and (when they fall in it) landmarks. */
@@ -372,9 +410,7 @@ export function buildShore(opts: ShoreOptions = {}): { chunks: ShoreChunk[]; lan
   /** Builder and local x for an item at strip u (near or far mesh). */
   const at = (u: number, farSide = false): [LowPoly, number] => {
     const k = chunkOf(u);
-    let x = wrapU(u) - centreOf(k);
-    if (x > span / 2) x -= span;
-    return [(farSide ? far : near)[k]!, x];
+    return [(farSide ? far : near)[k]!, wrapU(u) - centreOf(k)];
   };
 
   // Ground.
@@ -407,15 +443,19 @@ export function buildShore(opts: ShoreOptions = {}): { chunks: ShoreChunk[]; lan
     }
   }
 
-  // Landmark keep-outs (strip u ranges) for houses, condos and walkways.
+  // Landmark keep-outs for houses, condos, walkways and tufts: [u from, u to] (offsets from a set) × [zr from, zr to].
   const sets = SHORE.landmarkU;
-  const blocked = (u: number, zr: number, half: number) =>
+  const keepOut: Array<[number, number, number, number]> = [
+    [-45, 14, -60, 105], // the pier, the Oceanic and its pier house
+    ...SHORE.waterTowerAt.map((o): [number, number, number, number] => [o - 12, o + 12, 112, 145]),
+    [SHORE.resortAt - 26, SHORE.resortAt + 26, 90, 175],
+  ];
+  /** Is the strip [u0, u1] in row zr inside a keep-out? */
+  const blocked = (u0: number, u1: number, zr: number) =>
     sets.some((U) => {
-      const d = (((u - U) % span) + span * 1.5) % span - span / 2;
-      if (zr < 105 && d > -45 - half && d < 14 + half) return true; // the Oceanic and the pier
-      if (zr > 140 && zr < 200 && Math.abs(d + 140) < 12 + half) return true; // water tower
-      if (zr > 90 && zr < 175 && Math.abs(d - 520) < 26 + half) return true; // resort tower
-      return false;
+      const d0 = ((((u0 - U) % span) + span * 1.5) % span) - span / 2;
+      const d1 = d0 + (u1 - u0);
+      return keepOut.some(([a, b2, z0, z1]) => zr > z0 && zr < z1 && d1 > a && d0 < b2);
     });
 
   // Dunes: sea-oat tufts, sand fences along the dune toe, walkways from the houses over the dunes.
@@ -426,17 +466,22 @@ export function buildShore(opts: ShoreOptions = {}): { chunks: ShoreChunk[]; lan
     const z = shoreZ(u) + zr;
     const [b, x] = at(u);
     const h = 0.9 + r() * 0.9;
-    b.prism(x, groundY(u, z) - 0.2, z, 0.9 + r() * 0.8, 0, h + 0.2, 3, pick(r, ['#6f8a3c', '#8c9a4a', '#a3a05a', '#5f7a3a']), r() * TAU);
+    const rad = 0.9 + r() * 0.8;
+    const tint = pick(r, ['#6f8a3c', '#8c9a4a', '#a3a05a', '#5f7a3a']);
+    const turn = r() * TAU;
+    if (blocked(u - rad, u + rad, zr)) continue; // not buried in the Oceanic
+    b.prism(x, groundY(u, z) - 0.2, z, rad, 0, h + 0.2, 3, tint, turn);
   }
   for (let u = 0; u < span; u += 18) {
-    if (r() < 0.4 || blocked(u, 60, 10)) continue;
+    if (r() < 0.4) continue;
     const len = 8 + r() * 10;
+    if (blocked(u, u + len, 60)) continue;
     const z = shoreZ(u) + 59.5;
     const [b, x] = at(u + len / 2);
     b.box(x, groundY(u + len / 2, z) - 0.3, z, len, 1.2, 0.12, '#a89474');
   }
   for (let u = 20; u < span; u += 45 + Math.floor(r() * 25)) {
-    if (blocked(u, 60, 4)) continue;
+    if (blocked(u - 1, u + 1, 60)) continue;
     const [b, x] = at(u);
     const z0 = shoreZ(u) + 54;
     const z1 = shoreZ(u) + 93;
@@ -454,16 +499,17 @@ export function buildShore(opts: ShoreOptions = {}): { chunks: ShoreChunk[]; lan
     const rr = rng(100 + row);
     let u = rr() * 8;
     while (u < span) {
-      const half = 6;
       const z = shoreZ(u) + zr + (rr() - 0.5) * 2;
-      if (!blocked(u, zr, half)) {
-        const [b, x] = at(u);
-        if (row > 0 && rr() < 0.06) {
-          const w = 26 + rr() * 10;
+      const [b, x] = at(u);
+      if (row > 0 && rr() < 0.06) {
+        // A condo block from u − 6 to u − 6 + w (its whole footprint clear of the keep-outs).
+        const w = 26 + rr() * 10;
+        if (!blocked(u - 6, u - 6 + w, zr)) {
           condo(b, rr, x + w / 2 - 6, z, groundY(u, z), w, 15, 4 + Math.floor(rr() * 2));
           u += w + 4;
           continue;
         }
+      } else if (!blocked(u - 6, u + 6, zr)) {
         house(b, rr, x, z, groundY(u, z), row < (lite ? 1 : 2));
       }
       u += 13 + rr() * 4 + (rr() < 0.08 ? 10 : 0);
@@ -507,15 +553,16 @@ export function buildShore(opts: ShoreOptions = {}): { chunks: ShoreChunk[]; lan
       lifeguard(b, x, z, groundY(u, z));
       landmarks.push({ kind: 'lifeguard', u, z });
     }
-    {
-      const u = U - 140;
-      const z = shoreZ(u) + 178;
+    // The water tower: just behind the front row of houses, rising well above the roofs.
+    for (const o of SHORE.waterTowerAt) {
+      const u = U + o;
+      const z = shoreZ(u) + 128;
       const [b, x] = at(u);
       waterTower(b, x, z, groundY(u, z), lite);
       landmarks.push({ kind: 'waterTower', u, z });
     }
     {
-      const u = U + 520;
+      const u = U + SHORE.resortAt;
       const z = shoreZ(u) + 132;
       const [b, x] = at(u);
       const g = groundY(u, z);
