@@ -71,9 +71,35 @@ carving **weighty / realistic**.
   - **Letting go of ← → at the lip launches** (arriving with up-face speed
     > `launchSpeed`), as does an ollie. Too slow, the lip sheds the rider back
     down (over a few ticks).
-- A held carve toward the lip / trough steers the board toward straight up /
+- ~~A held carve toward the lip / trough steers the board toward straight up /
   down the face and settles there (no fishtail); from near straight up or down
-  it turns through down the line (toward the shoulder).
+  it turns through down the line (toward the shoulder).~~ Superseded by the
+  playtest 4 amendment below.
+- **Playtest 4 amendment: roundhouse** (user: "the turn stops, and almost forces
+  the surfer to go back straight… I should be able to do a roundhouse carve all
+  of the way back towards the lip, and carve off the lip as well").
+  - A held carve keeps turning the same way for as long as it is held: up the
+    face, round past straight up, back toward the curl and on round. Its
+    rotation sense is latched when the key goes down (the key's toward-the-lip /
+    toward-the-trough meaning at that moment); there is no settling straight
+    up / down and no swing toward the shoulder. Let go and the yaw rate eases to
+    0 (`carveLag`): the board holds its line. Rate, lag and `carveBleed` are
+    unchanged. A held turn that reaches the trough carries on round the way it
+    is turning (the bottom turn follows it, never fights it into the flats).
+  - Rebound: running back toward the curl with a carve held, reaching the
+    whitewater (frame x ≤ `foamReboundX` 2) or turning up into the top band
+    (y ≥ `snapTopFrac` × crest) bounces the board round, back down the line, at
+    the snap-boosted rate (`snapCarveBoost`; ≤ 15° per tick). Off the lip it
+    turns up and over; the foam knocks it round the shorter way and bleeds
+    `roundhouseRebound` (0.05) of the speed per 180°. The curl still swallows a
+    rider past −D. Carving at the lip never launches (letting go still does).
+    A rebound spends the held key: held on, the board holds its new line until
+    the key is let go.
+  - ROUNDHOUSE: a held turn of ≥ `roundhouseDeg` (170°) that ends in a rebound
+    emits `roundhouse` (with degrees) and scores 400 (a snap is 250); the HUD
+    ticker shows "Roundhouse". A plain cutback (or a short turn into the foam)
+    rebounds without it. The chase camera swings round behind the new line as on
+    any cutback; the keys keep their meaning while held (the existing latch).
 
 ## 5. Camera: behind, from the curl side
 
@@ -123,6 +149,10 @@ Pumping targets (playtest 2, Task 2b — headless, `lineBot` + scripted inputs, 
 11. Camera cutback probes use genuine turns back toward the curl (a lip snap carve-back, or a carve
     past the fall line into a bottom turn), never a one-tick heading snap; far-out reversals must
     leave settled-line samples.
+12. Roundhouse (playtest 4): a held carve from down the line at 8 and 12 m/s turns on past 180° without
+    settling; released, the yaw rate dies within a few `carveLag`; held from down the line near the pocket
+    it rebounds off the whitewater back down the line with ≥ 60% of the entry speed, one `roundhouse`
+    event and ≤ 15° per tick; a short turn into the foam rebounds without one.
 
 ## Playtest 2 amendments (user feedback)
 

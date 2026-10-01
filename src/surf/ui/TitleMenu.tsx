@@ -84,7 +84,7 @@ export function TitleMenu({ initialSide, onStart, guide = true, onGuide, onMenu 
         </div>
         <RetroButton data-primary="true" onClick={() => onStart(side)}>DROP IN</RetroButton>
         <p className={`${styles.legend} ${styles.legendPlate} ${styles.legendKeys}`}>
-          ← → carve (hold at the lip to snap, let go at the lip to launch) · ↑ pump · ↓ stall · SPACE ollie · air: ← → spin, W A S D grabs · ESC pause
+          ← → carve (keeps turning while held: round into the whitewater for a roundhouse; let go at the lip to launch) · ↑ pump · ↓ stall · SPACE ollie · air: ← → spin, W A S D grabs · ESC pause
         </p>
         <p className={`${styles.legend} ${styles.legendPlate} ${styles.legendTouch}`}>
           ◀ ▶ carve · ▲ pump · ▼ stall · OLLIE · in the air: ◀ ▶ spin, hold a grab
