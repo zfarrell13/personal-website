@@ -96,7 +96,8 @@ carving **weighty / realistic**.
     bounced round, back down the line, at `reboundBoost` (2) × the carve rate
     (≤ 15° per tick), when it
     - reaches the whitewater (frame x ≤ `foamReboundX` 3, not inside the barrel
-      and not deeper than −D/2), or
+      and not deeper than −D/2; a foam rebound carried past −D/2 is lost to the
+      curl, with no roundhouse), or
     - turns up into the lip: a toward-the-lip turn in the top band
       (y ≥ `snapTopFrac` × crest) or at the crest, or — for a key pressed while
       running back with a cutback of ≥ 90° under way — anywhere on the face
@@ -111,7 +112,9 @@ carving **weighty / realistic**.
     break it pushes a slower board up toward `foamCarry` (1) × the peel speed
     at `foamPush` (15 m/s²). A rebound ends with the line running down the
     line, dropping 30° below flat, and the wave throws the board on with
-    `reboundKick` (2 m/s). Carving at the lip never launches. A rebound spends
+    `reboundKick` (2 m/s). **Ruling:** a roundhouse never exits faster than the
+    cutback went in — the push and the kick restore speed toward the cutback's
+    entry speed, never beyond it (it costs a little speed). Carving at the lip never launches. A rebound spends
     the held key: held on, the board holds its new line until the key is let go.
   - **Launch guard (user ruling):** for `cutbackLaunchGuard` (0.5 s) after
     letting go of a cutback (≥ 90° under way), while still running back toward
@@ -121,18 +124,25 @@ carving **weighty / realistic**.
   - ROUNDHOUSE: a cutback of ≥ `roundhouseDeg` (150°) that ends in a rebound,
     as one held carve or as two presses, at any distance from the curl, emits
     `roundhouse` (with degrees) and scores 500. **It replaces the snap (user
-    ruling):** a snap that turns the board back toward the curl waits until the
-    cutback ends; a ROUNDHOUSE drops it, otherwise it scores then (a wipeout
-    first shows it, then loses it with the pot). The HUD ticker shows
+    ruling):** a snap that turns the board back toward the curl waits, at most
+    `snapDeferMax` (0.35 s); a ROUNDHOUSE in that time drops it. Otherwise it
+    scores (ticker and spray burst) when the cutback ends or the wait runs out,
+    whichever is first, and a ROUNDHOUSE later out of the same cutback takes
+    it back from the unbanked pot (`replacesSnap`). A wipeout first shows a
+    waiting snap, then loses it with the pot. The HUD ticker shows
     "Roundhouse"; the spray bursts as for a snap. A plain cutback (or a short
     turn into the foam) rebounds without it.
   - Camera: the chase swings round behind the new line as on any cutback; the
     keys keep their meaning while held (the existing latch). Two guards keep the
     rider seen through a reversal: the chase tilts its look target (never its
-    position) to keep the rider's chest within 0.7 of the half-screen from the
-    centre (clear of the HUD), and in the pocket (x ≤ `pocketX`) the view cuts
-    straight to the tube / pocket view when the chase's line of sight to the
-    rider is blocked by the pitching lip.
+    position) to keep the drawn rider — leaning into the turn as Character.ts
+    banks the body, `clamp(turnRate · |v| · 0.04, ±0.6)` — with the chest within
+    0.7, the board within 0.8 and the head within 0.8 of the half-screen from
+    the centre (clear of the HUD); and in the pocket (x ≤ `pocketX`) the view
+    cuts straight to the tube / pocket view when the chase's line of sight to
+    the rider is blocked by the pitching lip. In the pocket, board spray (and
+    the snap / roundhouse burst) is kept down as in the tube, so spray thrown
+    just before that cut doesn't sit at the lens over the rider.
 
 ## 5. Camera: behind, from the curl side
 
@@ -185,10 +195,11 @@ Pumping targets (playtest 2, Task 2b — headless, `lineBot` + scripted inputs, 
 12. Roundhouse (playtest 4): a held carve from down the line at 8 and 12 m/s turns on past 180° without
     settling; released, the yaw rate dies within a few `carveLag`. At 8–12 m/s, a roundhouse — one held
     carve near the pocket, or two presses (cut back, let go, press into the lip) from x = 20–30 — emits
-    one `roundhouse` and no snap, comes out down the line with ≤ 15° per tick, ends shallower than −D/2,
-    and 0.5 s later (back on its line down the face) runs at ≥ 60% of the entry speed. A short turn into
-    the foam rebounds without one. During a roundhouse the rider is framed (|ndc y| < 0.75) in every
-    chase frame and seen in ≥ 90% of them.
+    one `roundhouse` (no snap, or one taken back), comes out down the line with ≤ 15° per tick, no faster
+    than it went in, ends shallower than −D/2, and 0.5 s later (back on its line down the face) runs at
+    ≥ 60% of the entry speed. A short turn into the foam rebounds without one. During a roundhouse the
+    leaning rider is framed in every chase frame (chest |ndc y| ≤ 0.7, board ≤ 0.8) and seen in ≥ 90%
+    of them.
 
 ## Playtest 2 amendments (user feedback)
 
