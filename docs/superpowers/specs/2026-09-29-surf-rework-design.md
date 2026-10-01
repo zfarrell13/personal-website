@@ -359,8 +359,10 @@ should be the jump (ollie)"; "go higher the longer you hold Space".
   press and release inside one tick is a tap.
 - In the air the key does nothing; one pressed in the air (or held from it into the landing) never
   loads — it must be let go and pressed again on the face. Leaving the face (a crest launch, a drop,
-  a wipeout) cancels a load. A pause / resume drops a load without a pop. Landing rules (spin latch
-  etc.) are unchanged.
+  a wipeout) cancels a load. A pause / resume, losing window focus, or a held touch OLLIE taken by
+  the OS (pointercancel / lost capture) drops a load without a pop (review fix). Landing rules (spin
+  latch etc.) are unchanged. The load pose weighs at most 0.75 (review fix), so a bottom / top turn
+  posture still reads underneath a full load.
 - Verification: no ollie on the press, the ollie on the release; apex height monotonic in hold time
   and capped (a full load > 2× a tap's height; a tap below and a full load ≥ 1.5× the old ollie);
   the load pose weight while held; the key held from the air and a crest launch while loading never

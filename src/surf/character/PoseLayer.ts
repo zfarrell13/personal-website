@@ -119,9 +119,9 @@ export function poseWeights(s: SurferState, sinceLand: number, out: PoseWeights 
   if (s.inTube) mixIn(w, 'crouch', 0.85);
   if (s.sincePump < 0.35) mixIn(w, 'pump', 1 - s.sincePump / 0.35);
   if (s.stalling) mixIn(w, 'stall', 1);
-  // Loading an ollie: the crouch comes in at once and sinks deeper as the load builds (it rides over
-  // the turn poses: the carve goes on underneath).
-  if (s.ollieCharge > 0) mixIn(w, 'load', 0.65 + 0.35 * s.ollieCharge);
+  // Loading an ollie: the crouch comes in at once and sinks deeper as the load builds, up to 0.75 — the
+  // bottom / top turn posture still reads underneath (holding Space through a bottom turn to pop at the lip).
+  if (s.ollieCharge > 0) mixIn(w, 'load', 0.55 + 0.2 * s.ollieCharge);
   if (sinceLand < 0.3) mixIn(w, 'land', 1 - sinceLand / 0.3);
   return w;
 }

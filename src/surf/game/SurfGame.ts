@@ -206,6 +206,12 @@ export class SurfGame {
       document.addEventListener('visibilitychange', onVisibility);
       this.cleanups.push(() => document.removeEventListener('visibilitychange', onVisibility));
     }
+    if (typeof window !== 'undefined') {
+      // Losing focus lets go of every key (ActionState): a crouch held then is dropped, never popped.
+      const onBlur = () => this.cancelOllie();
+      window.addEventListener('blur', onBlur);
+      this.cleanups.push(() => window.removeEventListener('blur', onBlur));
+    }
     if (opts.debug) this.buildGizmo();
 
     const ro = new ResizeObserver(() => this.resize());
@@ -253,6 +259,14 @@ export class SurfGame {
     this.setPhase('playing');
   }
 
+  /**
+   * Drop a loading ollie without a pop (the key was let go by the system, not the player: window blur,
+   * a touch cancelled by the OS). The release that follows does nothing.
+   */
+  cancelOllie(): void {
+    this.surfer.cancelOllie();
+  }
+
   pause(): void {
     if (this.phase !== 'playing') return;
     this.audio?.pause();
@@ -265,7 +279,7 @@ export class SurfGame {
     this.stepper.reset();
     this.actions.reset();
     // A crouch held into the pause is dropped (the keys were all let go): no pop on resume.
-    this.surfer.cancelOllie();
+    this.cancelOllie();
     this.audio?.resume();
     this.music.setDuck(1);
     this.setPhase('playing');

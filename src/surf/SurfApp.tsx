@@ -89,7 +89,7 @@ export default function SurfApp({ mode = 'play', reducedMotion = false, attractF
       {ui && game && phase === 'paused' ? <PauseMenu onResume={resume} onQuit={toTitle} /> : null}
       {ui && game && phase === 'results' && run ? <Results run={run} onAgain={again} onTitle={toTitle} /> : null}
       {ui ? <Underwater store={store} /> : null}
-      {ui && game && phase === 'playing' ? <TouchControls actions={game.actions} onPause={pause} /> : null}
+      {ui && game && phase === 'playing' ? <TouchControls actions={game.actions} onPause={pause} onCancel={(a) => a === 'ollie' && game.cancelOllie()} /> : null}
       {ui && game && debug ? <DebugPanel game={game} /> : null}
     </div>
   );

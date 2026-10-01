@@ -64,23 +64,22 @@ describe('poseWeights', () => {
     const cfg = structuredClone(SURF_CONFIG);
     return new Surfer(new WaveShape(cfg.wave), cfg.physics, new EventBus<SurfEvent>()).state;
   };
-  it('loading an ollie (key held) blends the load crouch in at once, deeper as the load builds, over a carve', () => {
+  it('loading an ollie (key held) blends the load crouch in at once, deeper as the load builds (≤ 0.75), over a carve', () => {
     const s = make();
     expect(poseWeights(s, 10).load ?? 0).toBe(0);
     s.ollieCharge = 0.1;
     const light = poseWeights(s, 10).load!;
     s.ollieCharge = 1;
     const full = poseWeights(s, 10).load!;
-    expect(light).toBeGreaterThan(0.6);
+    expect(light).toBeGreaterThan(0.5);
     expect(full).toBeGreaterThan(light);
-    expect(full).toBeCloseTo(1, 6);
-    // Over a carve the turn pose keeps some weight underneath a light load.
-    s.ollieCharge = 0.1;
+    expect(full).toBeCloseTo(0.75, 6);
+    // Over a turn the bottom / top turn posture keeps a quarter of the weight even at a full load.
     s.v.set(8, 0, 0);
     s.turnRate = 2.5;
     const w = poseWeights(s, 10);
     const turn = (w.bottomTurnToe ?? 0) + (w.carveToe ?? 0) + (w.topTurnToe ?? 0) + (w.bottomTurnHeel ?? 0) + (w.carveHeel ?? 0) + (w.topTurnHeel ?? 0);
-    expect(turn).toBeGreaterThan(0.1);
+    expect(turn).toBeGreaterThanOrEqual(0.2);
   });
 
   it('picks the toe/heel rail by the board\'s yaw and stance', () => {

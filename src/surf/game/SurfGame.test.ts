@@ -149,6 +149,39 @@ describe('SurfGame', () => {
     game.dispose();
   });
 
+  it('losing window focus with Space held drops the crouch: the release it causes never pops an ollie', async () => {
+    const { game } = await playing();
+    const launches: string[] = [];
+    game.bus.on('launched', (e) => launches.push(e.kind));
+    key('keydown', 'Space');
+    for (let i = 0; i < 20; i++) frame(); // loading
+    expect(game.surfer.state.ollieCharge).toBeGreaterThan(0.5);
+    window.dispatchEvent(new Event('blur'));
+    for (let i = 0; i < 10; i++) frame();
+    expect(launches).toEqual([]);
+    expect(game.surfer.state.ollieCharge).toBe(0);
+    // A fresh press and release still pops.
+    key('keydown', 'Space');
+    frame();
+    key('keyup', 'Space');
+    frame();
+    expect(launches).toEqual(['ollie']);
+    game.dispose();
+  });
+
+  it('a touch on OLLIE cancelled by the OS (cancelOllie) never pops it', async () => {
+    const { game } = await playing();
+    const launches: string[] = [];
+    game.bus.on('launched', (e) => launches.push(e.kind));
+    game.actions.press('ollie', 'touch:ollie:1');
+    for (let i = 0; i < 20; i++) frame();
+    game.cancelOllie();
+    game.actions.release('ollie', 'touch:ollie:1');
+    for (let i = 0; i < 10; i++) frame();
+    expect(launches).toEqual([]);
+    game.dispose();
+  });
+
   it('the scenery scrolls with travel blended between sim steps like the rider (no stepping during a surge)', async () => {
     const { game } = await playing();
     const update = vi.spyOn(Environment.prototype, 'update');

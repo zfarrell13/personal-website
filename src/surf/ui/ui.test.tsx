@@ -196,6 +196,28 @@ describe('TouchControls', () => {
   });
 });
 
+describe('TouchControls: a held OLLIE taken by the OS is cancelled, not popped', () => {
+  it('pointercancel / lost capture while held calls onCancel before the release; a normal lift does not', () => {
+    for (const how of ['cancel', 'capture'] as const) {
+      const order: string[] = [];
+      const actions = { press: vi.fn(), release: vi.fn(() => order.push('release')) };
+      const onCancel = vi.fn((a: string) => order.push(`cancel:${a}`));
+      const { unmount } = render(<TouchControls actions={actions} onPause={vi.fn()} onCancel={onCancel} />);
+      const ollie = screen.getByRole('button', { name: 'OLLIE' });
+      fireEvent.pointerDown(ollie, { pointerId: 1 });
+      if (how === 'cancel') fireEvent.pointerCancel(ollie, { pointerId: 1 });
+      else fireEvent.lostPointerCapture(ollie, { pointerId: 1 });
+      expect(order).toEqual(['cancel:ollie', 'release']);
+      // A normal lift: the capture is lost after the pointer is up — no cancel.
+      fireEvent.pointerDown(ollie, { pointerId: 2 });
+      fireEvent.pointerUp(ollie, { pointerId: 2 });
+      fireEvent.lostPointerCapture(ollie, { pointerId: 2 });
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      unmount();
+    }
+  });
+});
+
 describe('TouchControls pause', () => {
   it('the pause button calls onPause', () => {
     const onPause = vi.fn();
