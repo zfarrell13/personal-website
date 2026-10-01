@@ -1,5 +1,6 @@
 import { DataTexture, DoubleSide, LinearFilter, MeshLambertMaterial, RepeatWrapping, RGBAFormat, Vector3, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
 import { retroMaterial, retroTexture } from '@/retro/retroMaterial';
+import { PEAK_GLSL_HEADER, PEAK_NORMAL_GLSL, PEAK_POSITION_GLSL } from '../wave/peak';
 import { SKY_GLSL, seaReflection, skyUniforms } from './sky';
 
 export interface WaveUniforms {
@@ -8,6 +9,8 @@ export interface WaveUniforms {
   uTravel: { value: number };
   uFoamTex: { value: Texture };
   uSSS: { value: Vector3 };
+  /** The section peak: (frame x, extra height as a fraction, half-width) — see wave/peak.ts. y = 0: none. */
+  uPeak: { value: Vector3 };
 }
 
 /**
@@ -108,14 +111,20 @@ const FOAM_GLSL = /* glsl */ `
   float foamSparkle = foamCover * smoothstep(0.78, 0.9, foamC);
 `;
 
-/** Inject ripple, the animated pitching lip, foam scrolling, fake subsurface and sky reflection into a Lambert shader. Pure string surgery (unit-tested). */
+/**
+ * Inject the section peak, ripple, the animated pitching lip, foam scrolling, fake subsurface and sky
+ * reflection into a Lambert shader. Pure string surgery (unit-tested). The peak scales the rest shape
+ * exactly as WaveShape.heightScale does (normals included), before the ripple and the lip.
+ */
 export function injectWaveShader(shader: Pick<WebGLProgramParametersWithUniforms, 'uniforms' | 'vertexShader' | 'fragmentShader'>, u: WaveUniforms): void {
   Object.assign(shader.uniforms, u, skyUniforms, seaReflection);
   shader.vertexShader =
     'uniform float uTime;\nuniform float uTravel;\nattribute float aFoam;\nattribute float aFace;\nattribute float aLip;\nvarying float vFoam;\nvarying float vFace;\nvarying vec2 vFoamUv;\nvarying vec2 vSea;\nvarying float vHeight;\n' +
-    shader.vertexShader.replace(
+    PEAK_GLSL_HEADER +
+    shader.vertexShader.replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>\n${PEAK_NORMAL_GLSL}`).replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
+${PEAK_POSITION_GLSL}
   transformed += objectNormal * (sin(position.x * 1.7 + uTime * 2.3) * sin(position.z * 1.3 - uTime * 1.9)) * 0.035;
 ${LIP_GLSL}
   vFoam = aFoam;
@@ -183,6 +192,7 @@ export function createWaveMaterial(): { material: MeshLambertMaterial; uniforms:
     uTravel: { value: 0 },
     uFoamTex: { value: makeFoamTexture() },
     uSSS: { value: new Vector3(0.18, 0.55, 0.42) },
+    uPeak: { value: new Vector3(0, 0, 1) },
   };
   const material = retroMaterial(new MeshLambertMaterial({ vertexColors: true, side: DoubleSide, transparent: true }));
   const snap = material.onBeforeCompile;

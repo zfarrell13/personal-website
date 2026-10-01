@@ -87,7 +87,7 @@ const CAPACITY = 4096;
  * curl beside / behind it) the lip's spray is what shows the wave crashing. `fizz` is the aerated
  * surface of the whitewater (it gives the foam sheet volume up close).
  */
-export const PARTICLE_RATES = { lip: 240, bursts: 12, burstSize: 16, churn: 140, feather: 240, lipSmoke: 110, fizz: 380 } as const;
+export const PARTICLE_RATES = { lip: 240, bursts: 12, burstSize: 16, churn: 140, feather: 240, lipSmoke: 110, fizz: 380, peakFeather: 260, pitch: 320 } as const;
 /**
  * Board spray. A steady wake of `cruise` per (m/s); a rooster tail thrown off the outside rail that
  * grows with speed × turn rate (`fan` per (m/s · rad/s), fuller with the carve held, and a little
@@ -124,6 +124,12 @@ export class Particles {
   private readonly featherRate = new RateAccumulator();
   private readonly smokeRate = new RateAccumulator();
   private readonly fizzRate = new RateAccumulator();
+  private readonly peakRate = new RateAccumulator();
+  private readonly pitchRate = new RateAccumulator();
+  /** The peak's frame x last update (its velocity carries the closing section's spray). */
+  private peakX = NaN;
+  /** Set by the game while the section peak pitches (the surge carrying the curl to it). */
+  peakPitching = false;
   /** Which way along the wave the board last clearly ran (+1 / −1; 0 = not riding). */
   private lineSign = 0;
   private readonly sprayRate = new RateAccumulator();
@@ -243,6 +249,24 @@ export class Particles {
       w.profile(x, w.crestT(x), this.p);
       const k = w.hollowness(x);
       this.pool.spawn({ x: this.p.x, y: this.p.y, z: this.p.z, vx: this.rnd(-0.5, 0.5), vy: this.rnd(1, 2.5) * (1 + k), vz: this.rnd(-4, -1.5), life: this.rnd(0.5, 0.9), size: this.rnd(0.14, 0.24), gravity: -3, drag: 0.8, shade: 1 });
+    }
+    // The section peak: spray feathering off its crest as it rises (thicker the taller it stands).
+    const pk = w.peak;
+    // … and while it pitches, the whole closing stretch between the curl and the peak throws its lip at
+    // once. That water stays where it broke (in the world): in the frame it is carried back with the
+    // surge at the peak's own speed, so it stays behind a rider who made the peak.
+    const peakVx = dt > 0 && Number.isFinite(this.peakX) ? (pk.x - this.peakX) / dt : 0;
+    this.peakX = pk.x;
+    const pitching = this.peakPitching && pk.amp > 0;
+    for (let n = this.pitchRate.take(pitching ? PARTICLE_RATES.pitch * thin : 0, dt); n > 0; n--) {
+      const x = this.rnd(0, Math.max(0.5, pk.x - 1));
+      w.profile(x, w.crestT(x), this.p);
+      this.pool.spawn({ x: this.p.x, y: this.p.y, z: this.p.z, vx: peakVx + this.rnd(-1, 1), vy: this.rnd(2.5, 6), vz: this.rnd(0.5, 3), life: this.rnd(0.5, 0.9), size: this.rnd(0.16, 0.28), gravity: -9.81, drag: 0.2, shade: 1 });
+    }
+    for (let n = this.peakRate.take(PARTICLE_RATES.peakFeather * thin * Math.min(1, pk.amp / SURF_CONFIG.peak.height), dt); n > 0; n--) {
+      const x = pk.x + pk.width * this.rnd(-0.6, 0.6);
+      w.profile(x, w.crestT(x), this.p);
+      this.pool.spawn({ x: this.p.x, y: this.p.y, z: this.p.z, vx: this.rnd(-0.6, 0.6), vy: this.rnd(1.5, 3.5), vz: this.rnd(-4.5, -1.5), life: this.rnd(0.5, 0.9), size: this.rnd(0.14, 0.26), gravity: -3, drag: 0.8, shade: 1 });
     }
     // Lip smoke: spray torn up off the top of the pitching lip and blown back over the wave (it rises
     // behind the lip, so from inside the tube the lip itself hides it).
@@ -384,6 +408,7 @@ export class Particles {
 
   clear(): void {
     this.pool.clear();
+    this.peakX = NaN;
   }
 
   dispose(): void {

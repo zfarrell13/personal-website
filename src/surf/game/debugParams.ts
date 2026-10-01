@@ -31,6 +31,8 @@ export const DEBUG_PARAMS: ReadonlyArray<readonly [string, number, number, numbe
   ['sections.minGap', 2, 30, 1],
   ['sections.maxGap', 2, 40, 1],
   ['sections.maxBoost', 0, 1, 0.05],
+  ['peak.height', 0, 0.8, 0.05],
+  ['peak.allowance', 0, 6, 0.1],
   ['scoring.comboWindow', 0.5, 4, 0.1],
   ['camera.stiffness', 1, 12, 0.5],
   ['camera.lookStiffness', 1, 16, 0.5],

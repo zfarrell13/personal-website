@@ -268,6 +268,69 @@ Pumping targets (playtest 2, Task 2b — headless, `lineBot` + scripted inputs, 
     changes by under 2° over the next 1 s; no ROUNDHOUSE for a turn let go of. With no key, the trough
     does not turn the board (< 2° over 0.5 s).
 
+## Playtest 5 amendments: section peaks (user feedback)
+
+User: "every fast section, there is a peak that starts to form ... that the user has to race towards
+to make that section of the barrel. and the user can choose to air off of it if they want instead of
+enter the barrel." Choices: it forms further ahead (15–25 m), missing it closes out on you, it is a
+steeper ramp for a bigger air (SECTION AIR).
+
+- **It forms.** When a fast section starts (every 10–20 s, seeded), a peak forms 15–25 m (seeded)
+  down the line from the rider (frame x, at most `peak.maxSpawnX` 70) and grows over 2–3 s (seeded,
+  smoothstep) to +35% height (`peak.height`). It is one temporary bump in the one wave shape:
+  `WaveShape.heightScale` multiplies y by 1 + amp · (1 − u²)³, u = (x − peak x) / `peak.width` (7 m),
+  so the physics, the camera's crest probes, the particles and the barrel rules all ride it, and the
+  mesh gets the same formula in the vertex shader (`uPeak`, `wave/peak.ts`: position and the normal's
+  inverse transpose; the geometry stays the rest shape). Same footprint, taller: a steeper face.
+  Feathering spray comes off its crest while it stands.
+- **The race** (`sections.minRace`–`maxRace` 3.5–4.5 s, seeded). The fast section's boost
+  (+45–50%, ramped in over 0.5 s) holds until the pitch. A world-fixed peak would approach the curl at
+  the full peel speed and reach it by itself within the race for anyone near it (and anyone ahead of
+  the curl would pass it): no race. So in the wave frame the peak drifts toward the curl at a
+  constant `approach` chosen at spawn to pitch at xPitch = rider's x at the start − `allowance` × race
+  time (≥ `minPitchX` 1 m, and at least `minApproach` 2 m/s × race time short of where it formed). The
+  rider makes it by losing frame ground over the race no faster than `allowance` (3.3 m/s). Measured
+  (headless, 12 seeds): pumping every 1 s on a lineBot line loses 2.0–2.2 m/s, a human rhythm
+  (0.8–1.2 s) 1.7–3.0, every 1.3 s 2.2–3.2, every 2 s 2.8–4.1, no pumps 4.3–5.6. The coach shows
+  ▲ PUMP! during the race whenever, on its current pace (frame-x change over 0.5 s), the rider would be
+  more than 0.5 m short of xPitch at the pitch — at any distance from the curl.
+- **The pitch** is a surge of peel speed that carries the curl to the peak: over max(`minSurge` 0.4 s,
+  xPitch / `surgeSpeed` 25 m/s) the peak's frame x eases xPitch → 0 (smoothstep) and the peel runs that
+  much faster on top of the boost, so every frame x moves back by xPitch (the camera's springs are
+  shifted with the frame, so it doesn't trail). The bump blends back into the wave from the pitch to
+  the end of the ramp down (smoothstep). The closing stretch from the curl to the peak throws its lip
+  (spray along it through the surge, carried back with it, so it stays behind a rider who made it).
+  - **Made** (frame x ≥ xPitch at the pitch): the rider comes out just ahead of the new curl, the
+    barrel right behind; still up when the curl reaches the peak, SECTION MADE (500, as before). The
+    existing barrel / swallow / tube-exit rules then apply as ever (stall into it or race on).
+  - **Missed** (short of xPitch): the closing section lands on the rider when the curl passes them
+    (frame x < 0, riding or in the air) or when the surge ends, whichever is first: wipeout
+    **CLOSED OUT** (a swallow during it reads the same).
+- **Air off it.** A launch (crest air or ollie) pops `physics.peakAirLift` (1) × the bump there
+  faster: × 1.35 at the top of a full peak (the crest launch may then exceed `maxAirSpeed`). A launch
+  off the peak's upper half (bump ≥ `peak.airOn` 0.5 × full height, while it stands or pitches) that
+  lands clean scores SECTION AIR (750) on top of the air's tricks, once per peak.
+- `window.__surf.peak` exposes phase / x / amp / xPitch / made; `?debug` adds `window.__surfBot` (a
+  lineBot autopilot for screenshots) and the `peak.height` / `peak.allowance` sliders. The frame / time
+  math lives in `PeelController` (a pure function of time since the section began and the rider's x
+  then) and `SectionDirector` (headless: the game and the tests drive it) — a world-fixed feature
+  (e.g. a pier) moves through the frame at −(live peel speed), surge included.
+
+Verification (playtest 5): the bump is C1 along the wave (no height / normal jump between columns 5 cm
+apart) and changes smoothly frame to frame through a whole section (< 8 cm per 120 Hz tick at any
+point); the shader formula's CPU twin on the rest mesh lands on the peaked profile (< 0.1 mm) with
+normals within 2°; crestT is unchanged by it; the peak forms 15–25 m ahead, grows over 2–3 s, races
+3.5–4.5 s and is at the curl when the surge ends; steady pumping (1 / s) and a human rhythm make the
+section on 8 seeds (SECTION MADE, just ahead of the new curl), no pumps from the start of the race is
+CLOSED OUT on 8 seeds (during the surge), and so is a rider short of it in the air; a crest air off
+the top of a full peak goes ≥ 1 m higher than the same air at 8 and 10 m/s, an ollie ≥ 0.5 m; SECTION
+AIR scores once per peak and not off the wave beside it; the barrel eye stays open (5.5°) with the
+largest leftover bump at the curl; the boost tests keep their intent (the hardest race costs a 1 / s
+pumper ≥ 9 m: the boost now holds 3–4 s to the pitch, not 4–5 s); e2e: a fast section raises a peak
+ahead of the rider (hook.peak) and the run ends on the results screen; screenshots (both sides): the
+peak rising, the pitch, a made section with the new barrel behind, short of the peak with the coach,
+CLOSED OUT, SECTION AIR.
+
 ## Playtest 2 amendments (user feedback)
 
 - **Camera:** close bird's-eye view from behind the rider — about 3–4 m behind along the direction of travel, 4–6 m above (always above the crest), looking down at the rider and a few metres ahead down the line; the rider is large in frame. Tube: behind the rider looking out.
@@ -289,7 +352,7 @@ These notes record how the addendum and the three rounds of playtest amendments 
 - **The break chases.** Vp is 8 m/s. The sticky face is gone (no lift or face damping). With no input the rider is swallowed in about 5 s: the e2e test asserts more than 2 s, and the unit tests assert the window. Rail grip is 85% from 5 m/s. Carving, pumping and drag act on the board's world velocity. The carve yaw rate is `carveRate / (1 + speed / carveHalfSpeed)`, eased with a 0.12 s lag, so the turn radius grows with speed. Slamming the trough is a bottom turn (`bottomTurnRate`, `bottomTurnLoss`), not a stop. The flats bog the board down (`flatsDragMultiplier`).
 - **Pumping** (playtest 2 supersedes "pumps only work on the face"). A pump's net gain scales with the face steepness: half strength on the flats, full from steepness 0.35. Spamming nets less than a rhythm (`pumpCost`). Pumping about once a second on a sensible line beats a fast section.
 - **Stall to barrel.** A stall sets the rail: full grip at any speed, and the up/down motion on the face dies away (`stallHold`), so the rider waits on the face for the curl. Being tubed also requires being under the lip (`tubeUnderLip`). Holding the stall until the barrel closes gets you swallowed. Letting go early and pumping gets you out.
-- **Fast sections.** They are seeded per run and exposed as `window.__surf.seed`. The boost is 0.45–0.5 and the hold is 4–5 s, within the design's +30–50% for 3–5 s. They show a ⚡ FAST SECTION callout, and making one scores a 500-point SECTION MADE (a combo trick, lost to a wipeout inside the combo window).
+- **Fast sections.** They are seeded per run and exposed as `window.__surf.seed`. The boost is 0.45–0.5 and holds through the 3.5–4.5 s race to the section peak (playtest 5; it was a 4–5 s hold), within the design's +30–50% for 3–5 s. They show a ⚡ FAST SECTION callout, and making one — on or past the peak at its pitch, still up after the surge — scores a 500-point SECTION MADE (a combo trick, lost to a wipeout inside the combo window).
 - **Crashing wave.** The lip throws up and out only, never into the eye, and foam scrolls with the live peel. The water adds a falling-lip curtain, impact explosions and churn over the impact zone, shoulder feathering, and rooster-tail spray on hard carves with bursts on snaps and cutbacks. Drops near the lens fade and shrink, and point sizes are capped, so the tube view stays readable. The rumble follows impact distance and fast sections. Shake peaks near the impact zone. All of it runs on sim time, so pausing freezes it.
 - **One ocean, open barrel** (playtest 3). The wave and the sea are one surface with one water material, and an opaque sea floor replaces the translucent sea plane. The open-barrel lip tip hangs high and recedes through a feathering stage ahead of the curl, so the eye is open from the tube camera. The horizon is a shader sky whose haze is the fog colour. The e2e horizon test asserts no step, band or dip.
 - **Regular stance.** The rider always surfs regular (left foot forward). On a LEFT the body is mirrored (the board is not), so they ride backside, and the toe/heel carve poses flip.

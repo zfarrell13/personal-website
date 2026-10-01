@@ -21,6 +21,7 @@ import { Character, loadSurferRig } from '../character/Character';
 import { configVersion, SURF_CONFIG, SURFER_LOOK, type Side, type SurferLook } from '../config';
 import { EventBus, type SurfEvent } from '../physics/events';
 import { NO_INPUT, readSurferInput, SURF_BINDINGS, type SurfAction, type SurferInput } from '../physics/input';
+import { lineBot } from '../physics/lineBot';
 import { Surfer } from '../physics/Surfer';
 import { Environment } from '../render/Environment';
 import { Particles } from '../render/Particles';
@@ -32,6 +33,7 @@ import { sideSign } from '../wave/mirror';
 import { PeelController } from '../wave/PeelController';
 import { WaveShape } from '../wave/WaveShape';
 import { Coach } from './coach';
+import { SectionDirector } from './SectionDirector';
 import type { SurfDebugCamera, SurfDebugHook } from './debugHook';
 import './debugHook';
 import { FixedStepper } from './FixedStepper';
@@ -72,7 +74,7 @@ export class SurfGame {
   readonly wave = new WaveShape(SURF_CONFIG.wave);
   readonly surfer = new Surfer(this.wave, SURF_CONFIG.physics, this.bus);
   /** Peel speed over the run (base Vp + seeded fast sections). */
-  readonly peel = new PeelController(SURF_CONFIG.wave, SURF_CONFIG.sections);
+  readonly peel = new PeelController(SURF_CONFIG.wave, SURF_CONFIG.sections, SURF_CONFIG.peak);
   readonly scoring: Scoring;
   /** In-game coach: the "▲ PUMP!" prompt when the rider is losing ground to the curl. */
   readonly coach = new Coach();
@@ -96,7 +98,7 @@ export class SurfGame {
   private readonly renderP = new Vector3();
   private readonly debugLook = new Vector3();
   /** The one debug-hook object, mutated each frame (no per-frame allocation). */
-  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase', pose: 'stance', coach: this.coach.state };
+  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase', pose: 'stance', coach: this.coach.state, peak: { phase: 'none', x: 0, amp: 0, xPitch: 0, made: null } };
   private readonly look: SurferLook;
   private character: Character | null = null;
   private audio: SurfAudio | null = null;
@@ -117,6 +119,13 @@ export class SurfGame {
   private runs = 0;
   /** The current run's fast-section seed (exposed on the debug hook for replays). */
   private seed = 0;
+  /** Fast sections and their peaks around the surfer's step (race, pitch, closeout, SECTION MADE / AIR). */
+  readonly sections = new SectionDirector(this.peel, this.wave, this.surfer, this.bus, SURF_CONFIG.peak);
+  /** Frame shift (m along x) of the pitch's surge not yet applied to the camera. */
+  private surgeShift = 0;
+  /** ?debug autopilot (window.__surfBot) and the pump rhythm it was made for. */
+  private bot: ((dt: number) => SurferInput) | null = null;
+  private botPump = NaN;
   /** Carve keys' screen meaning (see CameraRig.keyFacing), latched while a carve key is held. */
   private keyFacing: 1 | -1 = 1;
   private endAt = -1;
@@ -181,6 +190,7 @@ export class SurfGame {
       this.scoring.attach(this.bus),
       this.bus.on('landed', () => this.character?.onLanded()),
       this.bus.on('pump', (e) => this.coach.onPump(e.time)),
+      () => this.sections.dispose(),
       this.bus.onAny((e) => this.audio?.onEvent(e)),
       () => this.detachKeys?.(),
     );
@@ -349,6 +359,9 @@ export class SurfGame {
     // A fresh seeded fast-section schedule per run; the peel is back at base speed.
     this.seed = (Date.now() ^ Math.imul(++this.runs, 0x9e3779b9)) >>> 0;
     this.peel.reset(this.seed);
+    this.sections.reset();
+    this.surgeShift = 0;
+    this.bot = null;
     this.surfer.reset();
     this.character?.reset();
     this.rig.snap(this.surfer.state, this.side);
@@ -431,14 +444,9 @@ export class SurfGame {
     // swinging round mid-cutback never inverts the turn in progress.
     if (!this.actions.isDown('carveLeft') && !this.actions.isDown('carveRight')) this.keyFacing = this.rig.keyFacing;
     readSurferInput(this.actions, this.side, this.input, this.keyFacing);
-    const section = this.peel.update(s.time + dt);
-    this.surfer.setPeelSpeed(this.peel.speed);
-    this.surfer.step(this.input, dt);
-    this.coach.update(s);
-    // Only a live ride (riding / airborne) announces a section or makes one: none after a wipeout / kick-out.
-    const live = s.mode === 'riding' || s.mode === 'airborne';
-    if (section === 'start' && live) this.bus.emit({ type: 'fastSection', time: s.time, boost: this.peel.boost });
-    else if (section === 'end' && live) this.bus.emit({ type: 'sectionMade', time: s.time });
+    if (this.gizmo) this.autopilot(dt);
+    this.surgeShift += this.sections.step(this.input, dt);
+    this.coach.update(s, this.sections.race);
     this.frameSimDt += dt;
     this.scoring.update(s.time, (s.mode === 'airborne' && s.launchKind !== null) || s.inTube || s.floating);
     this.travel += this.peel.speed * dt;
@@ -452,6 +460,20 @@ export class SurfGame {
     }
     if (this.endAt >= 0 && s.time - this.endAt > END_DELAY[s.mode === 'wipeout' ? 'wipeout' : 'kickedOut']) this.endRun();
   };
+
+  /** ?debug: window.__surfBot steers and pumps (the keys' ollie / stall still apply). */
+  private autopilot(dt: number): void {
+    const want = window.__surfBot;
+    if (!want) return;
+    if (!this.bot || this.botPump !== want.pumpEvery) {
+      this.bot = lineBot(this.surfer, this.wave, { pumpEvery: want.pumpEvery });
+      this.botPump = want.pumpEvery;
+    }
+    const b = this.bot(dt);
+    this.input.carve = b.carve;
+    this.input.spin = 0;
+    this.input.pump = b.pump;
+  }
 
   private endRun(): void {
     const s = this.surfer.state;
@@ -485,6 +507,12 @@ export class SurfGame {
     this.renderP.lerpVectors(this.surfer.prevP, s.p, alpha);
     // Sim dt: a pause freezes the rider's pose springs too.
     this.character?.update(this.surfer, alpha, this.frameSimDt);
+    // The pitch's surge moves the whole frame past the rider at up to ~40 m/s: the camera moves with
+    // the frame (as the rider does), so its springs don't trail behind the shift.
+    if (this.surgeShift !== 0) {
+      this.rig.shiftAlongWave(this.surgeShift, this.side);
+      this.surgeShift = 0;
+    }
     // Paused, the camera holds still too (its tube-hold timer must not run out under the pause menu).
     if (this.phase !== 'paused') this.rig.update(s, this.renderP, this.side, underwater, dt, this.waterTime);
     // The rig cuts underwater a moment before the swallow when the closing barrel leaves it no tube
@@ -502,8 +530,12 @@ export class SurfGame {
     if (this.gizmo && window.__surfCam) this.applyDebugCamera(window.__surfCam);
     this.env.update(Number.isFinite(now) ? now / 1000 : 0, this.travel, sideSign(this.side));
     this.particles.tubeView = this.rig.shot === 'tube';
+    this.particles.peakPitching = this.peel.peak.phase === 'pitching';
     this.particles.update(Math.min(MAX_PARTICLE_DT, this.frameSimDt), this.phase === 'playing');
-    this.waveMesh.update(this.waterTime, this.waterTravel);
+    // The peak, interpolated like the rider (the surge moves it fast).
+    const pk = this.wave.peak;
+    const prev = this.sections.prevPeak;
+    this.waveMesh.update(this.waterTime, this.waterTravel, prev.x + (pk.x - prev.x) * alpha, prev.amp + (pk.amp - prev.amp) * alpha, pk.width);
     if (this.normalArrow) {
       this.normalArrow.position.copy(this.renderP);
       this.normalArrow.setDirection(s.normal);
@@ -550,6 +582,12 @@ export class SurfGame {
     hook.seed = this.seed;
     hook.shot = this.rig.shot;
     hook.pose = this.character?.dominantPose() ?? 'stance';
+    const peak = this.peel.peak;
+    hook.peak.phase = peak.phase;
+    hook.peak.x = peak.x;
+    hook.peak.amp = peak.amp;
+    hook.peak.xPitch = peak.xPitch;
+    hook.peak.made = this.sections.made;
     window.__surf = hook;
   }
 

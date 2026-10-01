@@ -87,7 +87,9 @@ The soundtrack is the tracks in `content/tracks/tracks.json` that have `"surf": 
 
 - **Phones (landscape):** a four-way pad on the left; on the right, the grabs (METHOD, RAIL, STALE, INDY) in two columns with OLLIE under the thumb in the corner. Pause is at the top centre. Held portrait, the game asks you to rotate.
 - **RIGHT / LEFT** follow the surf convention: a RIGHT peels to your right as you face the beach.
-- **The break chases you.** Sit still and the curl swallows you in about 5 s. Carve down the line and pump on the face to stay ahead. Every 10–20 s a ⚡ FAST SECTION surges the peel by 30–50% for 3–5 s. Make it for a 500-point SECTION MADE.
+- **The break chases you.** Sit still and the curl swallows you in about 5 s. Carve down the line and pump on the face to stay ahead. Every 10–20 s a ⚡ FAST SECTION speeds the peel up by 30–50% and a **peak** starts to form 15–25 m down the line: a hump of wave rising taller and steeper, spray feathering off its top.
+- **Race the peak.** You have 3.5–4.5 s (the coach calls ▲ PUMP! if you are falling behind). Then it pitches and the whole stretch back to the curl breaks at once. On or past the peak: the new barrel is right behind you and you score SECTION MADE (500) — stall into it or keep racing. Short of it: **CLOSED OUT**.
+- **Air off the peak** instead: its steeper, taller face pops you higher (crest air or ollie), and a clean landing scores a SECTION AIR bonus (750) on top of the trick.
 - **Barrels:** stall as the curl arrives to get tubed. Pump to get out before it closes.
 - **GUIDE ON** (the default; remembered) shows a ▲ PUMP! coach prompt when you need speed.
 - **Camera:** it rides behind you on the curl side, cuts into the barrel when you are tubed, pulls back in the air, and cuts underwater on a wipeout.

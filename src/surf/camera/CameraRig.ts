@@ -340,6 +340,15 @@ export class CameraRig {
     this.apply(0);
   }
 
+  /**
+   * The wave frame jumped `dx` m along the wave past everything in it (a section peak's surge): move
+   * the camera and its springs with it, as the rider moved, so nothing trails behind the shift.
+   */
+  shiftAlongWave(dx: number, side: Side): void {
+    const d = side === 'right' ? -dx : dx;
+    for (const v of [this.pos, this.look, this.follow, this.heldPos, this.heldLook]) v.x += d;
+  }
+
   /** `renderP` = the interpolated surfer position being drawn; `time` = sim clock (drives the shake). */
   update(s: SurferState, renderP: Vector3, side: Side, underwater: boolean, dt: number, time = 0): void {
     const c = this.cfg;

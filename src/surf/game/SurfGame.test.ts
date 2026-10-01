@@ -590,9 +590,9 @@ describe('SurfGame', () => {
     expect(game.actions.isDown('ollie')).toBe(false);
   });
 
-  it('a fast section speeds up the peel, flashes the HUD and pays SECTION MADE when the rider survives it', async () => {
+  it('a fast section speeds up the peel, flashes the HUD and pays SECTION MADE when the rider is past its peak at the pitch and rides out the surge', async () => {
     const saved = { ...SURF_CONFIG.sections };
-    Object.assign(SURF_CONFIG.sections, { minGap: 0.1, maxGap: 0.1, minHold: 0.2, maxHold: 0.2, minBoost: 0.4, maxBoost: 0.4, ramp: 0.1 });
+    Object.assign(SURF_CONFIG.sections, { minGap: 0.1, maxGap: 0.1, minRace: 0.3, maxRace: 0.3, minBoost: 0.4, maxBoost: 0.4, ramp: 0.1 });
     try {
       const { game, store } = await playing();
       const s = game.surfer.state;
@@ -603,14 +603,19 @@ describe('SurfGame', () => {
         peels.push(game.surfer.peelSpeed);
       });
       const events: string[] = [];
+      const pitches: boolean[] = [];
       game.bus.onAny((e) => events.push(e.type));
+      game.bus.on('peakPitch', (e) => pitches.push(e.made));
       for (let i = 0; i < 12; i++) frame(); // 0.2 s: the section is on
       for (let i = 0; i < 4; i++) frame(); // let the throttled HUD writer flush
       expect(store.getState().fastSection).toBe(true);
       expect(Math.max(...peels)).toBeCloseTo(SURF_CONFIG.wave.peelSpeed * 1.4, 6);
-      for (let i = 0; i < 30; i++) frame(); // past the end of the 0.4 s section
+      for (let i = 0; i < 45; i++) frame(); // past the pitch (0.4 s), its surge (≥ 0.4 s) and the ramp down
       expect(events).toContain('fastSection');
+      // The rider (held at the drop-in) is past the peak at the pitch: the section closes behind them.
+      expect(events).toContain('peakPitch');
       expect(events).toContain('sectionMade');
+      expect(pitches).toEqual([true]);
       expect(store.getState().ticker.map((t) => t.text)).toContain('Section Made');
       game.dispose();
     } finally {
@@ -620,7 +625,7 @@ describe('SurfGame', () => {
 
   it('no SECTION MADE when the rider wipes out during the section', async () => {
     const saved = { ...SURF_CONFIG.sections };
-    Object.assign(SURF_CONFIG.sections, { minGap: 0.1, maxGap: 0.1, minHold: 0.2, maxHold: 0.2, ramp: 0.1 });
+    Object.assign(SURF_CONFIG.sections, { minGap: 0.1, maxGap: 0.1, minRace: 0.3, maxRace: 0.3, ramp: 0.1 });
     try {
       const { game } = await playing();
       const s = game.surfer.state;
@@ -641,7 +646,7 @@ describe('SurfGame', () => {
 
   it('once the rider is no longer live (wipeout delay) there is no fastSection event, HUD flag or hook.fast; hook.seed is exposed', async () => {
     const saved = { ...SURF_CONFIG.sections };
-    Object.assign(SURF_CONFIG.sections, { minGap: 1, maxGap: 1, minHold: 0.5, maxHold: 0.5, ramp: 0.1 });
+    Object.assign(SURF_CONFIG.sections, { minGap: 1, maxGap: 1, minRace: 0.6, maxRace: 0.6, ramp: 0.1 });
     try {
       const { game, store } = await playing();
       const s = game.surfer.state;

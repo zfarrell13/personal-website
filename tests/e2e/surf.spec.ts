@@ -305,6 +305,32 @@ test.describe('surf game', () => {
     expect(band).toBeLessThan(3);
   });
 
+  test('a fast section raises a section peak down the line (hook.peak), and the run still ends on the results screen', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await page.goto('/surf?debug');
+    await expect(page.getByTestId('debug-panel')).toBeVisible();
+    // The first section 2 s after the drop-in (the slider floor), while a no-input rider is still up.
+    for (const path of ['sections.minGap', 'sections.maxGap']) await page.locator('label', { hasText: path }).locator('input').fill('2');
+    await page.getByRole('button', { name: 'DROP IN' }).click();
+    await page.waitForFunction(() => window.__surf?.phase === 'playing');
+    const rising = await page.waitForFunction(
+      () => {
+        const s = window.__surf!;
+        return s.peak.phase === 'rising' && s.peak.amp > 0.05 ? { x: s.peak.x, rider: s.x, xPitch: s.peak.xPitch, fast: s.fast } : null;
+      },
+      undefined,
+      { timeout: 20_000 },
+    );
+    const peak = (await rising.jsonValue())!;
+    expect(peak.fast).toBe(true);
+    expect(peak.x).toBeGreaterThan(peak.rider); // down the line, ahead of the rider
+    await expect(page.getByTestId('fast-section')).toBeVisible();
+    // No input: the rider is caught (by the curl or the closing section) and the run ends normally.
+    await page.waitForFunction(() => window.__surf?.phase === 'results', undefined, { timeout: 30_000 });
+    await expect(page.getByText(/SWALLOWED BY THE BARREL|CLOSED OUT/)).toBeVisible();
+    expect(errors()).toEqual([]);
+  });
+
   test('?debug shows the live tuning panel', async ({ page }) => {
     await page.goto('/surf?debug');
     await expect(page.getByTestId('debug-panel')).toBeVisible();

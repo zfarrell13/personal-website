@@ -21,7 +21,20 @@ export const COACH_CONFIG = {
   cooldown: 1,
   /** The pulse period (s): one pump per beat. */
   beat: 1,
+  /**
+   * Racing a section peak: "behind schedule" when the rider's frame x, carried on at its speed over
+   * the last `raceWindow` s for the race time left, would fall more than `raceMargin` m short of where
+   * the peak pitches. Shown at any distance from the curl while the race is on.
+   */
+  raceWindow: 0.5,
+  raceMargin: 0.5,
 } as const;
+
+/** The race to a section peak (see PeelController): where it pitches and how long until then. */
+export interface CoachRace {
+  pitchX: number;
+  timeLeft: number;
+}
 
 /** What the coach reads each tick (a SurferState fits). */
 export type CoachFrame = Pick<SurferState, 'time' | 'mode' | 'stalling' | 'inTube'> & { param: { x: number } };
@@ -81,7 +94,8 @@ export class Coach {
     this.beatAt = time;
   }
 
-  update(f: CoachFrame): void {
+  /** `race`: the section peak's race while it is on (null otherwise). */
+  update(f: CoachFrame, race: CoachRace | null = null): void {
     const c = COACH_CONFIG;
     const t = f.time;
     const x = f.param.x;
@@ -91,12 +105,15 @@ export class Coach {
     // stall the rider is just being caught: keep prompting (PUMP OUT).
     const eligible = this.enabled && f.mode === 'riding' && !f.stalling;
     const drop = this.change(t, c.dropWindow);
-    const losing = eligible && x < c.nearX && drop !== null && drop <= -c.dropMin;
+    // Racing the peak: behind schedule = on the current pace, short of it at the pitch.
+    const pace = race ? this.change(t, c.raceWindow) : null;
+    const behind = race !== null && pace !== null && x + (pace / c.raceWindow) * race.timeLeft < race.pitchX - c.raceMargin;
+    const losing = eligible && ((x < c.nearX && drop !== null && drop <= -c.dropMin) || behind);
     this.losingSince = losing ? (this.losingSince < 0 ? t : this.losingSince) : -1;
 
     if (st.show) {
       const gain = this.change(t, c.gainWindow);
-      if (!eligible || x > c.hideX || (gain !== null && gain >= c.gainMin)) {
+      if (!eligible || (!behind && (x > c.hideX || (gain !== null && gain >= c.gainMin)))) {
         st.show = false;
         this.hiddenAt = t;
       }

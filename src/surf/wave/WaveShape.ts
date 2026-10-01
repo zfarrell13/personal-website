@@ -1,6 +1,7 @@
 import { Vector3 } from 'three';
 import type { WaveParams } from '../config';
 import { clamp, smoothstep } from '../math/scalar';
+import { peakBump, type PeakShape } from './peak';
 import { BARREL_CLOSED, BARREL_OPEN, CREST_INDEX, FEATHER_AT, FEATHER_LIP, MOUND, PITCH_AT, SECTION_POINTS, SWELL, type Section } from './sections';
 
 /** Surface parameters: x along the wave (m), t ∈ [0, 1] across the profile. */
@@ -75,8 +76,30 @@ export class WaveShape {
   private crestH = NaN;
   private crestC = NaN;
   private crestTVal = 0;
+  /** The section peak (a temporary bump; amp 0 = none). Set with setPeak. */
+  readonly peak: PeakShape = { x: 0, amp: 0, width: 7 };
+  /**
+   * Bumped whenever the peak changes: caches of heights (not of t — the bump scales y only, so the
+   * crest's t is unchanged) key on it.
+   */
+  peakVersion = 0;
 
   constructor(readonly params: WaveParams) {}
+
+  /** Move / grow the section peak (see wave/peak.ts). amp 0 removes it. */
+  setPeak(x: number, amp: number, width: number): void {
+    const p = this.peak;
+    if (p.x === x && p.amp === amp && p.width === width) return;
+    p.x = x;
+    p.amp = Math.max(0, amp);
+    p.width = width;
+    this.peakVersion++;
+  }
+
+  /** The peak's bump at column x, as a fraction of the wave's height there (0 off the peak). */
+  peakBump(x: number): number {
+    return peakBump(this.peak, x);
+  }
 
   /** 1 in the barrel, fading to 0 across the shoulder. */
   hollowness(x: number): number {
@@ -91,8 +114,12 @@ export class WaveShape {
     return 'swell';
   }
 
-  /** Multiplier on y: taper past the shoulder, foam decay behind the tube. */
+  /** Multiplier on y: taper past the shoulder, foam decay behind the tube, and the section peak's bump. */
   heightScale(x: number): number {
+    return this.baseHeightScale(x) * (1 + peakBump(this.peak, x));
+  }
+
+  private baseHeightScale(x: number): number {
     const p = this.params;
     if (x > p.shoulderLength) return 1 - (1 - p.taperMin) * smoothstep(p.shoulderLength, p.taperEnd, x);
     const behind = -x - p.tubeDepth;

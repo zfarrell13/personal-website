@@ -181,7 +181,8 @@ describe('Surfer — riding', () => {
 
   /**
    * Lines + pumps (every `pumpEvery` s) with one fast section of the given boost / hold from t = 8 s
-   * (the configured ramps), riding on to 20 s. `lost` = frame-x ground lost over the section.
+   * (the configured ramps), riding on to 20 s. `lost` = frame-x ground lost over the section. (The
+   * boost alone: the section peak's pitch and surge are SectionDirector's, tested there.)
    */
   function fastSection(pumpEvery: number, boost: number, hold: number, startX?: number, at = 8) {
     const h = setup();
@@ -207,36 +208,38 @@ describe('Surfer — riding', () => {
 
   // Racy sections must be felt (Task 2b carry: +30%/3 s cost a 1 s pumper only 1.2 m).
   it('the mildest fast section: the base effort (pump 1 s) loses ≥ 6 m; pumping every 0.6 s survives it and loses ≥ 3 m less', () => {
-    const { minBoost, minHold } = SURF_CONFIG.sections;
-    const base = fastSection(1, minBoost, minHold);
-    const hard = fastSection(0.6, minBoost, minHold);
+    const { minBoost, minRace, ramp } = SURF_CONFIG.sections;
+    const base = fastSection(1, minBoost, minRace - ramp);
+    const hard = fastSection(0.6, minBoost, minRace - ramp);
     expect(base.survived).toBe(true);
     expect(base.lost).toBeGreaterThanOrEqual(6);
     expect(hard.survived).toBe(true);
     expect(hard.lost).toBeLessThan(base.lost - 3);
   });
 
-  it('the hardest fast section: the base effort loses ≥ 10 m but survives; pumping every 0.6 s survives it and loses ≥ 3 m less', () => {
-    const { maxBoost, maxHold } = SURF_CONFIG.sections;
-    const base = fastSection(1, maxBoost, maxHold);
-    const hard = fastSection(0.6, maxBoost, maxHold);
+  // Playtest 5: the boost now holds from the ramp to the peak's pitch (the race, 3.5–4.5 s; it was 4–5 s
+  // of hold), so the hardest one costs ≈ 9.8 m (was ≥ 10 m over the longer hold).
+  it('the hardest fast section: the base effort loses ≥ 9 m but survives; pumping every 0.6 s survives it and loses ≥ 3 m less', () => {
+    const { maxBoost, maxRace, ramp } = SURF_CONFIG.sections;
+    const base = fastSection(1, maxBoost, maxRace - ramp);
+    const hard = fastSection(0.6, maxBoost, maxRace - ramp);
     expect(base.survived).toBe(true);
-    expect(base.lost).toBeGreaterThanOrEqual(10);
+    expect(base.lost).toBeGreaterThanOrEqual(9);
     expect(hard.survived).toBe(true);
     expect(hard.lost).toBeLessThan(base.lost - 3);
   });
 
   // SECTION MADE is not free: a lazy rider who holds their ground at base peel gets caught by a hard section.
   it('a lazy rider (pump every 2 s) holds 20 s at base peel but the hardest fast section swallows them', () => {
-    const { maxBoost, maxHold } = SURF_CONFIG.sections;
-    expect(fastSection(2, 0, maxHold).survived).toBe(true);
-    expect(fastSection(2, maxBoost, maxHold).survived).toBe(false);
+    const { maxBoost, maxRace, ramp } = SURF_CONFIG.sections;
+    expect(fastSection(2, 0, maxRace - ramp).survived).toBe(true);
+    expect(fastSection(2, maxBoost, maxRace - ramp).survived).toBe(false);
   });
 
   // Regression: the section's frame shift must not read as "the wave left you" far down the line.
   it('a strong rider (pump every 0.6 s) far down the line (x = 75) rides the hardest section out: no kick-out, SECTION MADE', () => {
-    const { maxBoost, maxHold } = SURF_CONFIG.sections;
-    const r = fastSection(0.6, maxBoost, maxHold, 75, 1);
+    const { maxBoost, maxRace, ramp } = SURF_CONFIG.sections;
+    const r = fastSection(0.6, maxBoost, maxRace - ramp, 75, 1);
     expect(r.h.events.some((e) => e.type === 'kickedOut')).toBe(false);
     expect(r.survived).toBe(true);
     expect(r.h.s.time).toBeGreaterThan(19.9);

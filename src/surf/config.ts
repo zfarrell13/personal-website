@@ -134,6 +134,11 @@ export const SURF_CONFIG = {
     airGain: 0.75,
     /** Cap on the pop speed of a crest launch (m/s). */
     maxAirSpeed: 9,
+    /**
+     * Off a section peak the pop (crest air or ollie) is faster by this × the bump there (its extra height
+     * as a fraction of the wave's): × 1.35 at the top of a full 35% peak — a steeper ramp, a bigger air.
+     */
+    peakAirLift: 1,
     spinRate: 540,
     /** A landing within this many degrees of a half turn (0 / 180 / 360…) is clean. */
     landTolerance: 60,
@@ -159,23 +164,62 @@ export const SURF_CONFIG = {
     comboCarveDeg: 60,
     minSpeed: 0.5,
   },
-  /** Fast sections: the break outruns the rider for a while (see PeelController). */
+  /**
+   * Fast sections: the break outruns the rider for a while while a section peak forms down the line
+   * (see PeelController). Each one: the peel ramps up by minBoost–maxBoost over `ramp` s and holds
+   * until the peak pitches (minRace–maxRace s after the start), surges to the peak, then ramps back.
+   */
   sections: {
     /** Seconds between sections (uniform, seeded per run). */
     minGap: 10,
     maxGap: 20,
     /**
-     * Seconds a section holds at full speed (the ramps come on top). Task 4 retune (with the boost):
-     * every section must be felt — the mildest (+45%, 4 s) costs a 1 s pumper ≈ 6.4–7.4 m of ground,
-     * the hardest (+50%, 5 s) ≈ 10.5–11.3 m and swallows a rider pumping only every 2 s.
+     * The race: seconds from the start of the section (the peak begins to form) to the pitch
+     * (playtest 5: "about 3.5–4.5 s"). The boost holds from the end of the ramp up to the pitch.
      */
-    minHold: 4,
-    maxHold: 5,
+    minRace: 3.5,
+    maxRace: 4.5,
     /** Peel speed boost as a fraction of Vp. */
     minBoost: 0.45,
     maxBoost: 0.5,
     /** Ramp up / down time (s). */
     ramp: 0.5,
+  },
+  /**
+   * Section peaks (playtest 5): a temporary bump in the wave shape (physics and render alike) that
+   * forms down the line at the start of every fast section and pitches when the race is over.
+   */
+  peak: {
+    /** The peak forms this far (m, seeded) ahead of the rider's frame x … */
+    minAhead: 15,
+    maxAhead: 25,
+    /** … but no further down the line than this frame x (the shoulder tapers away beyond). */
+    maxSpawnX: 70,
+    /** It grows to full height over minRise–maxRise s (seeded). */
+    minRise: 2,
+    maxRise: 3,
+    /** Full height: the wave is this much taller (fraction) at the peak, and steeper on its face. */
+    height: 0.35,
+    /** Half-width of the bump along the wave (m). */
+    width: 7,
+    /**
+     * The race: the peak drifts toward the curl (in the wave frame) so that at the pitch it sits at the
+     * rider's starting frame x minus `allowance` × the race time. A rider who loses ground on the
+     * fast section no faster than this (m/s) is on or past the peak at the pitch. Measured over the
+     * race (headless, 12 seeds): steady pumping (1 / s) on a lineBot line loses 2.0–2.2 m/s, a human
+     * rhythm (0.8–1.2 s) 1.7–3.0, pumping every 2 s 2.8–4.0, drifting (no pumps) 4.2–5.6.
+     */
+    allowance: 3.3,
+    /** The pitch carries the curl at least this far (m): the peak never pitches closer to the curl. */
+    minPitchX: 1,
+    /** … and never closer than this many m/s × race time down the line from where it formed (it always approaches). */
+    minApproach: 2,
+    /** The surge that carries the curl to the peak averages this speed (m/s) … */
+    surgeSpeed: 25,
+    /** … and lasts at least this long (s). */
+    minSurge: 0.4,
+    /** A launch counts as off the peak (SECTION AIR) at or above this share of the bump's full height. */
+    airOn: 0.5,
   },
   scoring: {
     comboWindow: 1.5,

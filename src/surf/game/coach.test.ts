@@ -285,3 +285,35 @@ describe('Coach — on a real ride', () => {
     expect(h.stats().shows).toBe(0);
   });
 });
+
+describe('coach: racing a section peak (playtest 5)', () => {
+  it('prompts ▲ PUMP far from the curl when, on its pace, the rider would be short of the peak at the pitch', () => {
+    const c = new Coach();
+    c.reset(true);
+    // 25 m from the curl, losing 4 m/s: in 2 s that is x = 17, the peak pitches at x = 20.
+    for (let i = 0; i <= 120; i++) c.update(frame(i / 120, 25 - (4 * i) / 120), { pitchX: 20, timeLeft: 2 - i / 120 });
+    expect(c.state.show).toBe(true);
+  });
+
+  it('stays quiet on schedule (losing ground slower than it can afford), and without a race far from the curl', () => {
+    const on = new Coach();
+    on.reset(true);
+    for (let i = 0; i <= 120; i++) on.update(frame(i / 120, 25 - (1 * i) / 120), { pitchX: 20, timeLeft: 3 - i / 120 });
+    expect(on.state.show).toBe(false);
+    const none = new Coach();
+    none.reset(true);
+    for (let i = 0; i <= 120; i++) none.update(frame(i / 120, 25 - (4 * i) / 120));
+    expect(none.state.show).toBe(false);
+  });
+
+  it('a race-behind prompt is not hidden for being far from the curl, and goes once the race is over and the rider is clear', () => {
+    const c = new Coach();
+    c.reset(true);
+    let t = 0;
+    for (; t <= 1; t += DT) c.update(frame(t, 30 - 4 * t), { pitchX: 25, timeLeft: 2 - t });
+    expect(c.state.show).toBe(true);
+    // Race over (pitched), well clear of the curl and gaining: the ordinary rules hide it.
+    for (let k = 0; k < 120; k++, t += DT) c.update(frame(t, 26 + 2 * k * DT));
+    expect(c.state.show).toBe(false);
+  });
+});

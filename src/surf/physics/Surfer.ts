@@ -186,7 +186,7 @@ export class Surfer {
   /** cutbackYaw when the rebound started, and the yaw (rad) the rebound has turned since. */
   private reboundHeld = 0;
   private reboundYaw = 0;
-  private crestMemo = { x: NaN, version: -1, t: 0, y: 0 };
+  private crestMemo = { x: NaN, version: -1, peak: -1, t: 0, y: 0 };
   private readonly path: AirPath = {
     kind: 'jump',
     tAnchor: 0,
@@ -225,6 +225,11 @@ export class Surfer {
   /** The held grab was let go automatically just before touchdown; grab input is ignored until landing. */
   private grabLocked = false;
   private grabs: GrabRecord[] = [];
+  /**
+   * Set by the game while a pitching section peak closes on a rider who was short of it: crossing in
+   * front of the curl (frame x < 0, the closing section's lip) is a wipeout, CLOSED OUT.
+   */
+  closing = false;
 
   constructor(
     readonly wave: WaveShape,
@@ -281,6 +286,7 @@ export class Surfer {
       wipeoutReason: null,
     } satisfies Partial<SurferState>);
     s.param.x = x;
+    this.closing = false;
     this.vp = this.wave.params.peelSpeed;
     this.yawRate = 0;
     this.line = null;
@@ -348,6 +354,20 @@ export class Surfer {
     this.spinInput = input.spin;
     if (s.mode === 'riding') this.ride(input, dt);
     else if (s.mode === 'airborne') this.air(input, dt);
+    if (this.closing && s.param.x < 0) this.closeOut();
+  }
+
+  /** The closing section lands on the rider (still up): CLOSED OUT. */
+  closeOut(): void {
+    const s = this.state;
+    if (s.mode !== 'riding' && s.mode !== 'airborne') return;
+    this.endGrab();
+    this.wipe('closedOut');
+  }
+
+  /** Pop-speed factor for a launch at column x: faster off a section peak (peakAirLift × the bump). */
+  private peakLift(x: number): number {
+    return 1 + this.cfg.peakAirLift * this.wave.peakBump(x);
   }
 
   /**
@@ -406,9 +426,11 @@ export class Surfer {
   private crestAt(x: number): { x: number; t: number; y: number } {
     const m = this.crestMemo;
     const version = configVersion();
-    if (m.x !== x || m.version !== version) {
+    // (The section peak moves heights only: the crest's t is the same, its height is not.)
+    if (m.x !== x || m.version !== version || m.peak !== this.wave.peakVersion) {
       m.x = x;
       m.version = version;
+      m.peak = this.wave.peakVersion;
       m.t = this.wave.crestT(x);
       m.y = this.wave.profile(x, m.t, this.scratch).y;
     }
@@ -496,7 +518,7 @@ export class Surfer {
 
     if (input.ollie && !s.floating) {
       // Ollie: +ollieImpulse along the surface normal (on top of any speed already leaving it).
-      const vUp = c.ollieImpulse + Math.max(0, s.v.dot(n));
+      const vUp = (c.ollieImpulse + Math.max(0, s.v.dot(n))) * this.peakLift(s.param.x);
       this.enterAir('ollie');
       this.beginAir('jump', s.param.t, vUp);
       return;
@@ -777,7 +799,7 @@ export class Surfer {
       s.time - this.releasedAt <= c.cutbackLaunchGuard;
     if (u > c.launchSpeed && !lipTurn && !guard) {
       this.enterAir('crest');
-      this.beginAir('jump', tb, clamp(u * c.airGain, c.launchSpeed, c.maxAirSpeed));
+      this.beginAir('jump', tb, clamp(u * c.airGain, c.launchSpeed, c.maxAirSpeed) * this.peakLift(s.param.x));
       return true;
     }
     if (!this.atCrest) {
@@ -1152,6 +1174,9 @@ export class Surfer {
 
   private wipe(reason: WipeoutReason): void {
     const s = this.state;
+    // Caught while a section closes on you short of its peak: that is the closeout.
+    if (this.closing && reason === 'swallowed') reason = 'closedOut';
+    this.closing = false;
     // A waiting snap still shows (the wipeout then loses it with the pot).
     this.endCutback();
     s.mode = 'wipeout';

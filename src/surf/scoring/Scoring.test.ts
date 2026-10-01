@@ -154,4 +154,16 @@ describe('fast sections', () => {
     scoring.update(7, false);
     expect(scoring.score).toBe(500);
   });
+
+  it('an air off a section peak awards SECTION AIR (750) on top of the air\'s tricks', () => {
+    const bus = new EventBus<SurfEvent>();
+    const onAward = vi.fn();
+    const scoring = new Scoring(SURF_CONFIG.scoring, { onAward });
+    scoring.attach(bus);
+    bus.emit({ type: 'landed', time: 2, spinDeg: 0, grabs: [], revert: false, ollie: true, airTime: 0.8 });
+    bus.emit({ type: 'sectionAir', time: 2 });
+    expect(onAward).toHaveBeenCalledWith({ name: 'Section Air', points: 750, repeated: false });
+    expect(scoring.pot).toBe(100 + 750);
+    expect(scoring.multiplier).toBe(2);
+  });
 });

@@ -14,6 +14,7 @@ const REASONS: Record<WipeoutReason, string> = {
   swallowed: 'SWALLOWED BY THE BARREL',
   badLanding: 'BLEW THE LANDING',
   whitewater: 'LANDED IN THE WHITEWATER',
+  closedOut: 'CLOSED OUT',
 };
 const A = 'A'.charCodeAt(0);
 

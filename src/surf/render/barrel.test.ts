@@ -3,6 +3,7 @@ import { DoubleSide, Mesh, MeshBasicMaterial, PerspectiveCamera, Raycaster, Vect
 import { CameraRig } from '../camera/CameraRig';
 import type { SurferState } from '../physics/Surfer';
 import { SURF_CONFIG } from '../config';
+import { applyPeakToVertex } from '../wave/peak';
 import { WaveShape } from '../wave/WaveShape';
 import { buildWaveGeometry, columnsX } from './waveGeometry';
 import { LIP_LIFT, LIP_THROW, lipOffset } from './waveMaterial';
@@ -21,7 +22,16 @@ const MESHES = [
  * clear against 6.1° at 'max'. The eye stays open in every state.
  */
 const LIP_TIMES = [null, 0.21, 0.8, 1.52, 'max'] as const;
-const CASES = MESHES.flatMap((m) => LIP_TIMES.map((time) => [...m, time] as const));
+/**
+ * Playtest 5: a section peak pitches at the curl and blends back into the wave from there. The most it
+ * has left when the surge ends (the shortest surge, minSurge, then the ramp down) is
+ * height × (1 − smoothstep(minSurge / (minSurge + ramp))): the barrel at the curl that much taller.
+ */
+const PEAK_AT_CURL = (() => {
+  const s = SURF_CONFIG.peak.minSurge / (SURF_CONFIG.peak.minSurge + SURF_CONFIG.sections.ramp);
+  return SURF_CONFIG.peak.height * (1 - s * s * (3 - 2 * s));
+})();
+const CASES = [...MESHES.flatMap((m) => LIP_TIMES.map((time) => [...m, time] as const)), [...MESHES[0], 'peak'] as const];
 
 /**
  * The barrel as the tube camera sees it: an open tunnel. From the real tube-camera pose, with the
@@ -34,7 +44,19 @@ describe.each(CASES)('open barrel from the tube camera (%s mesh %i × %i, lip an
   const params = structuredClone(SURF_CONFIG.wave);
   const shape = new WaveShape(params);
   const geo = buildWaveGeometry(shape, columnsX(columns, params.xMin, params.xMax), rows);
-  if (lipTime !== null) {
+  if (lipTime === 'peak') {
+    // The shader's peak on the CPU (applyPeakToVertex, the same formula), and in the shape the camera reads.
+    shape.setPeak(0, PEAK_AT_CURL, SURF_CONFIG.peak.width);
+    const pos = geo.getAttribute('position');
+    const v = { x: 0, y: 0 };
+    for (let i = 0; i < pos.count; i++) {
+      v.x = pos.getX(i);
+      v.y = pos.getY(i);
+      applyPeakToVertex(shape.peak, v);
+      pos.setY(i, v.y);
+    }
+    geo.computeBoundingSphere();
+  } else if (lipTime !== null) {
     // Apply the vertex shader's lip animation on the CPU (same formula, lipOffset).
     const pos = geo.getAttribute('position');
     const lip = geo.getAttribute('aLip');

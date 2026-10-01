@@ -1,5 +1,5 @@
 export type GrabKind = 'method' | 'rail' | 'stalefish' | 'indy';
-export type WipeoutReason = 'swallowed' | 'badLanding' | 'whitewater';
+export type WipeoutReason = 'swallowed' | 'badLanding' | 'whitewater' | 'closedOut';
 export type LaunchKind = 'ollie' | 'crest';
 
 export interface GrabRecord {
@@ -29,8 +29,15 @@ export type SurfEvent =
   | { type: 'kickedOut'; time: number }
   /** A fast section begins (the peel speeds up by `boost` × Vp). */
   | { type: 'fastSection'; time: number; boost: number }
-  /** A fast section ended with the rider still up. */
-  | { type: 'sectionMade'; time: number };
+  /**
+   * The section peak pitched (the race is over): the curl surges to it. `made`: the rider was on or
+   * past the peak; `x` its frame x (where the closing section ends).
+   */
+  | { type: 'peakPitch'; time: number; made: boolean; x: number }
+  /** The rider was on or past the peak at the pitch and rode out the surge. */
+  | { type: 'sectionMade'; time: number }
+  /** An air launched off the section peak landed clean (once per peak). */
+  | { type: 'sectionAir'; time: number };
 
 export type SurfEventType = SurfEvent['type'];
 export type EventOf<T extends SurfEventType> = Extract<SurfEvent, { type: T }>;

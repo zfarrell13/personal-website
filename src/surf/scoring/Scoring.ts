@@ -16,7 +16,8 @@ export type TrickName =
   | 'Stalefish'
   | 'Indy'
   | 'Revert'
-  | 'Section Made';
+  | 'Section Made'
+  | 'Section Air';
 
 export const TRICK_BASE = {
   Ollie: 100,
@@ -25,6 +26,8 @@ export const TRICK_BASE = {
   Roundhouse: 500,
   Revert: 150,
   sectionMade: 500,
+  /** An air launched off a section peak (on top of the air's own tricks). */
+  sectionAir: 750,
   floaterBase: 400,
   floaterPerSec: 100,
   barrelPerSec: 500,
@@ -135,6 +138,7 @@ export class Scoring {
         this.award('Barrel', Math.round(TRICK_BASE.barrelPerSec * e.duration), e.time);
       }),
       bus.on('sectionMade', (e) => this.award('Section Made', TRICK_BASE.sectionMade, e.time)),
+      bus.on('sectionAir', (e) => this.award('Section Air', TRICK_BASE.sectionAir, e.time)),
       bus.on('carve', (e) => this.touch(e.time)),
       bus.on('launched', (e) => this.touch(e.time)),
       bus.on('wipeout', () => this.lose()),

@@ -109,6 +109,11 @@ describe('TitleMenu — GUIDE option', () => {
 });
 
 describe('Results', () => {
+  it('a closeout reads CLOSED OUT', () => {
+    render(<Results run={{ ...run, wipeoutReason: 'closedOut' }} onAgain={vi.fn()} onTitle={vi.fn()} />);
+    expect(screen.getByText(/WIPEOUT — CLOSED OUT/)).toBeTruthy();
+  });
+
   it('takes 3-letter initials for a qualifying score, saves, then Enter goes again', () => {
     const onAgain = vi.fn();
     render(<Results run={run} onAgain={onAgain} onTitle={vi.fn()} />);

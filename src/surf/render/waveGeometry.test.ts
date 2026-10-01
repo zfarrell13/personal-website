@@ -180,7 +180,7 @@ describe('injectWaveShader', () => {
       vertexShader: 'void main(){\n#include <beginnormal_vertex>\n#include <begin_vertex>\n#include <project_vertex>\n}',
       fragmentShader: 'void main(){\n#include <color_fragment>\n#include <emissivemap_fragment>\n}',
     };
-    const u = { uTime: { value: 0 }, uTravel: { value: 0 }, uFoamTex: { value: makeFoamTexture() }, uSSS: { value: new Vector3() } };
+    const u = { uTime: { value: 0 }, uTravel: { value: 0 }, uFoamTex: { value: makeFoamTexture() }, uSSS: { value: new Vector3() }, uPeak: { value: new Vector3(0, 0, 1) } };
     injectWaveShader(shader as never, u);
     expect(shader.vertexShader).toContain('attribute float aFoam;');
     expect(shader.vertexShader).toContain('attribute float aLip;');
