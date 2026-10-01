@@ -8,7 +8,7 @@ import { Surfer } from '../physics/Surfer';
 import { buildWaveGeometry, columnsX, type OceanLayout } from '../render/waveGeometry';
 import { frameToView } from '../wave/mirror';
 import { WaveShape } from '../wave/WaveShape';
-import { CAMERA_FAR, CAMERA_OFFSETS, cameraGoal, CameraRig, riderUp, shakeAmplitude, shakeOffset, TUBE_HOLD_MIN_DISTANCE } from './CameraRig';
+import { CAMERA_FAR, CAMERA_OFFSETS, cameraGoal, CameraRig, riderUp, shakeAmplitude, shakeOffset, TITLE_SHOT, TUBE_HOLD_MIN_DISTANCE } from './CameraRig';
 
 function world() {
   const cfg = structuredClone(SURF_CONFIG);
@@ -869,4 +869,59 @@ describe('the tube camera through a carve in the barrel', () => {
     expect(r.maxJump).toBeLessThan(0.3);
     expect(r.maxTurn).toBeLessThan(5);
   }, 30_000);
+});
+
+describe('title / attract shot', () => {
+  const pitchOf = (pos: Vector3, look: Vector3) => {
+    const d = new Vector3().subVectors(look, pos);
+    return Math.atan2(-d.y, Math.hypot(d.x, d.z)) / (Math.PI / 180);
+  };
+
+  it('pitches the view up to 18–22° down: the horizon well inside the frame (the beach side shows) with the wave and its lip still in frame', () => {
+    const { wave, s } = world();
+    for (const side of ['left', 'right'] as const) {
+      const g = cameraGoal(s, side, 'title', wave, goal());
+      const pitch = pitchOf(g.pos, g.look);
+      expect(pitch).toBeGreaterThanOrEqual(18);
+      expect(pitch).toBeLessThanOrEqual(22);
+      expect(C.fov / 2 - pitch).toBeGreaterThan(8); // top edge ≥ 8° above the horizon
+      expect(g.pos.y).toBeGreaterThanOrEqual(wave.crestY(s.p.x) + CAMERA_OFFSETS.crestClearance - 1e-9);
+      // The crest by the rider and the rider themselves are in frame (16:9 and a phone's 2.2:1).
+      for (const aspect of [16 / 9, 2.2]) {
+        const cam = new PerspectiveCamera(C.fov, aspect, 0.1, CAMERA_FAR);
+        cam.position.copy(g.pos);
+        cam.lookAt(g.look);
+        cam.updateMatrixWorld();
+        const crest = frameToView(wave.profile(s.p.x, wave.crestT(s.p.x), new Vector3()), side, new Vector3());
+        for (const p of [crest, frameToView(s.p, side, new Vector3())]) {
+          const ndc = p.clone().project(cam);
+          expect(Math.abs(ndc.x)).toBeLessThan(1);
+          expect(Math.abs(ndc.y)).toBeLessThan(1);
+        }
+      }
+    }
+    expect(TITLE_SHOT.pitch).toBeGreaterThan(0);
+  });
+
+  it('the rig holds the title shot while the title shows and cuts to the unchanged chase when the ride starts', () => {
+    const { wave, s } = world();
+    const cam = new PerspectiveCamera(C.fov, 16 / 9, 0.1, CAMERA_FAR);
+    const rig = new CameraRig(cam, SURF_CONFIG.camera, wave);
+    rig.setTitle(true);
+    rig.snap(s, 'right');
+    expect(rig.shot).toBe('title');
+    for (let i = 0; i < 30; i++) rig.update(s, s.p, 'right', false, 1 / 60, i / 60);
+    expect(rig.shot).toBe('title');
+    const t = cameraGoal(s, 'right', 'title', wave, goal());
+    expect(rig.pos.distanceTo(t.pos)).toBeLessThan(1e-6);
+    expect(pitchOf(cam.position, rig.look)).toBeGreaterThan(17);
+
+    rig.setTitle(false);
+    rig.update(s, s.p, 'right', false, 1 / 60, 0.5);
+    expect(rig.shot).toBe('chase');
+    // The chase is untouched by the title shot: the goal it cuts to is the chase goal.
+    const c = cameraGoal(s, 'right', 'chase', wave, goal());
+    expect(rig.pos.distanceTo(c.pos)).toBeLessThan(0.5);
+    expect(pitchOf(rig.pos, rig.look)).toBeGreaterThan(25);
+  });
 });

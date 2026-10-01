@@ -200,6 +200,7 @@ export class SurfGame {
     this.cleanups.push(() => ro.disconnect());
     this.resize();
     this.surfer.reset();
+    this.rig.setTitle(true); // loading, then the title: the title / attract shot
     this.rig.snap(this.surfer.state, this.side);
     this.wake();
   }
@@ -361,6 +362,7 @@ export class SurfGame {
 
   private setPhase(phase: Phase): void {
     this.phase = phase;
+    this.rig.setTitle(phase === 'title' || phase === 'loading');
     this.writer.flush(performance.now());
     this.store.setState({ phase });
   }

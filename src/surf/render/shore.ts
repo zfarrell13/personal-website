@@ -28,8 +28,12 @@ export const SHORE = {
    * 300 m down the line (≈ 37 s away at the 8 m/s peel), then every 1300 m (≈ 2.7 min).
    */
   landmarkU: [300, 1600] as readonly number[],
-  /** The water tower stands at these offsets (m along the beach) from each landmark set: every 650 m. */
-  waterTowerAt: [-140, 510] as readonly number[],
+  /**
+   * The water tower stands at these offsets (m along the beach) from each landmark set: every 650 m.
+   * At travel 0 that puts one 400 m down the line ahead of the drop-in (≈ 50 s) and one 250 m the
+   * other way, where the title / attract shot looks (TITLE_SHOT in CameraRig).
+   */
+  waterTowerAt: [100, 750] as readonly number[],
   /** The resort tower's offset from each landmark set (m along the beach). */
   resortAt: 330,
   /**

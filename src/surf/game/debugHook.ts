@@ -17,7 +17,7 @@ export interface SurfDebugHook {
   fast: boolean;
   /** The run's fast-section seed (replay a run by feeding it to PeelController.reset). */
   seed: number;
-  /** Camera shot: 'chase' | 'tube' | 'underwater'. */
+  /** Camera shot: 'chase' | 'tube' | 'underwater' | 'title'. */
   shot: string;
   /** The rider's heaviest-weighted body pose (e.g. 'bottomTurnToe', 'topTurnHeel'). */
   pose: string;

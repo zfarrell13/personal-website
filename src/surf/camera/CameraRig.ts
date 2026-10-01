@@ -34,7 +34,22 @@ export interface CameraGoal {
   look: Vector3;
 }
 
-export type CameraShot = 'chase' | 'tube' | 'underwater';
+export type CameraShot = 'chase' | 'tube' | 'underwater' | 'title';
+
+/**
+ * The title / attract shot (the /surf title screen and the dimmed stage behind every site page): the
+ * chase pulled back and up and pitched up to `pitch` below level, so the wave and its lip still fill the
+ * lower frame while the beach side (houses, the Oceanic and pier, the water tower) shows above the
+ * horizon. The chase's own pitch (≈ 32°) leaves the horizon just above the top edge.
+ */
+export const TITLE_SHOT = {
+  /** Behind the rider along their travel (m) … */
+  back: 7,
+  /** … this high above them (m; floored above the crest like the chase) … */
+  up: 6,
+  /** … looking along the travel this far below level. */
+  pitch: 19 * (Math.PI / 180),
+} as const;
 
 /** What the goal needs from the wave: the crest height of a column (frame x). */
 export interface CrestProbe {
@@ -185,6 +200,13 @@ export function cameraGoal(s: Subject, side: Side, shot: CameraShot, wave: Crest
     out.pos.z += O.tube.out;
     out.look.copy(s.p).add(O.tube.look);
     out.look.x = s.p.x + dir * O.tube.look.x;
+  } else if (shot === 'title') {
+    const yaw = travelYaw(s.heading);
+    const [dx, dz] = [Math.cos(yaw), Math.sin(yaw)];
+    out.pos.set(s.p.x - dx * TITLE_SHOT.back, s.p.y + TITLE_SHOT.up, s.p.z - dz * TITLE_SHOT.back);
+    if (wave) out.pos.y = Math.max(out.pos.y, wave.crestY(out.pos.x) + O.crestClearance, wave.crestY(s.p.x) + O.crestClearance);
+    const [h, v] = [Math.cos(TITLE_SHOT.pitch), Math.sin(TITLE_SHOT.pitch)];
+    out.look.set(out.pos.x + dx * h * 20, out.pos.y - v * 20, out.pos.z + dz * h * 20);
   } else {
     const yaw = travelYaw(s.heading);
     const dx = Math.cos(yaw);
@@ -236,6 +258,8 @@ export class CameraRig {
   readonly pos = new Vector3();
   readonly look = new Vector3();
   shot: CameraShot = 'chase';
+  /** The title / attract shot (TITLE_SHOT) instead of riding shots: set while the title (or loading) shows. */
+  private title = false;
   /** Spring state: position and look target relative to the rider (view coordinates). */
   private readonly offPos = new Vector3();
   private readonly offLook = new Vector3();
@@ -297,15 +321,21 @@ export class CameraRig {
     return this.shot === 'tube' && this.heldFor > 0;
   }
 
+  /** Title / attract framing on or off; the next update cuts to (or from) the title shot. */
+  setTitle(on: boolean): void {
+    this.title = on;
+  }
+
   snap(s: SurferState, side: Side): void {
-    this.shot = 'chase';
+    const shot: CameraShot = this.title ? 'title' : 'chase';
+    this.shot = shot;
     this.inFor = 0;
     this.outFor = 0;
     this.heldFor = 0;
     this.yaw = travelYaw(s.heading);
     this.facing = Math.cos(this.yaw) < -FACING_SWITCH ? -1 : 1;
-    this.track(s, s.p, side, 'chase');
-    cameraGoal(this.subject, side, 'chase', this.wave, this.goal, this.cfg);
+    this.track(s, s.p, side, shot);
+    cameraGoal(this.subject, side, shot, this.wave, this.goal, this.cfg);
     this.cut();
     this.apply(0);
   }
@@ -329,7 +359,7 @@ export class CameraRig {
     const wanted = s.mode === 'riding' && (s.inTube || blind || (pocket && s.p.y < c.pocketHeightFrac * this.wave.crestY(s.p.x)));
     // …as long as there IS a tube shot: a spot behind the rider in the barrel's air that sees them
     // (not through the falling curtain, not with the barrel closing on them). Otherwise the chase.
-    const tubed = wanted && this.findTubeSpot(renderP, s.normal);
+    const tubed = !this.title && wanted && this.findTubeSpot(renderP, s.normal);
     this.inFor = tubed ? this.inFor + dt : 0;
     this.outFor = tubed ? 0 : this.outFor + dt;
     // A held tube pose that can't be held any more: the rider deep in the closing barrel is the swallow's
@@ -338,7 +368,8 @@ export class CameraRig {
     const holding = this.shot === 'tube' && this.heldFor > 0;
     let shot: CameraShot;
     let hold = false;
-    if (underwater) shot = 'underwater';
+    if (this.title) shot = 'title';
+    else if (underwater) shot = 'underwater';
     else if (this.shot === 'underwater') shot = wanted && s.inTube ? 'underwater' : 'chase';
     else if (this.shot === 'tube' && wanted && (holding || !tubed)) {
       // No tube spot any more (the barrel closing on the rider), or already holding: keep the pose while
@@ -400,7 +431,7 @@ export class CameraRig {
     }
     if (this.shot === 'chase') this.keepInFrame(s, side);
     const x = side === 'right' ? -this.pos.x : this.pos.x;
-    this.apply(this.shot === 'underwater' ? 0 : shakeAmplitude(x, D, c.shake), time);
+    this.apply(this.shot === 'underwater' || this.shot === 'title' ? 0 : shakeAmplitude(x, D, c.shake), time);
   }
 
   /** Would the chase (its goal behind the eased travel direction) see the rider's chest past the wave? */
