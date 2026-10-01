@@ -65,7 +65,7 @@ export function TitleScreen() {
     <main className={styles.titleScreen}>
       <header className={styles.titleBlock}>
         <h1 className={styles.name}>{site.profile.name.toUpperCase()}</h1>
-        <p className={styles.tagline}>{site.profile.tagline}</p>
+        <p className={styles.tagline}>{site.homeTagline}</p>
       </header>
       <div className={styles.menuColumn}>
         <nav ref={navRef} className={styles.menuPanel} aria-label="Main menu">

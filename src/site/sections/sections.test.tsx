@@ -114,24 +114,26 @@ describe('CAREER MODE', () => {
 });
 
 describe('TROPHY ROOM', () => {
-  it('shows a card per trophy with its links; the surf game first', () => {
+  it('shows a card per trophy, in content order, with its links (the surf game plays at /surf)', () => {
     render(<TrophiesPage.default />);
     expect(heading()).toBe('TROPHY ROOM');
     const cards = screen.getAllByRole('article');
     expect(cards).toHaveLength(site.trophies.length);
-    expect(within(cards[0]!).getByText('Kelly-style Surf Game')).toBeTruthy();
-    expect(within(cards[0]!).getByRole('link', { name: /PLAY/ }).getAttribute('href')).toBe('/surf');
+    site.trophies.forEach((t, i) => expect(within(cards[i]!).getByText(t.name)).toBeTruthy());
+    const surfCard = cards.find((c) => within(c).queryByText('Kelly-style Surf Game'))!;
+    expect(within(surfCard).getByRole('link', { name: /PLAY/ }).getAttribute('href')).toBe('/surf');
   });
 
   it('names the card button by the project and describes it by the one-liner; links say which project and new tabs', () => {
     render(<TrophiesPage.default />);
-    const [surf, sample] = site.trophies;
-    const card = screen.getAllByRole('article')[0]!;
+    const surf = site.trophies.find((t) => t.id === 'surf-game');
+    const sample = site.trophies.find((t) => t.id === 'audial-synth');
+    const card = screen.getAllByRole('article').find((c) => within(c).queryByText(surf!.name))!;
     const open = within(card).getByRole('button', { name: surf!.name });
     expect(document.getElementById(open.getAttribute('aria-describedby')!)!.textContent).toBe(surf!.oneLiner);
     expect(within(card).getByRole('link', { name: `PLAY — ${surf!.name}` })).toBeTruthy();
     expect(within(card).getByRole('link', { name: `CODE — ${surf!.name} (opens in a new tab)` })).toBeTruthy();
-    expect(screen.getByRole('link', { name: new RegExp(`^CODE — ${sample!.name}`) })).toBeTruthy();
+    expect(screen.getByRole('link', { name: new RegExp(`^CODE — ${sample!.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) })).toBeTruthy();
   });
 
   it('opens the detail dialog; the first Esc closes it (focus back on the card), the next goes to the menu', () => {

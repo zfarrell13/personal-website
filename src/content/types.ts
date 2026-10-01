@@ -49,6 +49,8 @@ export interface Credits {
 }
 
 export interface SiteContent {
+  /** The line under the name on the title menu. */
+  homeTagline: string;
   profile: Profile;
   career: Career;
   trophies: Trophy[];

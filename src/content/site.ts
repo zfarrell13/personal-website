@@ -5,6 +5,7 @@ import type { Season, SiteContent } from './types';
  * (placeholder URLs carry "SAMPLE" inside them); replace them, and the files under public/site/, with your own.
  */
 export const site: SiteContent = {
+  homeTagline: 'Principal PM shipping AI platforms, music tech and one very retro surf game',
   profile: {
     name: 'Zach Farrell',
     title: 'Principal Product Manager',
@@ -89,10 +90,59 @@ export const site: SiteContent = {
 
   trophies: [
     {
+      id: 'audial',
+      name: 'Audial',
+      oneLiner: 'An AI audio suite for musicians and producers: music generation, resynthesis, text-to-vocal, stem separation, mastering and MIDI conversion.',
+      image: '/site/trophies/audial.jpg',
+      stack: ['Audio ML', 'Music Generation', 'GPU Inference', 'Data Pipelines', 'Subscriptions'],
+      links: [{ label: 'VIEW', href: 'https://www.audialmusic.ai/' }],
+      story: [
+        'Audial is my company: a professional audio suite powered by AI, built for musicians and producers. Generate original music from text prompts, lyrics or reference audio; rebuild any sound as a synth patch; turn lyrics into a sung vocal; split songs into stems; master tracks; convert audio to MIDI; and analyse audio.',
+        'I built and launched it solo from scratch — architecture, ML models, data pipelines and go-to-market — and scaled it to thousands of monthly active users with zero downtime, using experiments and measurement to tune conversion and retention.',
+      ],
+    },
+    {
+      id: 'portraitly',
+      name: 'Portraitly',
+      oneLiner: 'Turn your pet photos into art: AI portraits in 8 styles, in seconds, with canvas, framed and metal prints.',
+      image: '/site/trophies/portraitly.jpg',
+      stack: ['Image Generation', 'Web App', 'Credit Payments', 'Print-on-Demand'],
+      links: [{ label: 'VIEW', href: 'https://portraitly.co/' }],
+      story: [
+        'Upload a pet photo, pick a style — oil painting, watercolor, pop art, Renaissance, anime, 3D cartoon, pencil sketch or stained glass — and get a finished portrait in seconds.',
+        'No subscription: simple credits that never expire, and printed canvas, framed and metal portraits fulfilled through a print partner, so a photo on your phone becomes art on the wall.',
+      ],
+    },
+    {
+      id: 'audial-synth',
+      name: 'Audial Synth (sound2vital)',
+      oneLiner: 'A polyphonic wavetable synth with RESYNTH: drop in a sample and get it back as a fully editable synth patch.',
+      image: '/site/trophies/audial-synth.jpg',
+      stack: ['C++', 'JUCE', 'DSP', 'VST3 · AU · LV2', 'Audial API'],
+      links: [{ label: 'CODE', href: 'https://github.com/AudialAI/sound2vital-gui' }],
+      story: [
+        'A wavetable synthesizer — spectral warping oscillators, a wavetable editor, a modulation matrix and a full effects chain — that builds as a VST3, Audio Unit, LV2 plug-in and a standalone app.',
+        'Its RESYNTH panel is the new part: drop in a one-shot sample of up to 20 seconds, the Audial API analyses it and returns a patch, and every oscillator, envelope and effect stays editable like any other preset.',
+        'It is an open-source (GPLv3) fork of the Vital synthesizer by Matt Tytel, separately named and not affiliated with that project.',
+      ],
+    },
+    {
+      id: 'text2vox',
+      name: 'text2vox',
+      oneLiner: 'Type lyrics and a melody and get a sung vocal back — rendered on GPUs and dragged straight into your DAW.',
+      image: '/site/trophies/text2vox.jpg',
+      stack: ['C++', 'JUCE', 'VST3', 'Vocal Synthesis', 'GPU Workers'],
+      links: [{ label: 'VIEW', href: 'https://github.com/AudialAI/text2vox-releases' }],
+      story: [
+        'A music plug-in for writing vocals: draw or import a melody in its piano roll, type the lyrics, give it a reference timbre, and render a sung vocal performance.',
+        'Renders run through the Audial API, which authenticates the request, checks the subscription and fans the job out to GPU workers; the finished audio drags straight out of the plug-in into your DAW.',
+      ],
+    },
+    {
       id: 'surf-game',
       name: 'Kelly-style Surf Game',
       oneLiner: 'A PS2-era surf game in the browser: pump, carve and get barrelled on an endless peeling wave.',
-      image: '/site/trophies/surf-game.svg',
+      image: '/site/trophies/surf-game.jpg',
       stack: ['TypeScript', 'three.js', 'WebGL 2', 'Web Audio', 'React', 'Next.js'],
       links: [
         { label: 'PLAY', href: '/surf' },
@@ -103,39 +153,6 @@ export const site: SiteContent = {
         'It is built from scratch on three.js with a custom retro renderer (low resolution, dithering, vertex snapping) for the PS2 look, a fixed-step physics model for the surfer, a procedurally animated wave mesh, and spray particles.',
         'It runs on phones with touch controls, and the site’s soundtrack follows you in: it muffles when you are inside the tube and ducks when you pause.',
       ],
-    },
-    {
-      id: 'sample-project-1',
-      name: 'SAMPLE Project One',
-      oneLiner: 'SAMPLE — replace me: one line on what it is and who it is for.',
-      image: '/site/trophies/sample-1.svg',
-      stack: ['SAMPLE TypeScript', 'SAMPLE React'],
-      links: [
-        { label: 'VIEW', href: 'https://example.com/SAMPLE-project-one' },
-        { label: 'CODE', href: 'https://github.com/SAMPLE/project-one' },
-      ],
-      story: [
-        'SAMPLE — replace me: the problem, and why it was worth solving.',
-        'SAMPLE — replace me: what you built, the interesting technical part, and how it turned out.',
-      ],
-    },
-    {
-      id: 'sample-project-2',
-      name: 'SAMPLE Project Two',
-      oneLiner: 'SAMPLE — replace me: one line on what it is and who it is for.',
-      image: '/site/trophies/sample-2.svg',
-      stack: ['SAMPLE Python', 'SAMPLE Postgres'],
-      links: [{ label: 'CODE', href: 'https://github.com/SAMPLE/project-two' }],
-      story: ['SAMPLE — replace me: the problem, what you built and the result.'],
-    },
-    {
-      id: 'sample-project-3',
-      name: 'SAMPLE Project Three',
-      oneLiner: 'SAMPLE — replace me: one line on what it is and who it is for.',
-      image: '/site/trophies/sample-3.svg',
-      stack: ['SAMPLE Swift'],
-      links: [{ label: 'VIEW', href: 'https://example.com/SAMPLE-project-three' }],
-      story: ['SAMPLE — replace me: the problem, what you built and the result.'],
     },
   ],
 

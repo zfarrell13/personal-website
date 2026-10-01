@@ -17,6 +17,7 @@ function strings(value: unknown, path = ''): [string, string][] {
  * labels and URLs (a placeholder URL carries SAMPLE inside it instead), and the surf game trophy.
  */
 const REAL = [
+  /^homeTagline$/,
   /^profile\.(name|title|location|tagline|lookingFor)$/,
   /^profile\.bio\.\d+$/,
   /^profile\.stats\.\d+\.label$/,
@@ -26,7 +27,7 @@ const REAL = [
   /^career\.seasons\.\d+\.(wins|stack)\.\d+$/,
   /^trophies\.\d+\.(id|image)$/,
   /^trophies\.\d+\.links\.\d+\.(label|href)$/,
-  /^trophies\.0\./,
+  /^trophies\.\d+\./,
   /^credits\.links\.\d+\.(label|href)$/,
   /^credits\.email$/,
 ];
@@ -62,7 +63,7 @@ describe('site content', () => {
 
   it('gives every trophy at least one link; the surf game comes first with PLAY → /surf and its code', () => {
     for (const t of site.trophies) expect(t.links.length).toBeGreaterThan(0);
-    const [surf] = site.trophies;
+    const surf = site.trophies.find((t) => t.id === 'surf-game');
     expect(surf!.name).toBe('Kelly-style Surf Game');
     expect(surf!.links).toContainEqual({ label: 'PLAY', href: '/surf' });
     expect(surf!.links).toContainEqual({ label: 'CODE', href: 'https://github.com/zfarrell13/personal-website' });

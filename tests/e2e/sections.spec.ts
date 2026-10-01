@@ -110,7 +110,7 @@ test.describe('section screens', () => {
   test('TROPHY ROOM: a card opens its detail; the first Esc closes it, the second goes to the menu', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     await page.goto('/trophies');
-    const card = page.getByRole('article').first().getByRole('button');
+    const card = page.getByRole('article').filter({ hasText: 'Kelly-style Surf Game' }).getByRole('button');
     await card.click();
     const dialog = page.getByRole('dialog', { name: 'Kelly-style Surf Game' });
     await expect(dialog).toBeVisible();
