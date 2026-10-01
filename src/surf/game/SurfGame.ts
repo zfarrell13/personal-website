@@ -21,7 +21,6 @@ import { Character, loadSurferRig } from '../character/Character';
 import { configVersion, SURF_CONFIG, SURFER_LOOK, type Side, type SurferLook } from '../config';
 import { EventBus, type SurfEvent } from '../physics/events';
 import { NO_INPUT, readSurferInput, SURF_BINDINGS, type SurfAction, type SurferInput } from '../physics/input';
-import { lineBot } from '../physics/lineBot';
 import { Surfer } from '../physics/Surfer';
 import { Environment } from '../render/Environment';
 import { Particles } from '../render/Particles';
@@ -125,7 +124,8 @@ export class SurfGame {
   readonly sections = new SectionDirector(this.peel, this.wave, this.surfer, this.bus, SURF_CONFIG.peak);
   /** Frame shift (m along x) of the pitch's surge not yet applied to the camera. */
   private surgeShift = 0;
-  /** ?debug autopilot (window.__surfBot) and the pump rhythm it was made for. */
+  /** ?debug autopilot (window.__surfBot): lineBot, loaded only with ?debug (not in the game bundle). */
+  private lineBot: typeof import('../physics/lineBot').lineBot | null = null;
   private bot: ((dt: number) => SurferInput) | null = null;
   private botPump = NaN;
   private botHigh = NaN;
@@ -213,7 +213,15 @@ export class SurfGame {
       window.addEventListener('blur', onBlur);
       this.cleanups.push(() => window.removeEventListener('blur', onBlur));
     }
-    if (opts.debug) this.buildGizmo();
+    if (opts.debug) {
+      this.buildGizmo();
+      import('../physics/lineBot').then(
+        (m) => {
+          this.lineBot = m.lineBot;
+        },
+        (e: unknown) => console.warn('Debug autopilot unavailable', e),
+      );
+    }
 
     const ro = new ResizeObserver(() => this.resize());
     ro.observe(canvas);
@@ -488,10 +496,10 @@ export class SurfGame {
   /** ?debug: window.__surfBot steers and pumps (the keys' ollie / stall still apply). */
   private autopilot(dt: number): void {
     const want = window.__surfBot;
-    if (!want) return;
+    if (!want || !this.lineBot) return;
     const high = want.high ?? 0.6;
     if (!this.bot || this.botPump !== want.pumpEvery || this.botHigh !== high) {
-      this.bot = lineBot(this.surfer, this.wave, { pumpEvery: want.pumpEvery, high });
+      this.bot = this.lineBot(this.surfer, this.wave, { pumpEvery: want.pumpEvery, high });
       this.botPump = want.pumpEvery;
       this.botHigh = high;
     }
