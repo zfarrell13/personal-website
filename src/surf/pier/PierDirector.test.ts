@@ -6,6 +6,7 @@ import { NO_INPUT, type SurferInput } from '../physics/input';
 import { lineBot } from '../physics/lineBot';
 import { Surfer } from '../physics/Surfer';
 import { Scoring, type TrickAward } from '../scoring/Scoring';
+import { mulberry32 } from '../math/random';
 import { WaveShape } from '../wave/WaveShape';
 import { PierDirector } from './PierDirector';
 import { nearestPier, PIER, PIER_TRACK } from './track';
@@ -107,8 +108,8 @@ function pass(w: World, ahead: number, drive: () => SurferInput) {
 }
 
 describe('shooting the pier', () => {
-  it('scores SHOT THE PIER exactly once (+1000) through each lane: high on the face and low', () => {
-    for (const zLane of [0.3, 1.2, 2.8, 6]) {
+  it('scores SHOT THE PIER exactly once (+1000) through each lane: the face and the trough', () => {
+    for (const zLane of [0.8, 1.6, 2.5, 5.5]) {
       const w = world();
       const lane = setUp(w, zLane);
       const z0 = w.s.p.z;
@@ -168,6 +169,41 @@ describe('shooting the pier', () => {
     }
   });
 
+  it('the barrel is a clear lane: stalled in, pumping out at any rhythm, the pier arriving any time — never PIER\'D in the tube', () => {
+    let doubled = 0;
+    let cases = 0;
+    for (const extra of [0, 0.5, 1]) {
+      for (const every of [0.3, 0.7, 1.3]) {
+        for (const ahead of [1, 4, 8, 14]) {
+          const w = world();
+          w.placePier(1e4);
+          let tIn = -1;
+          let since = 0;
+          let tubedHit = false;
+          for (let i = 0; i < 10 * 120 && w.live(); i++) {
+            if (tIn < 0 && w.s.inTube) {
+              tIn = w.s.time;
+              w.placePier(ahead);
+            }
+            const stall = tIn < 0 || w.s.time < tIn + extra;
+            since += DT;
+            const pump = !stall && since >= every;
+            if (pump) since = 0;
+            const tubed = w.s.inTube;
+            w.step({ ...NO_INPUT, stall, pump });
+            if (w.s.wipeoutReason === 'pierd' && tubed) tubedHit = true;
+            if (tIn >= 0 && w.pier.ahead < -6) break;
+          }
+          expect(tubedHit, `stall +${extra} s, pump every ${every} s, pier ${ahead} m`).toBe(false);
+          cases++;
+          if (w.shots()[0]?.inTube) doubled++;
+        }
+      }
+    }
+    // Most of them shoot it in the barrel (the rest pump out before it arrives, or are swallowed first).
+    expect(doubled / cases).toBeGreaterThan(0.7);
+  });
+
   it('sweeps the rider through the pier: a pier jumping 1 m a tick past them can\'t tunnel through', () => {
     // (A surge moves the frame past the rider up to ≈ 0.4 m a tick, but it moves the rider's frame x with
     // it: rider and pier only ever move apart at the rider's world speed. The sweep holds regardless.)
@@ -179,6 +215,45 @@ describe('shooting the pier', () => {
       expect(w.s.wipeoutReason === 'pierd', `lane ${zLane}`).toBe(hit);
       expect(w.shots()).toHaveLength(hit ? 0 : 1);
     }
+  });
+
+  it('is a challenge: riders who don\'t pick a lane rarely shoot it, riders holding a lane always do (seeded arrivals)', () => {
+    /** Shot rate over 40 passes, the pier arriving at seeded times; `drive` from the drop-in, `lane` after a 5 s warm-up. */
+    const rate = (drive: (w: World) => () => SurferInput, warm: number) => {
+      const r = mulberry32(42);
+      let shots = 0;
+      for (let k = 0; k < 40; k++) {
+        const w = world();
+        const bot = lineBot(w.surfer, w.wave, { pumpEvery: 1 });
+        w.placePier(1e4);
+        const arrive = warm + 0.5 + 4 * r();
+        let driver: (() => SurferInput) | null = null;
+        let placed = false;
+        for (let i = 0; i < 20 * 120 && w.live(); i++) {
+          if (!placed && w.s.time >= Math.max(warm, arrive - 1)) {
+            placed = true;
+            w.placePier(9);
+          }
+          if (!driver && w.s.time >= warm) driver = drive(w);
+          w.step(driver ? driver() : { ...bot(DT) });
+          if (placed && w.pier.ahead < -8) break;
+        }
+        shots += w.shots().length;
+      }
+      return shots / 40;
+    };
+    let since = 0;
+    const pumps = () => () => {
+      since += DT;
+      const pump = since >= 1;
+      if (pump) since = 0;
+      return { ...NO_INPUT, pump };
+    };
+    // No input from the drop-in (slides to the flats, z ≈ 7.2), or only pumps: PIER'D (or swallowed) nearly always.
+    expect(rate(() => () => ({ ...NO_INPUT }), 0)).toBeLessThan(0.2);
+    expect(rate(pumps, 0)).toBeLessThan(0.2);
+    // Holding the face lane or the trough lane: every time.
+    for (const zLane of [1.6, 5.5]) expect(rate((w) => laneBot(w, zLane), 5)).toBe(1);
   });
 
   it('tests the whole path of a step, not its ends: a step from clear to clear through a bent hits', () => {

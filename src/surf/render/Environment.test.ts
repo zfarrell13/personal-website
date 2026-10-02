@@ -203,14 +203,14 @@ describe('Environment beach side', () => {
       expect(bb.max.z).toBeGreaterThan(SHORE.z + 20);
       expect(bb.max.y).toBeGreaterThan(PIER.deckY + 1); // the railing
       expect(Math.abs(bb.min.x + bb.max.x)).toBeLessThan(0.01); // centred on its frame x
-      // Below the caps, nothing stands in a lane (high: z ∈ −1.5 … 3.5, low: 4.9 … 9.9).
+      // Below the caps, nothing stands in a lane (face: z ∈ 0.3 … 2.9, trough: 4.3 … 6.9).
       const pos = geo.getAttribute('position');
       for (let i = 0; i < pos.count; i += 3) {
         // Each triangle: if all three corners are below the caps within a lane band, it's in the lane.
         const zs = [pos.getZ(i), pos.getZ(i + 1), pos.getZ(i + 2)];
         const ys = [pos.getY(i), pos.getY(i + 1), pos.getY(i + 2)];
         if (Math.max(...ys) >= PIER.capY - 0.1) continue;
-        const inLane = (z: number) => (z > -1.5 && z < 3.5) || (z > 4.9 && z < 9.9);
+        const inLane = (z: number) => (z > 0.3 && z < 2.9) || (z > 4.3 && z < 6.9);
         expect(zs.every(inLane)).toBe(false);
       }
       // The pilings stand at the rows.
@@ -242,6 +242,12 @@ describe('Environment beach side', () => {
     expect(shader.fragmentShader).toContain('discard');
     const shore = env.frameStuff.children.find((o) => o.name === 'shoreNear') as Mesh;
     expect(mat.customProgramCacheKey()).not.toBe((shore.material as Material).customProgramCacheKey());
+    // Built outside the strip it keeps the strip's look: the scenery glow (SHORE_GLOW), unmarked as a
+    // landmark (no extra glow / haze clearing — as when it was in the chunk; only the towers are marked).
+    expect(shader.fragmentShader).toContain('totalEmissiveRadiance +=');
+    const mark = env.piers[0]!.geometry.getAttribute('aLandmark');
+    expect(mark.count).toBe(env.piers[0]!.geometry.getAttribute('position').count);
+    for (let i = 0; i < mark.count; i++) expect(mark.getX(i)).toBe(0);
     env.dispose();
   });
 });

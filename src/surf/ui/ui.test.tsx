@@ -190,6 +190,10 @@ describe('Hud', () => {
     expect(screen.queryByTestId('pier-ahead')).toBeNull();
     act(() => store.setState({ pierAhead: true }));
     expect(screen.getByTestId('pier-ahead').textContent).toBe('PIER AHEAD');
+    expect(screen.getByTestId('pier-ahead').getAttribute('data-tube')).toBe('false');
+    // In the tube view it moves off the lip line (CSS: under the TUBE timer).
+    act(() => store.setState({ tubeTime: 0.8 }));
+    expect(screen.getByTestId('pier-ahead').getAttribute('data-tube')).toBe('true');
     act(() => store.setState({ pierAhead: false }));
     expect(screen.queryByTestId('pier-ahead')).toBeNull();
   });

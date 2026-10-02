@@ -349,7 +349,7 @@ test.describe('surf game', () => {
     expect(errors()).toEqual([]);
   });
 
-  test('Crystal Pier: hook.pierX comes down the line; ?pierSoon brings it near, PIER AHEAD shows, and a no-input rider shoots it in the flats', async ({ page }) => {
+  test('Crystal Pier: hook.pierX comes down the line; ?pierSoon brings it near, PIER AHEAD shows, and a no-input rider slides into its pilings (PIER\'D)', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     // A normal run: the pier starts ≈ 300 m down the line and comes at the peel speed.
     await dropIn(page);
@@ -364,11 +364,9 @@ test.describe('surf game', () => {
     expect(near).toBeGreaterThan(5);
     expect(near).toBeLessThan(21);
     await expect(page.getByTestId('pier-ahead')).toBeVisible();
-    // No input: down to the flats (the low lane), under the pier, then swallowed by the barrel.
-    await expect(page.getByText(/SHOT THE PIER \+1000/)).toBeVisible({ timeout: 10_000 });
-    expect(await page.evaluate(() => window.__surf!.pierX < window.__surf!.x)).toBe(true);
+    // No input: the board slides down to the flats, where the pilings stand — not a lane: PIER'D.
     await page.waitForFunction(() => window.__surf?.phase === 'results', undefined, { timeout: 15_000 });
-    await expect(page.getByText(/SWALLOWED BY THE BARREL/)).toBeVisible();
+    await expect(page.getByText(/WIPEOUT — PIER'D/)).toBeVisible();
     expect(errors()).toEqual([]);
   });
 

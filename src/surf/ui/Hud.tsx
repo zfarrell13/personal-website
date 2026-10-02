@@ -34,7 +34,7 @@ export function Hud({ store }: { store: SurfStore }) {
         </div>
       ) : null}
       {pierAhead ? (
-        <div className={styles.pierAhead} data-testid="pier-ahead">
+        <div className={styles.pierAhead} data-testid="pier-ahead" data-tube={tubeTime > 0 ? 'true' : 'false'}>
           PIER AHEAD
         </div>
       ) : null}

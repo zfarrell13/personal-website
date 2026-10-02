@@ -960,17 +960,30 @@ describe('SurfGame', () => {
       game.dispose();
     });
 
-    it('a no-input rider on ?pierSoon slides down to the flats, shoots the pier there (SHOT THE PIER), then is swallowed', async () => {
+    it('a no-input rider on ?pierSoon slides down to the flats, into the pilings there: PIER\'D, no award', async () => {
       const { game, store } = await pierSoonGame();
       const texts: string[] = [];
       for (let i = 0; i < 60 * 12 && store.getState().phase === 'playing'; i++) {
         frame();
         for (const t of store.getState().ticker) if (!texts.includes(t.text)) texts.push(t.text);
       }
-      expect(texts).toContain('SHOT THE PIER');
-      expect(store.getState().pierAhead).toBe(false);
-      expect(store.getState().run?.wipeoutReason).toBe('swallowed');
+      expect(texts.some((t) => t.startsWith('SHOT THE PIER'))).toBe(false);
+      expect(store.getState().run?.wipeoutReason).toBe('pierd');
       game.dispose();
+    });
+
+    it('?pierSoon=0 (or not a number) is off: the pier where the coast has it', async () => {
+      for (const pierSoon of [0, Number.NaN, -5]) {
+        const store = createSurfStore();
+        const game = new SurfGame(canvas, store, { pierSoon });
+        await game.load();
+        clock = performance.now();
+        frame();
+        game.start('right');
+        frame();
+        expect(hook().pierX - game.surfer.state.p.x).toBeGreaterThan(250);
+        game.dispose();
+      }
     });
 
     it('PIER\'D ends the run like any wipeout: underwater, then the results with the reason', async () => {

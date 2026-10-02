@@ -50,7 +50,10 @@ export default function SurfApp({ mode = 'play', reducedMotion = false, attractF
     const dbg = params.has('debug');
     setDebug(dbg);
     store.setState({ guide: loadGuide(browserStorage()) });
-    const g = new SurfGame(canvasRef.current!, store, { debug: dbg, attract: modeRef.current === 'attract', attractFps: attractFpsRef.current, pierSoon: params.has('pierSoon') && (Number(params.get('pierSoon')) || true) });
+    // Dev: ?pierSoon (the default distance) or ?pierSoon=m; ?pierSoon=0 (or not a number) is off.
+    const soon = params.get('pierSoon');
+    const pierSoon = soon === null ? undefined : soon === '' ? true : Number(soon);
+    const g = new SurfGame(canvasRef.current!, store, { debug: dbg, attract: modeRef.current === 'attract', attractFps: attractFpsRef.current, pierSoon });
     setGame(g);
     g.load().catch((e: unknown) => console.error('Surf failed to load', e));
     return () => {

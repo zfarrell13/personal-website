@@ -38,18 +38,17 @@ export const PIER = {
   pilingR: 0.3,
   /**
    * Bents (a pair of pilings across the deck, X-braced between them) stand every `spacing` m along z,
-   * one of them at z = `rowZ`. Fairness (rider radius 0.4, piling 0.3: a centre needs 0.7 m from a row):
-   * the middle row stands at the bottom of the face (y ≈ 0.2–0.45 down the line), so there are two
-   * clear lanes — HIGH (z ∈ −1.6 … 3.5: the lip line, the face down to its last fifth, and the whole
-   * barrel: the tube region runs z ≈ 0.9 … 3.4 at the curl, and a rider pumping in it slides down to
-   * z ≈ 2.5–3.2) and LOW (z ∈ 4.9 … 10: the trough and the flats, z ≤ 7.2) — and the rows either side
-   * (−2.3, 10.7) are behind the crest and past the flats. Bottoming out (z ≈ 3.5–4.9) as the pier comes
-   * through hits the middle row: stay up on the face, or commit to the flats.
+   * one of them at z = `rowZ`. Fairness (rider radius 0.4, piling 0.3: a centre needs 0.7 m from a row)
+   * with a choice: the rows at −0.4, 3.6 and 7.6 leave two clear lanes — FACE (z ≈ 0.3 … 2.9: the
+   * upper and middle face below the lip, and the whole barrel: a rider in the tube stays at z ≈ 1.4–2.7)
+   * and TROUGH (z ≈ 4.3 … 6.9: the bottom of the face and the trough) — and block the lip line (z ≲ 0.3),
+   * the bottom-turn band (z ≈ 2.9–4.3) and the flats (z ≳ 6.9, where a rider who does nothing ends up).
+   * Not steering for a lane is PIER'D (headless: no input / pumps only shoot it < 10% of the time).
    */
-  spacing: 6.5,
-  rowZ: 4.2,
+  spacing: 4,
+  rowZ: 3.6,
   /** Seaward end of the deck (z, m): past the break, five bents beyond the back of the wave. */
-  endZ: -35.4,
+  endZ: -33,
   /**
    * No bracing along the pier (between bents, in the pilings' lines) over this z band — the face, the
    * crest and the flats, where the lanes are; outside it the side lattice of the real pier.

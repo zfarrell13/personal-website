@@ -16,7 +16,7 @@ import { SHORE } from './shore';
 export const SEA_LIFE = {
   /**
    * Half-width (m along the beach) of the band around each pier (SHORE.landmarkU) kept clear of sea
-   * life: the pier's pilings will stand in the shallows there.
+   * life: the pier (5 m wide, pier/track.ts) runs out across the shallows and past the break there.
    */
   pierClearance: 14,
   /** Starfish: `count` per `span` metres of beach (repeating), in frame z ∈ z; drawn over [start, start + span). */

@@ -49,13 +49,19 @@ export interface SurfGameOptions {
   attract?: boolean;
   /** Attract mode's frame cap (see setAttractFps). Default 30. */
   attractFps?: number;
-  /** Dev builds only (?pierSoon[=m]): every run starts with Crystal Pier this many m down the line (true: PIER_SOON_AHEAD). */
+  /**
+   * Dev builds only (?pierSoon[=m]): every run starts with Crystal Pier this many m down the line (true:
+   * PIER_SOON_AHEAD). 0, a negative number or NaN is off.
+   */
   pierSoon?: boolean | number;
 }
 
 /** The HUD's PIER AHEAD shows while the pier is this close down the line (m, frame x). */
 export const PIER_AHEAD_M = 40;
-/** ?pierSoon (dev): the pier starts this far down the line from the drop-in (m): it arrives in ≈ 2–3 s (a no-input rider shoots it in the flats before the curl catches them). */
+/**
+ * ?pierSoon (dev): the pier starts this far down the line from the drop-in (m): it arrives in ≈ 2–3 s. A
+ * no-input rider has slid down to the flats by then, into the pilings there (PIER'D): steer for a lane.
+ */
 export const PIER_SOON_AHEAD = 20;
 
 /** Music level under the pause menu. */
@@ -177,8 +183,8 @@ export class SurfGame {
     this.look = opts.look ?? SURFER_LOOK;
     this.music = opts.music ?? getMusicPlayer();
     this.attract = opts.attract ?? false;
-    const soon = opts.pierSoon === true ? PIER_SOON_AHEAD : opts.pierSoon || null;
-    this.pierSoon = process.env.NODE_ENV !== 'production' && soon !== null && soon > 0 ? soon : null;
+    const soon = opts.pierSoon === true ? PIER_SOON_AHEAD : opts.pierSoon || 0;
+    this.pierSoon = process.env.NODE_ENV !== 'production' && soon > 0 ? soon : null;
     if (opts.attractFps !== undefined) this.setAttractFps(opts.attractFps);
     this.writer = new ThrottledWriter(store, 15);
     const coarse = window.matchMedia?.('(pointer: coarse)').matches === true;

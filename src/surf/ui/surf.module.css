@@ -44,7 +44,9 @@
 .fast { position: fixed; top: 27%; left: 50%; transform: translateX(-50%) skewX(-12deg); font-style: italic; font-size: 2rem; letter-spacing: 0.08em; color: #ffe16b; text-shadow: 3px 3px 0 #7a1d00; animation: flash 0.5s steps(2) infinite; }
 @keyframes flash { 50% { color: #ff8a3d; } }
 /* Crystal Pier coming down the line: a quiet cue under the FAST SECTION banner (set up a lane). */
+/* In the tube view it would sit on the lip line: tucked under the TUBE timer instead. */
 .pierAhead { position: fixed; top: 34%; left: 50%; transform: translateX(-50%); font-family: var(--font-mono), monospace; font-size: 1.5rem; letter-spacing: 0.12em; color: #fff; text-shadow: 2px 2px 0 #0a1a5c; opacity: 0.85; }
+.pierAhead[data-tube='true'] { top: 23%; }
 /* Coach: "▲ PUMP! Press ↑" at the top of the screen, above the TUBE / FAST banners: clear of the rider in
    every shot (the chase frames them in the lower half, the tube view from about a third down). Pops on
    show and on each pump (the element re-mounts), then peaks once a second after it — the pump rhythm: the

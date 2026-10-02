@@ -47,17 +47,17 @@ describe('pier track', () => {
     expect(PIER.deckY).toBeLessThanOrEqual(7.5);
   });
 
-  it('leaves two clear lanes (high: lip line, the face and the whole barrel; low: trough and flats) and blocks the bottom of the face', () => {
+  it('leaves two clear lanes (face and barrel; trough) and blocks the lip line, the bottom-turn band and the flats', () => {
     const { radius } = { radius: 0.4 };
     const reach = radius + PIER.pilingR;
     const rows = pierRows(140);
     const clear = (z: number) => rows.every((r) => Math.abs(z - r) >= reach);
-    // HIGH: the crest (z ≈ −0.3 … 1.2), the lip line, the face down to y ≈ 0.45, the whole barrel (z ≈ 0.9 … 3.4).
-    for (let z = -1.55; z <= 3.45; z += 0.05) expect(clear(z)).toBe(true);
-    // LOW: the trough (t ≤ 0.12: z ≳ 4.9) and the flats (z ≤ 7.2).
-    for (let z = 4.95; z <= 9.9; z += 0.05) expect(clear(z)).toBe(true);
-    // The bottom of the face (z ≈ 3.6 … 4.8) is the middle row.
-    for (let z = 3.6; z <= 4.8; z += 0.05) expect(clear(z)).toBe(false);
+    // FACE: the upper and middle face below the lip, and the barrel (a tubed rider stays at z ≈ 1.4 … 2.7).
+    for (let z = 0.35; z <= 2.85; z += 0.05) expect(clear(z)).toBe(true);
+    // TROUGH: the bottom of the face and the trough.
+    for (let z = 4.35; z <= 6.85; z += 0.05) expect(clear(z)).toBe(true);
+    // Blocked: the lip line (the crest is at z ≈ −0.3 … 0), the bottom-turn band, the flats (z ≈ 7.2).
+    for (const z of [-0.3, 0, 0.2, 3, 3.6, 4.2, 7, 7.2]) expect(clear(z)).toBe(false);
     // No side bracing across the lanes.
     expect(sideBraced(PIER.rowZ - PIER.spacing, PIER.rowZ)).toBe(false);
     expect(sideBraced(PIER.rowZ, PIER.rowZ + PIER.spacing)).toBe(false);
@@ -65,7 +65,7 @@ describe('pier track', () => {
 
   it('detects a rider touching a piling, a bent\'s bracing or the deck, and not one in a lane', () => {
     // Running down the line (+x) through the high and low lanes, under the deck.
-    for (const z of [0, 1.5, 2.5, 3.4, 5, 7]) for (let x = -5; x <= 5; x += 0.05) expect(riderHitsPier(x, 1, z, 1, 0)).toBe(false);
+    for (const z of [0.5, 1.5, 2.5, 4.5, 5.5, 6.5]) for (let x = -5; x <= 5; x += 0.05) expect(riderHitsPier(x, 1, z, 1, 0)).toBe(false);
     // Into the middle row: the near piling, the X-brace between the pair, the far piling.
     expect(riderHitsPier(-PIER.half - 1.2, 1, PIER.rowZ, 1, 0)).toBe(true);
     expect(riderHitsPier(-PIER.half - 1.4, 1, PIER.rowZ, 1, 0)).toBe(false);

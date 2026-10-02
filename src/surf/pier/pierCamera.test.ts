@@ -75,7 +75,7 @@ function pierPass(
   const warm = lineBot(surfer, wave, { pumpEvery: 1 });
   let input: () => SurferInput = warmUp === 'line' ? () => ({ ...warm(DT) }) : () => ({ ...NO_INPUT, stall: true });
   const ready = () => (warmUp === 'line' ? s.time >= 6 : s.inTube);
-  const r = { airFrames: 0, frames: 0, chase: 0, chaseSeen: 0, tube: 0, tubeSeen: 0, inside: 0, insideTube: 0, inDeck: 0, maxStep: 0, maxDy: 0, passed: false };
+  const r = { airFrames: 0, frames: 0, chase: 0, chaseSeen: 0, tube: 0, tubeSeen: 0, inside: 0, insideTube: 0, insideRun: 0, longestInside: 0, inDeck: 0, maxStep: 0, maxDy: 0, passed: false };
   const ray = new Raycaster();
   const chest = new Vector3();
   const dir = new Vector3();
@@ -121,7 +121,8 @@ function pierPass(
     if (insidePier(camF.x - px, camF.y, camF.z)) {
       if (rig.shot === 'tube') r.insideTube++;
       else r.inside++;
-    }
+      r.longestInside = Math.max(r.longestInside, ++r.insideRun);
+    } else r.insideRun = 0;
     if (Math.abs(camF.x - px) < PIER.width / 2 && camF.y >= PIER.capY) r.inDeck++;
     // Seen: no wave between (the drawn mesh, mirrored like the scene) and no undissolved pier part.
     chest.copy(s.p).addScaledVector(s.normal, 0.9);
@@ -155,7 +156,7 @@ const shot = (events: SurfEvent[]) => events.filter((e) => e.type === 'shotThePi
 
 describe('the camera through a pier pass (real wave, rig, pier)', () => {
   for (const side of ['left', 'right'] as const) {
-    for (const zLane of [0.3, 1.2, 2.8, 6]) {
+    for (const zLane of [0.8, 1.6, 2.5, 5.5]) {
       it(`${side.toUpperCase()}, lane z ≈ ${zLane}: never inside the pier or its deck, no pop, rider seen ≥ 90% of chase frames`, () => {
         const { r, events, s } = pierPass(side, (surfer, wave) => laneDriver(surfer, wave, zLane), 25);
         expect(shot(events)).toHaveLength(1);
@@ -200,6 +201,27 @@ describe('the camera through a pier pass (real wave, rig, pier)', () => {
       expect(r.maxStep).toBeLessThan(0.45);
     });
 
+    it(`${side.toUpperCase()}, barrel passes at several rhythms: the tube camera is inside a bent at most 0.25 s at a time, the rider always seen ≥ 90%`, () => {
+      for (const [extra, every, ahead] of [[0, 0.3, 4], [0.5, 0.7, 6], [1, 1.3, 3], [0.3, 0.5, 8]] as const) {
+        let t = 0;
+        let since = 0;
+        const drive = () => () => {
+          t += DT;
+          if (t < extra) return { ...NO_INPUT, stall: true };
+          since += DT;
+          const pump = since >= every;
+          if (pump) since = 0;
+          return { ...NO_INPUT, pump };
+        };
+        const { r } = pierPass(side, drive, ahead, 'barrel');
+        const label = `stall +${extra}, pump ${every}, pier ${ahead} m`;
+        expect(r.inside, label).toBe(0);
+        expect(r.inDeck, label).toBe(0);
+        expect(r.longestInside, label).toBeLessThanOrEqual(15); // 60 Hz frames
+        if (r.tube > 0) expect(r.tubeSeen / r.tube, label).toBeGreaterThanOrEqual(0.9);
+      }
+    });
+
     it(`${side.toUpperCase()}, in the barrel under the pier: the tube view (unaffected) sees the rider ≥ 90% past the pier dissolving round it`, () => {
       let since = 0;
       // Stalled into the barrel, then pumping to hold in it while the pier comes through.
@@ -217,8 +239,10 @@ describe('the camera through a pier pass (real wave, rig, pier)', () => {
       expect(r.tubeSeen / r.tube).toBeGreaterThanOrEqual(0.9);
       expect(r.inside).toBe(0); // no chase frame inside it
       expect(r.inDeck).toBe(0);
-      // Where the tube camera passes through a bent, nothing of the pier is drawn within PIER_FADE.hidden of it.
+      // Where the tube camera passes through a bent, nothing of the pier is drawn within PIER_FADE.hidden of
+      // it, and it doesn't stay there long.
       expect(pierFade(0)).toBe(0);
+      expect(r.longestInside).toBeLessThanOrEqual(15);
     });
   }
 });
