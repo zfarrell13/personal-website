@@ -911,4 +911,78 @@ describe('SurfGame', () => {
     expect(rafRequests).toBe(stopped + 1);
     game.dispose();
   });
+
+  describe('Crystal Pier', () => {
+    async function pierSoonGame() {
+      const store = createSurfStore();
+      const game = new SurfGame(canvas, store, { pierSoon: true });
+      await game.load();
+      clock = performance.now();
+      frame();
+      game.start('right');
+      return { game, store };
+    }
+    const hook = () => win.__surf as { pierX: number; x: number; mode: string };
+
+    it('exposes the nearest pier on the hook: 300 m down the line at the drop-in, coming at the peel speed', async () => {
+      const { game } = await playing();
+      frame();
+      const x0 = hook().pierX;
+      expect(x0).toBeGreaterThan(280);
+      expect(x0).toBeLessThan(300);
+      const t0 = game.surfer.state.time;
+      for (let i = 0; i < 30; i++) frame();
+      const dt = game.surfer.state.time - t0;
+      expect(x0 - hook().pierX).toBeCloseTo(SURF_CONFIG.wave.peelSpeed * dt, 1);
+      game.dispose();
+    });
+
+    it('?pierSoon (dev) starts the run with the pier close down the line, PIER AHEAD on the HUD', async () => {
+      const { game, store } = await pierSoonGame();
+      frame();
+      expect(hook().pierX - game.surfer.state.p.x).toBeGreaterThan(15);
+      expect(hook().pierX - game.surfer.state.p.x).toBeLessThan(21);
+      for (let i = 0; i < 6; i++) frame();
+      expect(store.getState().pierAhead).toBe(true);
+      game.dispose();
+    });
+
+    it('draws the pier where the camera and the physics have it', async () => {
+      const { game } = await pierSoonGame();
+      const env = (game as unknown as { env: Environment }).env;
+      const rig = (game as unknown as { rig: CameraRig }).rig;
+      for (let i = 0; i < 40; i++) {
+        frame();
+        expect(env.piers.map((p) => p.position.x)).toContain(rig.pierX);
+      }
+      // The physics' pier is the drawn one at the end of the last step (the render blends within a step).
+      expect(Math.abs(rig.pierX - game.pier.x)).toBeLessThan(SURF_CONFIG.wave.peelSpeed / SURF_CONFIG.physics.hz + 1e-9);
+      game.dispose();
+    });
+
+    it('a no-input rider on ?pierSoon slides down to the flats, shoots the pier there (SHOT THE PIER), then is swallowed', async () => {
+      const { game, store } = await pierSoonGame();
+      const texts: string[] = [];
+      for (let i = 0; i < 60 * 12 && store.getState().phase === 'playing'; i++) {
+        frame();
+        for (const t of store.getState().ticker) if (!texts.includes(t.text)) texts.push(t.text);
+      }
+      expect(texts).toContain('SHOT THE PIER');
+      expect(store.getState().pierAhead).toBe(false);
+      expect(store.getState().run?.wipeoutReason).toBe('swallowed');
+      game.dispose();
+    });
+
+    it('PIER\'D ends the run like any wipeout: underwater, then the results with the reason', async () => {
+      const { game, store } = await playing();
+      frame();
+      game.surfer.hitPier();
+      for (let i = 0; i < 6; i++) frame();
+      expect(store.getState().underwater).toBe(true);
+      for (let i = 0; i < 60 * 3 && store.getState().phase === 'playing'; i++) frame();
+      expect(store.getState().phase).toBe('results');
+      expect(store.getState().run?.wipeoutReason).toBe('pierd');
+      game.dispose();
+    });
+  });
 });

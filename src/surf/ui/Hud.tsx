@@ -12,6 +12,7 @@ export function Hud({ store }: { store: SurfStore }) {
   const speed = useStore(store, (s) => s.speedKmh);
   const ticker = useStore(store, (s) => s.ticker);
   const fast = useStore(store, (s) => s.fastSection);
+  const pierAhead = useStore(store, (s) => s.pierAhead);
   const pumpPrompt = useStore(store, (s) => s.pumpPrompt);
   const pumpCount = useStore(store, (s) => s.pumpCount);
   const pumpTube = useStore(store, (s) => s.pumpTube);
@@ -30,6 +31,11 @@ export function Hud({ store }: { store: SurfStore }) {
       {fast ? (
         <div className={styles.fast} data-testid="fast-section">
           ⚡ FAST SECTION
+        </div>
+      ) : null}
+      {pierAhead ? (
+        <div className={styles.pierAhead} data-testid="pier-ahead">
+          PIER AHEAD
         </div>
       ) : null}
       {pumpPrompt ? (

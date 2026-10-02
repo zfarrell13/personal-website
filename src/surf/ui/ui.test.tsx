@@ -113,6 +113,10 @@ describe('Results', () => {
     render(<Results run={{ ...run, wipeoutReason: 'closedOut' }} onAgain={vi.fn()} onTitle={vi.fn()} />);
     expect(screen.getByText(/WIPEOUT — CLOSED OUT/)).toBeTruthy();
   });
+  it("running into the pier reads PIER'D", () => {
+    render(<Results run={{ ...run, wipeoutReason: 'pierd' }} onAgain={vi.fn()} onTitle={vi.fn()} />);
+    expect(screen.getByText(/WIPEOUT — PIER'D/)).toBeTruthy();
+  });
 
   it('takes 3-letter initials for a qualifying score, saves, then Enter goes again', () => {
     const onAgain = vi.fn();
@@ -179,6 +183,15 @@ describe('Hud', () => {
     expect(screen.getByTestId('fast-section').textContent).toBe('⚡ FAST SECTION');
     act(() => store.setState({ fastSection: false }));
     expect(screen.queryByTestId('fast-section')).toBeNull();
+  });
+  it('shows PIER AHEAD while the pier is close down the line', () => {
+    const store = createSurfStore();
+    render(<Hud store={store} />);
+    expect(screen.queryByTestId('pier-ahead')).toBeNull();
+    act(() => store.setState({ pierAhead: true }));
+    expect(screen.getByTestId('pier-ahead').textContent).toBe('PIER AHEAD');
+    act(() => store.setState({ pierAhead: false }));
+    expect(screen.queryByTestId('pier-ahead')).toBeNull();
   });
 });
 

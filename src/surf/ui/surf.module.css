@@ -43,6 +43,8 @@
 .tube { position: fixed; top: 18%; left: 50%; transform: translateX(-50%); font-family: var(--font-mono), monospace; font-size: 2.2rem; color: #9dffea; text-shadow: 2px 2px 0 #003b3b; }
 .fast { position: fixed; top: 27%; left: 50%; transform: translateX(-50%) skewX(-12deg); font-style: italic; font-size: 2rem; letter-spacing: 0.08em; color: #ffe16b; text-shadow: 3px 3px 0 #7a1d00; animation: flash 0.5s steps(2) infinite; }
 @keyframes flash { 50% { color: #ff8a3d; } }
+/* Crystal Pier coming down the line: a quiet cue under the FAST SECTION banner (set up a lane). */
+.pierAhead { position: fixed; top: 34%; left: 50%; transform: translateX(-50%); font-family: var(--font-mono), monospace; font-size: 1.5rem; letter-spacing: 0.12em; color: #fff; text-shadow: 2px 2px 0 #0a1a5c; opacity: 0.85; }
 /* Coach: "▲ PUMP! Press ↑" at the top of the screen, above the TUBE / FAST banners: clear of the rider in
    every shot (the chase frames them in the lower half, the tube view from about a third down). Pops on
    show and on each pump (the element re-mounts), then peaks once a second after it — the pump rhythm: the
@@ -64,6 +66,7 @@
   /* Phones: the coach just under the centred pause button; the TUBE timer up in the top row, left of it. */
   .coach { top: 68px; font-size: clamp(1.1rem, 3.4vw, 1.6rem); }
   .tube { top: 22px; left: auto; right: calc(50% + 24px + 12px); transform: none; font-size: 1.4rem; }
+  .pierAhead { font-size: 1.1rem; }
 }
 @keyframes coachPop { 0% { transform: translateX(-50%) scale(1.6); opacity: 0.2; } 100% { transform: translateX(-50%) scale(1); opacity: 1; } }
 @keyframes coachBeat { 0%, 100% { transform: translateX(-50%) scale(1); } 12% { transform: translateX(-50%) scale(1.12); } 42% { transform: translateX(-50%) scale(1); } }

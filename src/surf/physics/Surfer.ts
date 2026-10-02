@@ -429,6 +429,14 @@ export class Surfer {
     this.wipe('closedOut');
   }
 
+  /** The rider ran into the pier (riding or in the air): PIER'D. */
+  hitPier(): void {
+    const s = this.state;
+    if (s.mode !== 'riding' && s.mode !== 'airborne') return;
+    this.endGrab();
+    this.wipe('pierd');
+  }
+
   /**
    * Pop-speed factor for a launch from the current position: faster off a section peak (peakAirLift ×
    * the bump), by how high up its face the launch is (peakAirFrom … peakAirFull of the crest height):

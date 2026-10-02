@@ -34,6 +34,8 @@ export interface SurfHudState {
   underwater: boolean;
   /** A fast section is on: the HUD shows ⚡ FAST SECTION. */
   fastSection: boolean;
+  /** Crystal Pier is within PIER_AHEAD_M down the line: the HUD shows PIER AHEAD (set up a line). */
+  pierAhead: boolean;
   /** GUIDE option (title menu): the in-game coach may prompt. */
   guide: boolean;
   /** The coach's "▲ PUMP!" prompt is up. */
@@ -58,6 +60,7 @@ export const INITIAL_HUD: SurfHudState = {
   run: null,
   underwater: false,
   fastSection: false,
+  pierAhead: false,
   guide: true,
   pumpPrompt: false,
   pumpTube: false,

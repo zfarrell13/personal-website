@@ -349,6 +349,29 @@ test.describe('surf game', () => {
     expect(errors()).toEqual([]);
   });
 
+  test('Crystal Pier: hook.pierX comes down the line; ?pierSoon brings it near, PIER AHEAD shows, and a no-input rider shoots it in the flats', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    // A normal run: the pier starts ≈ 300 m down the line and comes at the peel speed.
+    await dropIn(page);
+    const far = await page.evaluate(() => window.__surf!.pierX - window.__surf!.x);
+    expect(far).toBeGreaterThan(250);
+    expect(far).toBeLessThan(310);
+    // ?pierSoon (dev only): it starts ≈ 20 m away.
+    await page.goto('/surf?pierSoon');
+    await page.getByRole('button', { name: 'DROP IN' }).click();
+    await page.waitForFunction(() => window.__surf?.phase === 'playing');
+    const near = await page.evaluate(() => window.__surf!.pierX - window.__surf!.x);
+    expect(near).toBeGreaterThan(5);
+    expect(near).toBeLessThan(21);
+    await expect(page.getByTestId('pier-ahead')).toBeVisible();
+    // No input: down to the flats (the low lane), under the pier, then swallowed by the barrel.
+    await expect(page.getByText(/SHOT THE PIER \+1000/)).toBeVisible({ timeout: 10_000 });
+    expect(await page.evaluate(() => window.__surf!.pierX < window.__surf!.x)).toBe(true);
+    await page.waitForFunction(() => window.__surf?.phase === 'results', undefined, { timeout: 15_000 });
+    await expect(page.getByText(/SWALLOWED BY THE BARREL/)).toBeVisible();
+    expect(errors()).toEqual([]);
+  });
+
   test('?debug shows the live tuning panel', async ({ page }) => {
     await page.goto('/surf?debug');
     await expect(page.getByTestId('debug-panel')).toBeVisible();

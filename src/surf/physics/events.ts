@@ -1,5 +1,6 @@
 export type GrabKind = 'method' | 'rail' | 'stalefish' | 'indy';
-export type WipeoutReason = 'swallowed' | 'badLanding' | 'whitewater' | 'closedOut';
+/** 'pierd': ran into Crystal Pier (a piling, its bracing, or the deck from below). */
+export type WipeoutReason = 'swallowed' | 'badLanding' | 'whitewater' | 'closedOut' | 'pierd';
 export type LaunchKind = 'ollie' | 'crest';
 
 export interface GrabRecord {
@@ -37,7 +38,9 @@ export type SurfEvent =
   /** The rider was on or past the peak at the pitch and rode out the surge. */
   | { type: 'sectionMade'; time: number }
   /** An air launched off the section peak landed clean (once per peak). */
-  | { type: 'sectionAir'; time: number };
+  | { type: 'sectionAir'; time: number }
+  /** The rider passed under the pier, between its pilings, without hitting it (once per pass); `inTube` at its centre line. */
+  | { type: 'shotThePier'; time: number; inTube: boolean };
 
 export type SurfEventType = SurfEvent['type'];
 export type EventOf<T extends SurfEventType> = Extract<SurfEvent, { type: T }>;

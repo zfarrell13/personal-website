@@ -30,9 +30,10 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { retroMaterial } from '@/retro/retroMaterial';
 import { FOG_CONFIG } from '../config';
 import { smoothstep } from '../math/scalar';
+import { pierFrameX, PIER_TRACK } from '../pier/track';
 import { REEF_TILES, scrollWrap } from './scroll';
 import { buildSandbedGeometry, CAUSTIC_REPEAT, createSandMaterial, makeRippleTexture, SHALLOWS, type SandUniforms } from './shallows';
-import { buildShore, createShoreMaterial, SHORE } from './shore';
+import { buildPier, buildShore, createShoreMaterial, SHORE } from './shore';
 import { createSkyMaterial, seaReflection } from './sky';
 import { makeRadialTexture } from './textures';
 import { OCEAN_EXTENT } from './waveGeometry';
@@ -140,6 +141,8 @@ export class Environment {
   private readonly sandbed: Mesh<BufferGeometry, MeshLambertMaterial>;
   private readonly sandUniforms: SandUniforms;
   private readonly scrollers: Scroller[] = [];
+  /** Crystal Pier of each landmark set, placed at pierFrameX (the physics' pier: pier/track.ts). */
+  readonly piers: Mesh[] = [];
   private readonly sunWorld = new Vector3();
   private readonly ndc = new Vector3();
   private readonly m = new Matrix4();
@@ -273,7 +276,8 @@ export class Environment {
 
     // The beach side: Wrightsville Beach around Crystal Pier (shore.ts), in scrolling chunks — one
     // near and one far mesh each (one material), so chunks behind the camera are culled.
-    const shore = buildShore({ lite: opts.lite ?? isCoarsePointer() });
+    const lite = opts.lite ?? isCoarsePointer();
+    const shore = buildShore({ lite });
     const shoreMat = retroMaterial(createShoreMaterial());
     this.disposables.push(shoreMat);
     for (const c of shore.chunks) {
@@ -285,6 +289,18 @@ export class Environment {
         this.scrollers.push({ obj: mesh, worldX: c.worldX, span: SHORE.span, start: SHORE.start });
       }
     }
+
+    // Crystal Pier, out past the break: one mesh per landmark set, faded near the camera.
+    const pierMat = retroMaterial(createShoreMaterial({ cameraFade: true }));
+    this.disposables.push(pierMat);
+    PIER_TRACK.sets.forEach((_, k) => {
+      const geo = buildPier(k, { lite });
+      const mesh = new Mesh(geo, pierMat);
+      mesh.name = 'pier';
+      this.frameStuff.add(mesh);
+      this.disposables.push(geo);
+      this.piers.push(mesh);
+    });
 
     // Gulls: 5 instanced "V"s circling over the pocket.
     const gullGeo = new BufferGeometry();
@@ -326,6 +342,7 @@ export class Environment {
    */
   update(time: number, travel: number, sideSign: number, waterTime = time): void {
     for (const s of this.scrollers) s.obj.position.x = scrollWrap(s.worldX, travel, s.span, s.start);
+    this.piers.forEach((p, k) => (p.position.x = pierFrameX(k, travel)));
     // The sand is fixed to the reef: its ripples move past at the travel (uv.x = frame x / tile).
     const tile = SHALLOWS.rippleTile;
     this.sandbed.material.map!.offset.x = (((travel / tile) % 1) + 1) % 1;

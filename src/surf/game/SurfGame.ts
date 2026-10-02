@@ -26,6 +26,8 @@ import { Environment } from '../render/Environment';
 import { Particles } from '../render/Particles';
 import { SeaLife } from '../render/sealife';
 import { WaveMesh } from '../render/WaveMesh';
+import { PierDirector } from '../pier/PierDirector';
+import { nearestPier, PIER_TRACK } from '../pier/track';
 import { Scoring } from '../scoring/Scoring';
 import { pushTicker, ThrottledWriter, type Phase, type SurfStore, type TickerItem } from '../state/store';
 import { impactDistance } from '../wave/impact';
@@ -47,7 +49,14 @@ export interface SurfGameOptions {
   attract?: boolean;
   /** Attract mode's frame cap (see setAttractFps). Default 30. */
   attractFps?: number;
+  /** Dev builds only (?pierSoon[=m]): every run starts with Crystal Pier this many m down the line (true: PIER_SOON_AHEAD). */
+  pierSoon?: boolean | number;
 }
+
+/** The HUD's PIER AHEAD shows while the pier is this close down the line (m, frame x). */
+export const PIER_AHEAD_M = 40;
+/** ?pierSoon (dev): the pier starts this far down the line from the drop-in (m): it arrives in ≈ 2–3 s (a no-input rider shoots it in the flats before the curl catches them). */
+export const PIER_SOON_AHEAD = 20;
 
 /** Music level under the pause menu. */
 const PAUSE_DUCK = 0.35;
@@ -100,7 +109,7 @@ export class SurfGame {
   private readonly renderP = new Vector3();
   private readonly debugLook = new Vector3();
   /** The one debug-hook object, mutated each frame (no per-frame allocation). */
-  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase', pose: 'stance', coach: this.coach.state, peak: { phase: 'none', x: 0, amp: 0, xPitch: 0, made: null }, steep: 0, heading: [1, 0, 0] };
+  private readonly hook: SurfDebugHook = { frames: 0, phase: 'loading', score: 0, mode: 'riding', x: 0, calls: 0, triangles: 0, fps: 60, peel: 0, fast: false, seed: 0, shot: 'chase', pose: 'stance', coach: this.coach.state, peak: { phase: 'none', x: 0, amp: 0, xPitch: 0, made: null }, steep: 0, heading: [1, 0, 0], pierX: Infinity };
   private readonly look: SurferLook;
   private character: Character | null = null;
   private audio: SurfAudio | null = null;
@@ -125,6 +134,10 @@ export class SurfGame {
   private seed = 0;
   /** Fast sections and their peaks around the surfer's step (race, pitch, closeout, SECTION MADE / AIR). */
   readonly sections = new SectionDirector(this.peel, this.wave, this.surfer, this.bus, SURF_CONFIG.peak);
+  /** Crystal Pier: PIER'D on a piling, SHOT THE PIER under it (after the surfer's step, with the scenery's travel). */
+  readonly pier = new PierDirector(this.surfer, this.bus);
+  /** Dev only: runs start with the pier this far down the line (m); null: where the coast has it. */
+  private readonly pierSoon: number | null;
   /** Frame shift (m along x) of the pitch's surge not yet applied to the camera. */
   private surgeShift = 0;
   /** ?debug autopilot (window.__surfBot): lineBot, loaded only with ?debug (not in the game bundle). */
@@ -164,6 +177,8 @@ export class SurfGame {
     this.look = opts.look ?? SURFER_LOOK;
     this.music = opts.music ?? getMusicPlayer();
     this.attract = opts.attract ?? false;
+    const soon = opts.pierSoon === true ? PIER_SOON_AHEAD : opts.pierSoon || null;
+    this.pierSoon = process.env.NODE_ENV !== 'production' && soon !== null && soon > 0 ? soon : null;
     if (opts.attractFps !== undefined) this.setAttractFps(opts.attractFps);
     this.writer = new ThrottledWriter(store, 15);
     const coarse = window.matchMedia?.('(pointer: coarse)').matches === true;
@@ -274,7 +289,7 @@ export class SurfGame {
     this.startAudio();
     this.music.setDuck(1);
     this.writer.flush(performance.now());
-    this.store.setState({ side, run: null, underwater: false, fastSection: false, score: 0, pot: 0, multiplier: 0, tubeTime: 0, speedKmh: 0, ticker: [], pumpPrompt: false, pumpCount: 0 });
+    this.store.setState({ side, run: null, underwater: false, fastSection: false, pierAhead: false, score: 0, pot: 0, multiplier: 0, tubeTime: 0, speedKmh: 0, ticker: [], pumpPrompt: false, pumpCount: 0 });
     this.setPhase('playing');
   }
 
@@ -312,7 +327,7 @@ export class SurfGame {
     this.resetView();
     this.writer.flush(performance.now());
     this.coach.reset(false);
-    this.store.setState({ run: null, underwater: false, fastSection: false, pumpPrompt: false });
+    this.store.setState({ run: null, underwater: false, fastSection: false, pierAhead: false, pumpPrompt: false });
     this.setPhase('title');
   }
 
@@ -408,8 +423,10 @@ export class SurfGame {
     this.viewUnderwater = false;
     this.particles.clear();
     this.particles.setBubbles(false);
-    this.travel = 0;
-    this.prevTravel = 0;
+    // The scenery's travel at the drop-in: 0 (the pier 300 m down the line), or ?pierSoon's close pier.
+    this.travel = this.pierSoon !== null ? PIER_TRACK.sets[0]! - (this.surfer.state.p.x + this.pierSoon) : 0;
+    this.prevTravel = this.travel;
+    this.pier.reset(this.travel);
     this.endAt = -1;
   }
 
@@ -493,6 +510,7 @@ export class SurfGame {
     this.frameSimDt += dt;
     this.scoring.update(s.time, (s.mode === 'airborne' && s.launchKind !== null) || s.inTube || s.floating);
     this.travel += this.peel.speed * dt;
+    this.pier.step(this.prevTravel, this.travel);
     if ((s.mode === 'wipeout' || s.mode === 'kickedOut') && this.endAt < 0) {
       this.endAt = s.time;
       if (s.mode === 'wipeout') {
@@ -558,6 +576,10 @@ export class SurfGame {
       this.rig.shiftAlongWave(this.surgeShift, this.side);
       this.surgeShift = 0;
     }
+    // The scenery scrolls with `travel` blended between the last two steps, like the rider (the surge
+    // moves it up to ~0.4 m a step); the camera keeps under the deck of the pier drawn there.
+    const travel = this.phase === 'playing' ? this.prevTravel + (this.travel - this.prevTravel) * alpha : this.travel;
+    this.rig.pierX = nearestPier(travel, this.renderP.x).x;
     // Paused, the camera holds still too (its tube-hold timer must not run out under the pause menu).
     if (this.phase !== 'paused') this.rig.update(s, this.renderP, this.side, underwater, dt, this.waterTime);
     // The rig cuts underwater a moment before the swallow when the closing barrel leaves it no tube
@@ -573,9 +595,6 @@ export class SurfGame {
       this.particles.setScale(this.camera, this.retro.internalResolution.height);
     }
     if (this.gizmo && window.__surfCam) this.applyDebugCamera(window.__surfCam);
-    // The scenery scrolls with `travel` blended between the last two steps, like the rider (the surge
-    // moves it up to ~0.4 m a step).
-    const travel = this.phase === 'playing' ? this.prevTravel + (this.travel - this.prevTravel) * alpha : this.travel;
     this.env.update(Number.isFinite(now) ? now / 1000 : 0, travel, sideSign(this.side), this.waterTime);
     // Stepped per rendered frame (no gameplay effect): spawn times are seeded but land on frame
     // boundaries, so a run's sea life replays only at the same frame rate.
@@ -612,6 +631,7 @@ export class SurfGame {
         tubeTime: (s.mode === 'riding' || s.mode === 'airborne') && !this.viewUnderwater ? s.tubeTime : 0,
         speedKmh: Math.round(speed * 3.6),
         fastSection: this.peel.active && (s.mode === 'riding' || s.mode === 'airborne'),
+        pierAhead: (s.mode === 'riding' || s.mode === 'airborne') && this.pier.ahead > 0 && this.pier.ahead <= PIER_AHEAD_M,
         pumpPrompt: this.coach.state.show,
         pumpTube: this.coach.state.tube,
         pumpCount: this.coach.state.pumps,
@@ -643,6 +663,7 @@ export class SurfGame {
     hook.heading[0] = s.heading.x;
     hook.heading[1] = s.heading.y;
     hook.heading[2] = s.heading.z;
+    hook.pierX = this.pier.x;
     window.__surf = hook;
   }
 

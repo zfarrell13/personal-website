@@ -220,7 +220,25 @@ export class SurfAudio {
       if (e.duration > 2) this.hoot();
     } else if (e.type === 'wipeout' || e.type === 'kickedOut') {
       this.setTubeDepth(0);
+      if (e.type === 'wipeout' && e.reason === 'pierd') this.thunk();
     }
+  }
+
+  /** PIER'D: a dull wooden thunk — a low sine dropping 110 → 45 Hz, gone in a quarter second. */
+  thunk(): void {
+    if (this.disposed) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(110, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + 0.2);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.5, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    o.stop(t + 0.3);
   }
 
   /** Big combo banked. */

@@ -4,6 +4,7 @@ import { CAMERA_FAR } from '../camera/CameraRig';
 import { FOG_CONFIG, SURF_CONFIG } from '../config';
 import { WaveShape } from '../wave/WaveShape';
 import { createSeaFloorMaterial, Environment, FLOOR_FOG_FADE } from './Environment';
+import { nearestPier, PIER, pierFrameX, PIER_TRACK, pierRows } from '../pier/track';
 import { SHORE } from './shore';
 import { seaReflection } from './sky';
 import { buildWaveGeometry, columnsX } from './waveGeometry';
@@ -170,4 +171,82 @@ describe('Environment beach side', () => {
     };
     expect(count(true)).toBeLessThan(0.6 * count(false));
   });
+
+  it('places Crystal Pier where the physics has it: the same frame x for the same travel, every set', () => {
+    const env = new Environment(new Scene(), new PerspectiveCamera(60, 1, 0.1, 650));
+    expect(env.piers).toHaveLength(PIER_TRACK.sets.length);
+    for (const travel of [0, 12.5, 290, 300, 333.3, 1599, 4000]) {
+      env.update(0, travel, 1);
+      env.piers.forEach((p, k) => expect(p.position.x).toBe(pierFrameX(k, travel)));
+      // The one the rider meets is one of them.
+      expect(env.piers.map((p) => p.position.x)).toContain(nearestPier(travel, 10).x);
+      // … and the pier's strip landmark (its Oceanic and pier house) scrolls along with it.
+      const chunkX = (U: number) => {
+        const k = Math.floor(U / SHORE.chunk);
+        const centre = k * SHORE.chunk + SHORE.chunk / 2;
+        return scrollWrapOf(centre, travel) + (U - centre);
+      };
+      PIER_TRACK.sets.forEach((U, k) => {
+        if (Math.abs(env.piers[k]!.position.x) < 600) expect(env.piers[k]!.position.x).toBeCloseTo(chunkX(U), 6);
+      });
+    }
+    env.dispose();
+  });
+
+  it('runs the pier out past the break on bents in pairs, the lanes on the face clear and the deck above the lip', () => {
+    const env = new Environment(new Scene(), new PerspectiveCamera(60, 1, 0.1, 650), { lite: false });
+    for (const p of env.piers) {
+      const geo = p.geometry;
+      geo.computeBoundingBox();
+      const bb = geo.boundingBox!;
+      expect(bb.min.z).toBeLessThan(PIER.endZ + 0.1);
+      expect(bb.max.z).toBeGreaterThan(SHORE.z + 20);
+      expect(bb.max.y).toBeGreaterThan(PIER.deckY + 1); // the railing
+      expect(Math.abs(bb.min.x + bb.max.x)).toBeLessThan(0.01); // centred on its frame x
+      // Below the caps, nothing stands in a lane (high: z ∈ −1.5 … 3.5, low: 4.9 … 9.9).
+      const pos = geo.getAttribute('position');
+      for (let i = 0; i < pos.count; i += 3) {
+        // Each triangle: if all three corners are below the caps within a lane band, it's in the lane.
+        const zs = [pos.getZ(i), pos.getZ(i + 1), pos.getZ(i + 2)];
+        const ys = [pos.getY(i), pos.getY(i + 1), pos.getY(i + 2)];
+        if (Math.max(...ys) >= PIER.capY - 0.1) continue;
+        const inLane = (z: number) => (z > -1.5 && z < 3.5) || (z > 4.9 && z < 9.9);
+        expect(zs.every(inLane)).toBe(false);
+      }
+      // The pilings stand at the rows.
+      const rows = pierRows(bb.max.z);
+      expect(rows.length).toBeGreaterThan(20);
+    }
+    const tris = (lite: boolean) => {
+      const e = new Environment(new Scene(), new PerspectiveCamera(60, 1, 0.1, 650), { lite });
+      const n = e.piers[0]!.geometry.getAttribute('position').count / 3;
+      e.dispose();
+      return n;
+    };
+    expect(tris(false)).toBeLessThan(9000);
+    expect(tris(true)).toBeLessThan(0.8 * tris(false));
+    env.dispose();
+  });
+
+  it('draws the pier on its own material that dissolves near the camera (never seen from inside a piling)', () => {
+    const env = new Environment(new Scene(), new PerspectiveCamera(60, 1, 0.1, 650));
+    const mat = env.piers[0]!.material as Material;
+    const shader = {
+      uniforms: {},
+      vertexShader: '#include <common>\nvoid main(){\n#include <begin_vertex>\n#include <project_vertex>\n}',
+      fragmentShader: '#include <common>\nvoid main() {\n#include <emissivemap_fragment>\n#include <fog_fragment>\n}',
+    };
+    mat.onBeforeCompile(shader as never, undefined as never);
+    expect(shader.vertexShader).toContain('vPierWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    expect(shader.fragmentShader).toContain('distance(vPierWorld, cameraPosition)');
+    expect(shader.fragmentShader).toContain('discard');
+    const shore = env.frameStuff.children.find((o) => o.name === 'shoreNear') as Mesh;
+    expect(mat.customProgramCacheKey()).not.toBe((shore.material as Material).customProgramCacheKey());
+    env.dispose();
+  });
 });
+
+function scrollWrapOf(worldX: number, travel: number): number {
+  const rel = (((worldX - travel - SHORE.start) % SHORE.span) + SHORE.span) % SHORE.span;
+  return SHORE.start + rel;
+}

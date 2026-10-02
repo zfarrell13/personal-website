@@ -46,10 +46,11 @@ export default function SurfApp({ mode = 'play', reducedMotion = false, attractF
   });
 
   useEffect(() => {
-    const dbg = new URLSearchParams(window.location.search).has('debug');
+    const params = new URLSearchParams(window.location.search);
+    const dbg = params.has('debug');
     setDebug(dbg);
     store.setState({ guide: loadGuide(browserStorage()) });
-    const g = new SurfGame(canvasRef.current!, store, { debug: dbg, attract: modeRef.current === 'attract', attractFps: attractFpsRef.current });
+    const g = new SurfGame(canvasRef.current!, store, { debug: dbg, attract: modeRef.current === 'attract', attractFps: attractFpsRef.current, pierSoon: params.has('pierSoon') && (Number(params.get('pierSoon')) || true) });
     setGame(g);
     g.load().catch((e: unknown) => console.error('Surf failed to load', e));
     return () => {

@@ -93,4 +93,15 @@ describe('SurfAudio', () => {
     expect(ctx.resume.mock.invocationCallOrder.at(-1)!).toBeGreaterThan(ctx.suspend.mock.invocationCallOrder.at(-1)!);
     audio.dispose();
   });
+
+  it('thunks on a PIER\'D wipeout (one oscillator), not on other wipeouts', () => {
+    const audio = new SurfAudio();
+    const ctx = ctxs[0]! as unknown as { createOscillator: ReturnType<typeof vi.fn> };
+    const before = ctx.createOscillator.mock.calls.length;
+    audio.onEvent({ type: 'wipeout', time: 1, reason: 'swallowed' });
+    expect(ctx.createOscillator.mock.calls.length).toBe(before);
+    audio.onEvent({ type: 'wipeout', time: 1, reason: 'pierd' });
+    expect(ctx.createOscillator.mock.calls.length).toBe(before + 1);
+    audio.dispose();
+  });
 });

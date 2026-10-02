@@ -4,6 +4,7 @@ import { springStepVec3 } from '../math/spring';
 import { DEG, wrapAngle } from '../math/scalar';
 import type { SurferState } from '../physics/Surfer';
 import { faceSteepness, layBackAxis, layBackTarget, layBackWeight } from '../character/lean';
+import { pierCeiling } from '../pier/track';
 import { impactDistance } from '../wave/impact';
 import { frameToView } from '../wave/mirror';
 
@@ -268,6 +269,12 @@ export class CameraRig {
   readonly pos = new Vector3();
   readonly look = new Vector3();
   shot: CameraShot = 'chase';
+  /**
+   * Frame x of the nearest Crystal Pier (Infinity: none). The chase stays under its deck while over it
+   * (pierCeiling: eased in and out along the line, so a passing pier lowers the camera, never pops it);
+   * the tube view is under the lip anyway. Pilings near the camera dissolve in the pier's material.
+   */
+  pierX = Infinity;
   /** The title / attract shot (TITLE_SHOT) instead of riding shots: set while the title (or loading) shows. */
   private title = false;
   /** Spring state: position and look target relative to the rider (view coordinates). */
@@ -448,9 +455,20 @@ export class CameraRig {
         }
       }
     }
-    if (this.shot === 'chase') this.keepInFrame(s, side);
+    if (this.shot === 'chase') {
+      this.underPier(side);
+      this.keepInFrame(s, side);
+    }
     const x = side === 'right' ? -this.pos.x : this.pos.x;
     this.apply(this.shot === 'underwater' || this.shot === 'title' ? 0 : shakeAmplitude(x, D, c.shake), time);
+  }
+
+  /** Chase: never up in the pier's deck — held under its ceiling (continuous along the line). */
+  private underPier(side: Side): void {
+    if (!Number.isFinite(this.pierX)) return;
+    const x = side === 'right' ? -this.pos.x : this.pos.x;
+    const ceiling = pierCeiling(x - this.pierX);
+    if (this.pos.y > ceiling) this.pos.y = ceiling;
   }
 
   /** Would the chase (its goal behind the eased travel direction) see the rider's chest past the wave? */

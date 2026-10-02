@@ -15,6 +15,7 @@ const REASONS: Record<WipeoutReason, string> = {
   badLanding: 'BLEW THE LANDING',
   whitewater: 'LANDED IN THE WHITEWATER',
   closedOut: 'CLOSED OUT',
+  pierd: "PIER'D",
 };
 const A = 'A'.charCodeAt(0);
 

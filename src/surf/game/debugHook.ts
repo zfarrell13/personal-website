@@ -31,6 +31,8 @@ export interface SurfDebugHook {
   /** The face under the rider: steepness (sin of the face angle) and the board heading (frame), for probes. */
   steep: number;
   heading: [number, number, number];
+  /** Frame x (m) of the nearest Crystal Pier (the rider's frame x is `x`): it comes down the line at the live peel speed. */
+  pierX: number;
   /** Dev builds only: bring a shark past the shallows now (it normally comes every couple of minutes). */
   spawnShark?: () => void;
   /** Dev builds only: bring a school of sheepshead past now. */

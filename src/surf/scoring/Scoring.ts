@@ -17,7 +17,9 @@ export type TrickName =
   | 'Indy'
   | 'Revert'
   | 'Section Made'
-  | 'Section Air';
+  | 'Section Air'
+  | 'SHOT THE PIER'
+  | 'SHOT THE PIER IN THE BARREL ×2';
 
 export const TRICK_BASE = {
   Ollie: 100,
@@ -28,6 +30,8 @@ export const TRICK_BASE = {
   sectionMade: 500,
   /** An air launched off a section peak (on top of the air's own tricks). */
   sectionAir: 750,
+  /** Passed under the pier between its pilings; doubled in the barrel. */
+  shotThePier: 1000,
   floaterBase: 400,
   floaterPerSec: 100,
   barrelPerSec: 500,
@@ -139,6 +143,11 @@ export class Scoring {
       }),
       bus.on('sectionMade', (e) => this.award('Section Made', TRICK_BASE.sectionMade, e.time)),
       bus.on('sectionAir', (e) => this.award('Section Air', TRICK_BASE.sectionAir, e.time)),
+      bus.on('shotThePier', (e) =>
+        e.inTube
+          ? this.award('SHOT THE PIER IN THE BARREL ×2', 2 * TRICK_BASE.shotThePier, e.time)
+          : this.award('SHOT THE PIER', TRICK_BASE.shotThePier, e.time),
+      ),
       bus.on('carve', (e) => this.touch(e.time)),
       bus.on('launched', (e) => this.touch(e.time)),
       bus.on('wipeout', () => this.lose()),

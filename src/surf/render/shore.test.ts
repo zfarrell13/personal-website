@@ -62,9 +62,9 @@ describe('shore strip', () => {
     }
   });
 
-  it('is all on the beach side, shoreward of the wave and the flats the rider uses', () => {
+  it('is all on the beach side, shoreward of the wave and the flats the rider uses (the pier is its own mesh)', () => {
     for (const c of desktop.chunks) {
-      expect(box(c.near).min.z).toBeGreaterThan(SHORE.pierEndZ - 1);
+      expect(box(c.near).min.z).toBeGreaterThan(SHORE.z - 60);
       expect(box(c.far).min.z).toBeGreaterThan(SHORE.z + SHORE.splitZr - 10);
       expect(box(c.near).min.x).toBeGreaterThan(-SHORE.chunk);
       expect(box(c.near).max.x).toBeLessThan(SHORE.chunk);
@@ -122,9 +122,10 @@ describe('shore strip', () => {
         expect(Math.min(d, SHORE.span - d)).toBeGreaterThanOrEqual(1300);
       }
     }
-    // Landmarks stand on the beach side: the pier reaches out toward the break, the rest are ashore.
+    // Landmarks stand on the beach side: the pier reaches out past the break (seaward of the crest,
+    // z ≈ 0, and the back of the wave), the rest are ashore.
     for (const l of desktop.landmarks) {
-      if (l.kind === 'pier') expect(l.z).toBeGreaterThan(0);
+      if (l.kind === 'pier') expect(l.z).toBeLessThan(-20);
       else expect(l.z).toBeGreaterThan(shoreZ(l.u));
     }
   });

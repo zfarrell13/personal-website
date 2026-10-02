@@ -1,5 +1,6 @@
 import { BufferGeometry, Color, MeshLambertMaterial } from 'three';
 import { clamp, smoothstep } from '../math/scalar';
+import { PIER, PIER_FADE, PIER_TRACK, pierRows, sideBraced } from '../pier/track';
 import { LowPoly } from './lowpoly';
 
 /**
@@ -17,17 +18,18 @@ import { LowPoly } from './lowpoly';
 export const SHORE = {
   /** Mean z of the waterline (m). The break (trough) is at z ≈ 0. */
   z: 110,
-  /** Strip length (m): the scroll span. */
-  span: 2600,
+  /** Strip length (m): the scroll span (the pier track's: pier/track.ts). */
+  span: PIER_TRACK.span,
   /** Chunk length along x (m); each chunk is one near and one far mesh. */
   chunk: 200,
   /** Scroll window start: chunks cover [start + chunk/2, start + span − chunk/2] = ±1200 m, past full fog. */
-  start: -1300,
+  start: PIER_TRACK.start,
   /**
    * Strip u of the landmark sets (pier, Oceanic, lifeguard stand, resort tower): at travel 0 the pier is
-   * 300 m down the line (≈ 37 s away at the 8 m/s peel), then every 1300 m (≈ 2.7 min).
+   * 300 m down the line (≈ 37 s away at the 8 m/s peel), then every 1300 m (≈ 2.7 min). The pier track's
+   * sets (pier/track.ts): the physics' pier stands exactly where the scenery's does.
    */
-  landmarkU: [300, 1600] as readonly number[],
+  landmarkU: PIER_TRACK.sets,
   /**
    * The water tower stands at these offsets (m along the beach) from each landmark set: every 650 m.
    * At travel 0 that puts one 400 m down the line ahead of the drop-in (≈ 50 s) and one 250 m the
@@ -37,10 +39,10 @@ export const SHORE = {
   /** The resort tower's offset from each landmark set (m along the beach). */
   resortAt: 330,
   /**
-   * The pier's seaward end (z, m): the one knob for its length — the deck, bents, bracing and railings
-   * are all generated from here to the pier house. Shoreward of the trough and the flats for now.
+   * The pier's seaward end (z, m), past the break (PIER.endZ): the deck, bents, bracing and railings are
+   * all generated from here to the pier house (buildPier).
    */
-  pierEndZ: 22,
+  pierEndZ: PIER.endZ,
   /** Near / far mesh split (m beyond the waterline) and the far edge of the land (z, m). */
   splitZr: 300,
   farZ: 1100,
@@ -62,15 +64,24 @@ export const SHORE_GLOW = 0.4;
 export const LANDMARK_GLOW = 0.2;
 export const LANDMARK_CLEAR = 0.45;
 
-/** The scenery's one material: vertex colours, lit, fogged, plus SHORE_GLOW of its colour (more on landmarks). */
-export function createShoreMaterial(): MeshLambertMaterial {
+/**
+ * The scenery's material: vertex colours, lit, fogged, plus SHORE_GLOW of its colour (more on landmarks).
+ * `cameraFade` (the pier): fragments nearer the camera than PIER_FADE.shown dissolve out (a 4 × 4
+ * screen-door dither, still opaque), gone within PIER_FADE.hidden — the chase or tube camera passing a
+ * piling never sees from inside it.
+ */
+export function createShoreMaterial(opts: { cameraFade?: boolean } = {}): MeshLambertMaterial {
+  const fade = opts.cameraFade ?? false;
   const m = new MeshLambertMaterial({ vertexColors: true });
   m.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aLandmark;\nvarying float vLandmark;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLandmark = aLandmark;');
+      .replace('#include <common>', `#include <common>\nattribute float aLandmark;\nvarying float vLandmark;${fade ? '\nvarying vec3 vPierWorld;' : ''}`)
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>\n  vLandmark = aLandmark;${fade ? '\n  vPierWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;' : ''}`,
+      );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vLandmark;')
+      .replace('#include <common>', `#include <common>\nvarying float vLandmark;${fade ? '\nvarying vec3 vPierWorld;' : ''}`)
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>\n  totalEmissiveRadiance += (${SHORE_GLOW.toFixed(2)} + ${LANDMARK_GLOW.toFixed(2)} * vLandmark) * vColor.rgb;`,
@@ -87,8 +98,22 @@ export function createShoreMaterial(): MeshLambertMaterial {
   gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
 #endif`,
       );
+    if (fade) {
+      // Ordered 4 × 4 Bayer threshold: kept where the drawn share beats it.
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'void main() {',
+        `float pierBayer(vec2 p) {
+  vec2 q = mod(floor(p), 4.0);
+  float a = mod(q.x, 2.0) * 2.0 + mod(q.y, 2.0) * 3.0 - 4.0 * mod(q.x, 2.0) * mod(q.y, 2.0);
+  float b = floor(q.x / 2.0) * 2.0 + floor(q.y / 2.0) * 3.0 - 4.0 * floor(q.x / 2.0) * floor(q.y / 2.0);
+  return (4.0 * a + b + 0.5) / 16.0;
+}
+void main() {
+  if (smoothstep(${PIER_FADE.hidden.toFixed(2)}, ${PIER_FADE.shown.toFixed(2)}, distance(vPierWorld, cameraPosition)) < pierBayer(gl_FragCoord.xy)) discard;`,
+      );
+    }
   };
-  m.customProgramCacheKey = () => 'shore-glow-landmark';
+  m.customProgramCacheKey = () => (fade ? 'shore-glow-landmark-pier-fade' : 'shore-glow-landmark');
   return m;
 }
 
@@ -294,28 +319,32 @@ function condo(b: LowPoly, r: () => number, x: number, z: number, ground: number
   }
 }
 
-const PIER = { deckY: 5.2, width: 5, bent: 7.5, half: 2.2 };
 const PILING = '#3a3430';
 const BRACE = '#4d4439';
 const PIER_DECK = '#8e7b62';
 
-/** Crystal Pier: deck on bents of two pilings, X-braced across and (desktop) along, railings both sides. */
+/**
+ * Crystal Pier (pier/track.ts has its shape — the physics reads the same): the deck on bents of two
+ * pilings, each bent capped and X-braced across; braced along the sides too (desktop) except over the
+ * face and the flats, where the lanes between the bents are clear; railings both sides.
+ */
 function pier(b: LowPoly, x: number, z0: number, z1: number, lite: boolean): void {
-  const { deckY, width, bent, half } = PIER;
-  b.box(x, deckY - 0.45, (z0 + z1) / 2, width, 0.45, z1 - z0, '#6e604d', PIER_DECK);
-  const bents: number[] = [];
-  for (let z = z0 + 0.6; z <= z1; z += bent) bents.push(z);
+  const { deckY, deckThick, capY, width, half, pilingR } = PIER;
+  b.box(x, deckY - deckThick, (z0 + z1) / 2, width, deckThick, z1 - z0, '#6e604d', PIER_DECK);
+  const bents = pierRows(z1);
   bents.forEach((z, i) => {
-    for (const s of [-1, 1]) b.box(x + s * half, -4.6, z, 0.5, deckY + 4.2, 0.5, PILING);
-    // Cross-bracing in the bent's plane (faces the camera looking down the beach) …
-    b.strut([x - half, deckY - 0.6, z], [x + half, 0.3, z], 0.16, BRACE);
-    b.strut([x + half, deckY - 0.6, z], [x - half, 0.3, z], 0.16, BRACE);
-    // … and along the sides between bents (the lattice seen from the beach).
+    for (const s of [-1, 1]) b.prism(x + s * half, -4.6, z, pilingR, pilingR, capY + 4.6, lite ? 6 : 8, PILING, Math.PI / 8);
+    // The pile cap under the deck …
+    b.box(x, capY, z, width - 0.2, deckY - deckThick - capY, 0.45, BRACE);
+    // … and cross-bracing in the bent's plane (faces the camera looking down the beach) …
+    b.strut([x - half, capY, z], [x + half, 0.3, z], 0.16, BRACE);
+    b.strut([x + half, capY, z], [x - half, 0.3, z], 0.16, BRACE);
+    // … and along the sides between bents (the lattice seen from the beach), clear of the lanes.
     const zn = bents[i + 1];
-    if (!lite && zn !== undefined) {
+    if (!lite && zn !== undefined && sideBraced(z, zn)) {
       for (const s of [-1, 1]) {
-        b.strut([x + s * half, deckY - 0.6, z], [x + s * half, 0.3, zn], 0.14, BRACE);
-        b.strut([x + s * half, 0.3, z], [x + s * half, deckY - 0.6, zn], 0.14, BRACE);
+        b.strut([x + s * half, capY, z], [x + s * half, 0.3, zn], 0.14, BRACE);
+        b.strut([x + s * half, 0.3, z], [x + s * half, capY, zn], 0.14, BRACE);
       }
     }
   });
@@ -325,6 +354,20 @@ function pier(b: LowPoly, x: number, z0: number, z1: number, lite: boolean): voi
     b.strut([rx, deckY + 1.05, z0], [rx, deckY + 1.05, z1], 0.12, '#cfc6b6');
     for (let z = z0; z <= z1; z += lite ? 7.5 : 3.75) b.box(rx, deckY, z, 0.12, 1.1, 0.12, '#cfc6b6');
   }
+}
+
+/** Shore end of a set's pier (z, m): the pier house at the foot of the Oceanic. */
+const pierShoreZ = (U: number) => shoreZ(U) + 32;
+
+/**
+ * Crystal Pier of landmark set `set`, at local x = 0: its own mesh (Environment places it at
+ * pierFrameX(set, travel), the same x the physics' pier has), from the seaward end past the break to
+ * the pier house. Same material as the strip, plus a fade near the camera.
+ */
+export function buildPier(set: number, opts: ShoreOptions = {}): BufferGeometry {
+  const b = new LowPoly();
+  pier(b, 0, PIER.endZ, pierShoreZ(SHORE.landmarkU[set]!), opts.lite ?? false);
+  return b.build();
 }
 
 const GREEN_ROOF = '#2f7a55';
@@ -542,10 +585,9 @@ export function buildShore(opts: ShoreOptions = {}): { chunks: ShoreChunk[]; lan
   // The landmark sets.
   for (const U of sets) {
     const sz = shoreZ(U);
-    // Pier: from the Oceanic's pier house out to just shoreward of the break.
+    // The pier is its own mesh (buildPier), out past the break; its pier house and the Oceanic are here.
     {
       const [b, x] = at(U);
-      pier(b, x, SHORE.pierEndZ, sz + 32, lite);
       landmarks.push({ kind: 'pier', u: U, z: SHORE.pierEndZ });
       oceanic(b, x, 58, U, lite);
       landmarks.push({ kind: 'oceanic', u: U - 19, z: sz + 64 });

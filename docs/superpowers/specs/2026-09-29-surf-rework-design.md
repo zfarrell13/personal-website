@@ -406,6 +406,53 @@ banked frame, cancelling the rail bank; replaced.)
   steepness 0.91); eased in; none in a trick air. Screenshots: steep down-the-line trim and top turn
   (autopilot) and steep climbs near the curl (manual steering), RIGHT and LEFT.
 
+## Shoot the pier (user request)
+
+User: "i want to be able to shoot the pier." Choices: a piling is a wipeout (solid pilings); the pier comes
+by as often as the scenery has it (first pass ≈ 30–37 s in, then every ≈ 162 s at the base peel); SHOT THE
+PIER scores 1000, doubled in the barrel.
+
+- **One pier, two readers.** `src/surf/pier/track.ts` holds the pier's place and shape: its frame x is
+  `scrollWrap(set u, travel, span, start)` — a world-fixed point moving through the frame at −(live peel
+  speed), surge included — and both the scenery (Environment draws each set's pier mesh there, built from the
+  same rows) and the physics (`PierDirector`, after each sim step with the travel before / after it) read it.
+- **Shape.** Crystal Pier now runs out past the break to z = −35.4 (the wave peels through it). Deck top 7 m,
+  pile caps (its lowest part over the water) 6.4 m: ≥ 3 m over the crest of a full section peak. Bents —
+  two 0.3 m pilings 4.4 m apart, capped and X-braced between them — every 6.5 m along z with one at
+  z = 4.2; side bracing only outside z −9 … 14.
+- **Lanes (fairness).** Rider radius 0.4 m, board 2 m: a rider's centre needs 0.7 m from a row. HIGH lane
+  z ≈ −1.6 … 3.5 — the lip line, the face down to its last fifth and the whole barrel (the tube region runs
+  z ≈ 0.9 … 3.4 at the curl; pumping in it slides a rider to z ≈ 2.5–3.2). LOW lane z ≈ 4.9 … 10 — the
+  trough and the flats. The middle row stands at the bottom of the face (y ≈ 0.2–0.45 down the line):
+  bottoming out as the pier comes through is PIER'D. (A row higher on the face — tried at z 2.7, 3.0, 3.6 —
+  cut through the barrel, where the tube view's fade hides the piling: unfair for the doubled bonus.)
+- **PIER'D.** The rider (a capsule along the board, standing 1.8 m tall) against the bents (each a thick
+  segment across the deck: both pilings and the brace), the side bracing and, head up into the caps, the
+  deck — riding or in the air. Swept: the step's path relative to the pier is sampled every 0.1 m, never
+  just its ends. Wipeout reason `pierd` ("PIER'D" on the results), with a low wooden thunk.
+- **SHOT THE PIER.** Past the pier's centre line and out beyond its reach (3.9 m) still riding or in the
+  air, without touching it: +1000, or SHOT THE PIER IN THE BARREL ×2 (+2000) when in the tube at the centre
+  line. Once per pass (per pier, world-keyed); none after a wipeout. A combo trick like SECTION MADE.
+- **HUD.** PIER AHEAD while the pier is within 40 m down the line (`pierAhead`).
+- **Camera.** The chase is held under the caps (by 0.5 m) over the deck and 1 m either side of it, the
+  ceiling rising out of reach over 14 m along the line (continuous: a passing pier lowers the camera on a
+  short ease, no pop); the tube view is unchanged. The pier's material dissolves (4 × 4 screen-door
+  dither) within 1.8–3 m of the camera, so neither camera sees from inside a piling and the tube camera —
+  1.2 m shoreward of the rider, across the middle row from a rider low in the barrel — sees through it.
+- **Debug.** `window.__surf.pierX` (frame x of the nearest pier); dev builds: `?pierSoon[=m]` starts every
+  run with the pier m metres down the line (default 20: a no-input rider shoots it in the flats).
+
+Verification: the pier's frame x is the same for the render and the physics at every travel (and scrolls
+with the strip's Oceanic); frequency (first pass 30–40 s at 8 m/s, then every 162.5 s); collision unit
+cases; scripted lane-keeping passes in both lanes score exactly one SHOT THE PIER (+1000); stalled in the
+barrel, up in it or slid low, ×2 (+2000); bottoming out into the middle row is PIER'D with no award; a step
+from clear to clear through a bent hits; camera probes (both sides, both lanes, an ollie under the deck, the
+barrel): the chase is never inside the pier or up in its deck, the rider is seen ≥ 90% of chase / tube frames
+past the wave and the undissolved pier, the camera moves ≤ 0.45 m a frame within a shot; e2e: `pierX`
+comes down the line, `?pierSoon` shows PIER AHEAD and a no-input rider shoots it; budgets with the pier at
+the rider (desktop 29 calls / 114k triangles, phone 30 / 68k). Screenshots (both sides): approaching,
+threading it, in the barrel under it, PIER'D.
+
 ## Playtest 2 amendments (user feedback)
 
 - **Camera:** close bird's-eye view from behind the rider — about 3–4 m behind along the direction of travel, 4–6 m above (always above the crest), looking down at the rider and a few metres ahead down the line; the rider is large in frame. Tube: behind the rider looking out.

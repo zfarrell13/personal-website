@@ -155,6 +155,21 @@ describe('fast sections', () => {
     expect(scoring.score).toBe(500);
   });
 
+  it('shooting the pier awards SHOT THE PIER (1000), doubled in the barrel; a wipeout loses it with the pot', () => {
+    const bus = new EventBus<SurfEvent>();
+    const onAward = vi.fn();
+    const scoring = new Scoring(SURF_CONFIG.scoring, { onAward });
+    scoring.attach(bus);
+    bus.emit({ type: 'shotThePier', time: 1, inTube: false });
+    expect(onAward).toHaveBeenLastCalledWith({ name: 'SHOT THE PIER', points: 1000, repeated: false });
+    scoring.update(4, false);
+    expect(scoring.score).toBe(1000);
+    bus.emit({ type: 'shotThePier', time: 5, inTube: true });
+    expect(onAward).toHaveBeenLastCalledWith({ name: 'SHOT THE PIER IN THE BARREL ×2', points: 2000, repeated: false });
+    bus.emit({ type: 'wipeout', time: 5.5, reason: 'swallowed' });
+    expect(scoring.score).toBe(1000);
+  });
+
   it('an air off a section peak awards SECTION AIR (750) on top of the air\'s tricks', () => {
     const bus = new EventBus<SurfEvent>();
     const onAward = vi.fn();
