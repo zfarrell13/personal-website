@@ -122,6 +122,89 @@ describe('WaveShape.profile', () => {
   });
 });
 
+/**
+ * Face angle (deg from flat) at height fraction h of the crest at column x: on the face (below the crest), at the
+ * point y = h · crest height.
+ */
+function faceAngle(w: WaveShape, x: number, h: number): number {
+  let lo = 0;
+  let hi = w.crestT(x);
+  const target = h * w.crestY(x);
+  for (let k = 0; k < 50; k++) {
+    const mid = (lo + hi) / 2;
+    if (w.profile(x, mid).y < target) lo = mid;
+    else hi = mid;
+  }
+  return Math.asin(Math.min(1, w.steepness(x, lo))) / (Math.PI / 180);
+}
+
+describe('WaveShape: a concave face (playtest 7: "like a half pipe", not a flat 45° ramp)', () => {
+  const POCKET = [-2, 2]; // the barrel and the pocket: the lip pitches over a vertical wall
+  const OPEN = [8, 20, 35]; // the open face down the line
+  const x60 = 60;
+  const HS = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8];
+
+  it.each([...POCKET, ...OPEN, 60])('x = %d: gentle at the bottom (< 25° up to a quarter of the height)', (x) => {
+    const w = shape();
+    for (const h of [0.05, 0.1, 0.15, 0.2, 0.25]) expect(faceAngle(w, x, h), `h ${h}`).toBeLessThan(25);
+  });
+
+  it.each([...POCKET, ...OPEN])('x = %d: ≈ 40–50° at half height', (x) => {
+    const w = shape();
+    expect(faceAngle(w, x, 0.5)).toBeGreaterThanOrEqual(40);
+    expect(faceAngle(w, x, 0.5)).toBeLessThanOrEqual(50);
+  });
+
+  it.each(POCKET)('x = %d (pocket): ≥ 70° from three quarters of the height, near vertical (≥ 80°) just under the lip', (x) => {
+    const w = shape();
+    for (const h of [0.75, 0.8, 0.85, 0.9]) expect(faceAngle(w, x, h), `h ${h}`).toBeGreaterThanOrEqual(70);
+    expect(faceAngle(w, x, 0.88)).toBeGreaterThanOrEqual(80);
+  });
+
+  it.each(OPEN)('x = %d (open face): ≥ 65° at three quarters of the height and above, rideable to the crest (never past ≈ 78°)', (x) => {
+    const w = shape();
+    for (const h of [0.75, 0.8, 0.85]) expect(faceAngle(w, x, h), `h ${h}`).toBeGreaterThanOrEqual(65);
+    if (x >= 12) {
+      // The Surfer's face end is n.y < 0.2 (≈ 78.5°): the open face's lip is its crest. (x = 8 still feels the pitching lip.)
+      const tc = w.crestT(x);
+      for (let t = 0; t < tc; t += 0.002) expect(w.normal(x, t).y, `t ${t}`).toBeGreaterThanOrEqual(0.2);
+    }
+  });
+
+  // Every 5% of the height: steeper and steeper (the open face is steepest at ≈ 0.82, then rounds over the crest; the pocket
+  // wall is vertical from ≈ 0.85 up to the lip).
+  it.each([...POCKET, ...OPEN])('x = %d: the face steepens all the way up (concave) to 0.8 of the height', (x) => {
+    const w = shape();
+    let prev = 0;
+    for (const h of [...HS, ...(POCKET.includes(x) ? [0.85] : [])]) {
+      const a = faceAngle(w, x, h);
+      expect(a, `h ${h}`).toBeGreaterThan(prev);
+      prev = a;
+    }
+  });
+
+  it('x = 60 (the shoulder easing out): still concave, gentler', () => {
+    const w = shape();
+    let prev = 0;
+    for (const h of [0.1, 0.25, 0.5, 0.75, 0.85]) {
+      const a = faceAngle(w, x60, h);
+      expect(a, `h ${h}`).toBeGreaterThan(prev + 5);
+      prev = a;
+    }
+  });
+
+  it('eases into a gentle swell where the shoulder fades out', () => {
+    const w = shape();
+    // Steepest at three quarters of the height: tapering down the shoulder past shoulderLength.
+    const at = (x: number) => faceAngle(w, x, 0.75);
+    expect(at(60)).toBeLessThan(at(35) - 10);
+    expect(at(75)).toBeLessThan(at(60) - 10);
+    for (const h of HS) expect(faceAngle(w, 85, h), `h ${h}`).toBeLessThan(25);
+    expect(w.rollerBlend(SURF_CONFIG.wave.shoulderLength)).toBe(0);
+    expect(w.rollerBlend(SURF_CONFIG.wave.taperEnd)).toBe(1);
+  });
+});
+
 describe('WaveShape queries', () => {
   it('closestParam round-trips surfacePoint to within 1 mm', () => {
     const w = shape();
@@ -158,6 +241,10 @@ describe('WaveShape queries', () => {
  * Reference surface (hot-path refactors must not move it). Captured from the closure-based implementation (task 17);
  * re-captured in surf-rework task 5a (and its fix round 1) for the intentional lip changes: open barrel eye (higher BARREL_OPEN tip,
  * a lip that throws out only right at the curl, a crest-hung feathering lip ahead of it) and the closed barrel's lip landing further out.
+ * Re-captured for playtest 7 (the concave face): new face points (1–3) in SWELL, BARREL_OPEN and BARREL_CLOSED and a crest a little
+ * further shoreward on the open face (lip points unchanged), so every face row moved; the mound (x = −12) and the barrel's lip
+ * rows (t = 0.77 / 1 at x ≤ 0) did not (its crest moved < 2 mm). At x = 60 the shoulder has begun to ease into the ROLLER
+ * (the old SWELL).
  */
 const GOLDEN_PROFILE: ReadonlyArray<readonly [number, number, number, number]> = [
   [-12, 0, 0, 7.2],
@@ -166,44 +253,44 @@ const GOLDEN_PROFILE: ReadonlyArray<readonly [number, number, number, number]> =
   [-12, 0.77, 1.052246746329, 0.280548],
   [-12, 1, 0.397943337129, -1.92],
   [-5, 0, 0, 7.2],
-  [-5, 0.13, 0.09131304, 4.08873912],
-  [-5, 0.5, 2.0775, 0.6525],
+  [-5, 0.13, 0.072156084, 5.016],
+  [-5, 0.5, 1.95, 0.717],
   [-5, 0.77, 2.61323286, 2.6211012],
   [-5, 1, 0.12, 6.24],
   [-2.5, 0, 0, 7.2],
-  [-2.5, 0.13, 0.09131304, 4.08873912],
-  [-2.5, 0.5, 2.0775, 0.63],
+  [-2.5, 0.13, 0.072156084, 5.016],
+  [-2.5, 0.5, 1.95, 0.6945],
   [-2.5, 0.77, 2.685171714, 2.21174961],
   [-2.5, 1, 1.116, 4.98],
   [0, 0, 0, 7.2],
-  [0, 0.13, 0.09131304, 4.08873912],
-  [0, 0.5, 2.0775, 0.6075],
+  [0, 0.13, 0.072156084, 5.016],
+  [0, 0.5, 1.95, 0.672],
   [0, 0.77, 2.757110568, 1.80239802],
   [0, 1, 2.112, 3.72],
   [3, 0, 0, 7.2],
-  [3, 0.13, 0.09167106037, 4.106004319467],
-  [3, 0.5, 2.072722222222, 0.618775555556],
-  [3, 0.77, 2.756359724167, 1.68541525659],
-  [3, 1, 2.228238339278, 3.190752356043],
+  [3, 0.13, 0.073360272359, 5.003538336725],
+  [3, 0.5, 1.942546666667, 0.673930222222],
+  [3, 0.77, 2.756681436865, 1.694186400871],
+  [3, 1, 2.228238339278, 3.198702578266],
   [20, 0, 0, 7.2],
-  [20, 0.13, 0.103031191638, 4.653836087901],
-  [20, 0.5, 1.921121399177, 0.976553497942],
-  [20, 0.77, 2.62298756321, 0.605610651259],
-  [20, 1, 2.46587654321, 0.857382716049],
+  [20, 0.13, 0.111569656477, 4.608124716247],
+  [20, 0.5, 1.706049382716, 0.735176954733],
+  [20, 0.77, 2.633517350074, 0.892693754337],
+  [20, 1, 2.46587654321, 1.117596707819],
   [60, 0, 0, 7.2],
-  [60, 0.13, 0.1008380464, 5.44385652],
-  [60, 0.5, 1.437666666667, 1.4925],
-  [60, 0.77, 1.938859154667, -1.08681114],
-  [60, 1, 0.810666666667, -4.32],
+  [60, 0.13, 0.130398225758, 4.402410457778],
+  [60, 0.5, 1.226555555556, 0.996944444444],
+  [60, 0.77, 2.016237704593, -0.506277131111],
+  [60, 1, 0.810666666667, -3.964444444444],
 ];
 const GOLDEN_CREST: ReadonlyArray<readonly [number, number, number]> = [
   [-12, 0.699021374653, 1.096941015239],
-  [-5, 0.699021374653, 2.769396933091],
-  [-2.5, 0.710016472099, 2.760535039895],
+  [-5, 0.69681624301, 2.770786340303],
+  [-2.5, 0.709001996124, 2.760663314786],
   [0, 0.739589137786, 2.769364665194],
-  [3, 0.741814005793, 2.766577519184],
-  [20, 0.749357748174, 2.627694109561],
-  [60, 0.707622640668, 2.027837960246],
+  [3, 0.742003508465, 2.766856435214],
+  [20, 0.752433805641, 2.637988848954],
+  [60, 0.73718878552, 2.037273351149],
 ];
 
 describe('WaveShape hot paths', () => {
@@ -235,7 +322,7 @@ describe('WaveShape hot paths', () => {
   it('caches follow live parameter edits without a config bump', () => {
     const w = shape();
     const p = new Vector3();
-    const xs = [-2.5, 3];
+    const xs = [-2.5, 3, 60];
     xs.forEach((x) => {
       w.crestT(x);
       w.profile(x, 0.9, p);
@@ -244,6 +331,7 @@ describe('WaveShape hot paths', () => {
     w.params.shoulderLength = 30;
     w.params.hollowLength = 20;
     w.params.height = 3;
+    w.params.taperEnd = 80;
     const fresh = new WaveShape({ ...w.params });
     for (const x of xs) {
       expect(w.crestT(x)).toBe(fresh.crestT(x));

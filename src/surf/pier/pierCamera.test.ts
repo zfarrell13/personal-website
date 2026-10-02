@@ -11,9 +11,13 @@ import { buildWaveGeometry, columnsX } from '../render/waveGeometry';
 import { frameToView } from '../wave/mirror';
 import { WaveShape } from '../wave/WaveShape';
 import { PierDirector } from './PierDirector';
-import { insidePier, nearestPier, PIER, PIER_TRACK, pierFade } from './track';
+import { insidePier, nearestPier, PIER, PIER_LANES, PIER_TRACK, pierFade } from './track';
 
 const DT = 1 / 120;
+/** Frame z inside the lanes (as in PierDirector.test): high / middle / low in FACE, the middle of TROUGH. */
+const [FACE_LO, FACE_HI] = PIER_LANES.face;
+const FACE_MID = (FACE_LO + FACE_HI) / 2;
+const LANES = [FACE_LO + 0.25, FACE_MID, FACE_HI - 0.25, (PIER_LANES.trough[0] + PIER_LANES.trough[1]) / 2];
 
 /** Holds the board on a line at frame z ≈ zLane, pumping (as in PierDirector.test). */
 function laneDriver(surfer: Surfer, wave: WaveShape, zLane: number) {
@@ -156,8 +160,8 @@ const shot = (events: SurfEvent[]) => events.filter((e) => e.type === 'shotThePi
 
 describe('the camera through a pier pass (real wave, rig, pier)', () => {
   for (const side of ['left', 'right'] as const) {
-    for (const zLane of [0.8, 1.6, 2.5, 5.5]) {
-      it(`${side.toUpperCase()}, lane z ≈ ${zLane}: never inside the pier or its deck, no pop, rider seen ≥ 90% of chase frames`, () => {
+    for (const zLane of LANES) {
+      it(`${side.toUpperCase()}, lane z ≈ ${zLane.toFixed(2)}: never inside the pier or its deck, no pop, rider seen ≥ 90% of chase frames`, () => {
         const { r, events, s } = pierPass(side, (surfer, wave) => laneDriver(surfer, wave, zLane), 25);
         expect(shot(events)).toHaveLength(1);
         expect(s.mode).toBe('riding');
@@ -175,7 +179,7 @@ describe('the camera through a pier pass (real wave, rig, pier)', () => {
       const { r, events, s } = pierPass(
         side,
         (surfer, wave, pier) => {
-          const lane = laneDriver(surfer, wave, 1.2);
+          const lane = laneDriver(surfer, wave, FACE_MID);
           let popped = false;
           return () => {
             const i = { ...lane() };

@@ -3,7 +3,7 @@ import { SURF_CONFIG, type Side, type SurfConfig } from '../config';
 import { springStepVec3 } from '../math/spring';
 import { DEG, wrapAngle } from '../math/scalar';
 import type { SurferState } from '../physics/Surfer';
-import { faceSteepness, layBackAxis, layBackTarget, layBackWeight } from '../character/lean';
+import { faceCurl, faceSteepness, layBackAxis, layBackTarget, layBackWeight } from '../character/lean';
 import { pierCeiling } from '../pier/track';
 import { impactDistance } from '../wave/impact';
 import { frameToView } from '../wave/mirror';
@@ -56,6 +56,11 @@ export const TITLE_SHOT = {
 /** What the goal needs from the wave: the crest height of a column (frame x). */
 export interface CrestProbe {
   crestY(x: number): number;
+}
+
+/** Where the face curls over (the pocket): for the drawn rider's lip lean (riderUp). */
+export interface HollowProbe {
+  hollowness(x: number): number;
 }
 
 /** The wave's cross-section (frame coordinates), for keeping the tube camera in the barrel's air. */
@@ -133,6 +138,30 @@ export function inAir(wave: ProfileProbe, p: Vector3, clearance: number, tmp = n
   return !wetAbove && nearest >= clearance && p.y > clearance;
 }
 
+/**
+ * Is frame point p overhung by the lip: is the first stretch of profile straight above it the lip's
+ * underside (running back toward shore)? From above the wave (the chase) the lip hides such a point.
+ */
+export function underLip(wave: ProfileProbe, p: Vector3, tmp = new Vector3(), prev = new Vector3()): boolean {
+  const x = Math.min(wave.params.xMax, Math.max(wave.params.xMin, p.x));
+  let firstAbove = Infinity;
+  let lipAbove = false;
+  wave.profile(x, 0, prev);
+  for (let i = 1; i <= CLEAR_SAMPLES; i++) {
+    wave.profile(x, i / CLEAR_SAMPLES, tmp);
+    const dz = tmp.z - prev.z;
+    if ((prev.z - p.z) * (tmp.z - p.z) < 0) {
+      const y = prev.y + ((tmp.y - prev.y) * (p.z - prev.z)) / dz;
+      if (y > p.y && y < firstAbove) {
+        firstAbove = y;
+        lipAbove = dz > 0;
+      }
+    }
+    prev.copy(tmp);
+  }
+  return lipAbove;
+}
+
 type Subject = Pick<SurferState, 'p' | 'normal' | 'heading' | 'mode' | 'launchKind'>;
 type CameraParams = SurfConfig['camera'];
 
@@ -172,14 +201,14 @@ const BANK_MAX = 0.6;
  * board's line, then laid back off a steep face away from world up (the lip lean), as Character.ts banks
  * and leans the body (from the face, the turn rate and speed only, not the pose).
  */
-export function riderUp(s: Pick<SurferState, 'normal' | 'heading' | 'turnRate' | 'v' | 'stanceFlipped'>, out: Vector3, fwd = new Vector3()): Vector3 {
+export function riderUp(s: Pick<SurferState, 'normal' | 'heading' | 'turnRate' | 'v' | 'stanceFlipped'>, out: Vector3, fwd = new Vector3(), curl = 1): Vector3 {
   const bank = Math.max(-BANK_MAX, Math.min(BANK_MAX, s.turnRate * s.v.length() * BANK_GAIN)) * (s.stanceFlipped ? 1 : -1);
   fwd.copy(s.heading).multiplyScalar(s.stanceFlipped ? -1 : 1).normalize();
   out.copy(s.normal).applyAxisAngle(fwd, bank);
   // The lip lean (character/lean.ts), on top of the bank: the body laid back out to its target past the
   // normal (the drawn body's own unleaned tilt is pose-dependent; this models the target).
   const steep = faceSteepness(s.normal.y);
-  const lay = layBackWeight(steep) * layBackTarget(steep);
+  const lay = layBackWeight(steep) * layBackTarget(steep, curl);
   if (lay > 0 && layBackAxis(s.normal, LAY_AXIS)) out.applyAxisAngle(LAY_AXIS, lay);
   return out;
 }
@@ -316,7 +345,7 @@ export class CameraRig {
   constructor(
     readonly camera: PerspectiveCamera,
     private readonly cfg: CameraParams,
-    private readonly wave: CrestProbe & { params: { tubeDepth: number } } & Partial<ProfileProbe>,
+    private readonly wave: CrestProbe & { params: { tubeDepth: number } } & Partial<ProfileProbe> & Partial<HollowProbe>,
   ) {
     if (camera.far < CAMERA_FAR) {
       camera.far = CAMERA_FAR;
@@ -381,7 +410,10 @@ export class CameraRig {
     const pocket = s.mode === 'riding' && s.p.x <= c.pocketX && s.p.x >= -D;
     // … and anywhere in the pocket where the chase can't see the rider past the pitching lip (a
     // roundhouse running back into the pocket high on the face): that cuts straight in.
-    const blind = pocket && this.chaseBlind(s, renderP);
+    // (Riding out of the tube under the pitching lip — dropping out of a roundhouse down playtest 7's
+    // steep pocket wall — the lip hides the rider from the chase above it, whose goal may be down the
+    // line already while the camera is still swinging round over the lip: that cuts straight in too.)
+    const blind = pocket && (this.chaseBlind(s, renderP) || (!s.inTube && this.overhung(s, renderP)));
     const wanted = s.mode === 'riding' && (s.inTube || blind || (pocket && s.p.y < c.pocketHeightFrac * this.wave.crestY(s.p.x)));
     // …as long as there IS a tube shot: a spot behind the rider in the barrel's air that sees them
     // (not through the falling curtain, not with the barrel closing on them). Otherwise the chase.
@@ -471,6 +503,13 @@ export class CameraRig {
     if (this.pos.y > ceiling) this.pos.y = ceiling;
   }
 
+  /** Is the rider's chest under the lip (frame coordinates)? */
+  private overhung(s: SurferState, p: Vector3): boolean {
+    const w = this.wave;
+    if (!w.profile || w.params.xMin === undefined) return false;
+    return underLip(w as ProfileProbe, this.tmpG.copy(p).addScaledVector(s.normal, 0.9), this.tmpB, this.tmpC);
+  }
+
   /** Would the chase (its goal behind the eased travel direction) see the rider's chest past the wave? */
   private chaseBlind(s: SurferState, p: Vector3): boolean {
     const w = this.wave;
@@ -492,7 +531,8 @@ export class CameraRig {
    * of the screen centre: each pass turns the view axis toward the point furthest past its limit.
    */
   private keepInFrame(s: SurferState, side: Side): void {
-    const up = frameToView(riderUp(s, this.tmpB, this.tmpE), side, this.tmpB);
+    const curl = this.wave.hollowness ? faceCurl(this.wave.hollowness(s.p.x)) : 1;
+    const up = frameToView(riderUp(s, this.tmpB, this.tmpE, curl), side, this.tmpB);
     const toLook = this.tmpC.subVectors(this.look, this.pos);
     const t = Math.tan((this.cfg.fov / 2) * DEG);
     for (let pass = 0; pass < 6; pass++) {

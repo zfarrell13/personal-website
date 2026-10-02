@@ -4,7 +4,7 @@ import type { Side, SurferLook } from '../config';
 import { clamp, DEG } from '../math/scalar';
 import type { Surfer } from '../physics/Surfer';
 import { BOARD, boardRocker, buildBoard, makeDeckTexture } from './board';
-import { faceSteepness, layBackAxis, layBackTarget, layBackWeight } from './lean';
+import { faceCurl, faceSteepness, layBackAxis, layBackTarget, layBackWeight } from './lean';
 import { PoseLayer, poseWeights } from './PoseLayer';
 import { POSE_NAMES, type PoseName, type PoseWeights } from './poses';
 import { buildProceduralRig, rigFromGltfScene, type SurferRig } from './rig';
@@ -204,7 +204,7 @@ export class Character {
     this.lean.position.set(0, 0, 0);
     this.lean.quaternion.identity();
     this.plantFeet();
-    this.leanBack(s.mode === 'riding' && !s.floating ? s.normal : null, dt);
+    this.leanBack(s.mode === 'riding' && !s.floating ? s.normal : null, faceCurl(surfer.wave.hollowness(s.p.x)), dt);
   }
 
   /**
@@ -213,14 +213,14 @@ export class Character {
    * the unleaned body's own tilt there). The unleaned body is measured in the board's frame without the
    * bank (a frontside stance leans in toward the face, a backside one already out): the lay-back brings
    * it out to the target and never tips it toward up — on an open face out to the normal, where the
-   * head is farthest from the water; in the curling pocket further out, past it.
+   * head is farthest from the water; in the curling pocket (`curl`, lean.ts faceCurl) further out, past it.
    * Planted, flat feet: the part of that rotation about the line through the ankles turns the whole
    * body about that line (the ankles stay put); the rest tips the upper body at the Spine (the legs hang
    * off the Hips); then each foot is put back exactly as it was, so the soles stay flat on the deck.
    * Runs after plantFeet with the lean group reset; one body-subtree matrix update, the rest worked out
    * in the board's (tilt's) frame. null = no new lean (air, wipeout, floater): it eases out.
    */
-  private leanBack(normal: Vector3 | null, dt: number): void {
+  private leanBack(normal: Vector3 | null, curl: number, dt: number): void {
     const bones = this.rig.bones;
     // The unleaned body (plantFeet moved it) — the second and last body-subtree update this frame.
     this.lean.updateMatrixWorld(true);
@@ -241,7 +241,7 @@ export class Character {
       this.bodyLine.addScaledVector(k, -this.bodyLine.dot(k));
       const tilt = Math.atan2(this.dPos.crossVectors(UP, this.bodyLine).dot(k), this.bodyLine.y);
       const steep = faceSteepness(normal.y);
-      target = this.leanScale * layBackWeight(steep) * Math.max(0, layBackTarget(steep) - tilt);
+      target = this.leanScale * layBackWeight(steep) * Math.max(0, layBackTarget(steep, curl) - tilt);
       // The axis into the board's (banked) frame: the lean comes on top of the bank.
       if (target > 0) {
         this.qTilt.copy(this.root.quaternion).multiply(this.tilt.quaternion).invert();

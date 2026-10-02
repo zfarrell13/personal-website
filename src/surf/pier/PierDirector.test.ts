@@ -9,9 +9,14 @@ import { Scoring, type TrickAward } from '../scoring/Scoring';
 import { mulberry32 } from '../math/random';
 import { WaveShape } from '../wave/WaveShape';
 import { PierDirector } from './PierDirector';
-import { nearestPier, PIER, PIER_TRACK } from './track';
+import { nearestPier, PIER, PIER_LANES, PIER_TRACK } from './track';
 
 const DT = 1 / 120;
+/** Frame z inside the lanes (playtest 7 moved the rows with the concave face): high / middle / low in FACE, the middle of TROUGH. */
+const [FACE_LO, FACE_HI] = PIER_LANES.face;
+const FACE_MID = (FACE_LO + FACE_HI) / 2;
+const TROUGH_MID = (PIER_LANES.trough[0] + PIER_LANES.trough[1]) / 2;
+const LANES = [FACE_LO + 0.25, FACE_MID, FACE_HI - 0.25, TROUGH_MID];
 
 function world() {
   const wave = new WaveShape(SURF_CONFIG.wave);
@@ -109,7 +114,7 @@ function pass(w: World, ahead: number, drive: () => SurferInput) {
 
 describe('shooting the pier', () => {
   it('scores SHOT THE PIER exactly once (+1000) through each lane: the face and the trough', () => {
-    for (const zLane of [0.8, 1.6, 2.5, 5.5]) {
+    for (const zLane of LANES) {
       const w = world();
       const lane = setUp(w, zLane);
       const z0 = w.s.p.z;
@@ -207,7 +212,7 @@ describe('shooting the pier', () => {
   it('sweeps the rider through the pier: a pier jumping 1 m a tick past them can\'t tunnel through', () => {
     // (A surge moves the frame past the rider up to ≈ 0.4 m a tick, but it moves the rider's frame x with
     // it: rider and pier only ever move apart at the rider's world speed. The sweep holds regardless.)
-    for (const [zLane, hit] of [[PIER.rowZ, true], [PIER.rowZ + 0.5, true], [0.6, false], [5, false]] as const) {
+    for (const [zLane, hit] of [[PIER.rowZ, true], [PIER.rowZ + 0.5, true], [FACE_MID, false], [TROUGH_MID, false]] as const) {
       const w = world();
       const lane = setUp(w, zLane);
       w.shift = 1;
@@ -218,8 +223,11 @@ describe('shooting the pier', () => {
   });
 
   it('is a challenge: riders who don\'t pick a lane rarely shoot it, riders holding a lane always do (seeded arrivals)', () => {
-    /** Shot rate over 40 passes, the pier arriving at seeded times; `drive` from the drop-in, `lane` after a 5 s warm-up. */
-    const rate = (drive: (w: World) => () => SurferInput, warm: number) => {
+    /**
+     * Shot rate over 40 passes, the pier arriving at seeded times `warm` + 0.5 … 4.5 s; `drive` takes over
+     * `settle` s before `warm` (from the drop-in, or a lane holder settling into its lane after the lineBot).
+     */
+    const rate = (drive: (w: World) => () => SurferInput, warm: number, settle = 0) => {
       const r = mulberry32(42);
       let shots = 0;
       for (let k = 0; k < 40; k++) {
@@ -234,7 +242,7 @@ describe('shooting the pier', () => {
             placed = true;
             w.placePier(9);
           }
-          if (!driver && w.s.time >= warm) driver = drive(w);
+          if (!driver && w.s.time >= warm - settle) driver = drive(w);
           w.step(driver ? driver() : { ...bot(DT) });
           if (placed && w.pier.ahead < -8) break;
         }
@@ -252,8 +260,10 @@ describe('shooting the pier', () => {
     // No input from the drop-in (slides to the flats, z ≈ 7.2), or only pumps: PIER'D (or swallowed) nearly always.
     expect(rate(() => () => ({ ...NO_INPUT }), 0)).toBeLessThan(0.2);
     expect(rate(pumps, 0)).toBeLessThan(0.2);
-    // Holding the face lane or the trough lane: every time.
-    for (const zLane of [1.6, 5.5]) expect(rate((w) => laneBot(w, zLane), 5)).toBe(1);
+    // Holding the face lane or the trough lane: every time. (Playtest 7: settled into the lane for 2 s first,
+    // as setUp does — on the concave face the lineBot rides high, ≈ 5 m up the face from the trough lane,
+    // and a holder picked up just before the pier arrived was still on the way down to it.)
+    for (const zLane of [FACE_MID, TROUGH_MID]) expect(rate((w) => laneBot(w, zLane), 5, 2)).toBe(1);
   });
 
   it('tests the whole path of a step, not its ends: a step from clear to clear through a bent hits', () => {
@@ -262,8 +272,9 @@ describe('shooting the pier', () => {
       // Pier centre line at frame x = 0 this step (no travel during it).
       w.travel = PIER_TRACK.sets[0]!;
       w.pier.reset(w.travel);
-      w.surfer.prevP.set(-4.5, 1, PIER.rowZ - (swept ? 1.5 : 3));
-      w.s.p.set(4.5, 1, PIER.rowZ + (swept ? 1.5 : -3));
+      // From the middle of the face lane: across the middle row into the trough lane, or along the face lane.
+      w.surfer.prevP.set(-4.5, 1, PIER.rowZ - PIER.spacing / 2);
+      w.s.p.set(4.5, 1, PIER.rowZ + (swept ? 1 : -1) * (PIER.spacing / 2));
       w.s.heading.set(1, 0, 0);
       w.pier.step(w.travel, w.travel);
       expect(w.s.wipeoutReason).toBe(swept ? 'pierd' : null);

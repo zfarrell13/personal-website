@@ -39,14 +39,17 @@ export const PIER = {
   /**
    * Bents (a pair of pilings across the deck, X-braced between them) stand every `spacing` m along z,
    * one of them at z = `rowZ`. Fairness (rider radius 0.4, piling 0.3: a centre needs 0.7 m from a row)
-   * with a choice: the rows at −0.4, 3.6 and 7.6 leave two clear lanes — FACE (z ≈ 0.3 … 2.9: the
-   * upper and middle face below the lip, and the whole barrel: a rider in the tube stays at z ≈ 1.4–2.7)
-   * and TROUGH (z ≈ 4.3 … 6.9: the bottom of the face and the trough) — and block the lip line (z ≲ 0.3),
-   * the bottom-turn band (z ≈ 2.9–4.3) and the flats (z ≳ 6.9, where a rider who does nothing ends up).
-   * Not steering for a lane is PIER'D (headless: no input / pumps only shoot it < 10% of the time).
+   * with a choice: the rows at 0.8, 4.3 and 7.8 leave two clear lanes (PIER_LANES) — FACE (z ≈ 1.5 … 3.6:
+   * the middle of the face, the transition below it and the barrel: a tubed rider at a pier pass is at
+   * z ≈ 1.6–3.4) and TROUGH (z ≈ 5 … 7.1: the trough in front of the face) — and block the steep upper
+   * wall (z ≈ 0.1 … 1.5, up to just under the crest), the foot of the face (z ≈ 3.6 … 5, where a sliding
+   * rider crosses) and the flats (z ≈ 7.2, where a rider who does nothing ends up). Playtest 7: the concave
+   * face (rows were −0.4, 3.6, 7.6 every 4 m) puts the barrel lower and wider in z (it was z ≈ 1.4–2.7) and
+   * a sliding rider takes ≈ 2 s through its flat-bottomed transition to the flats. Not steering for a lane
+   * is PIER'D (headless: no input / pumps only never shot it in the 40 seeded passes).
    */
-  spacing: 4,
-  rowZ: 3.6,
+  spacing: 3.5,
+  rowZ: 4.3,
   /** Seaward end of the deck (z, m): past the break, five bents beyond the back of the wave. */
   endZ: -33,
   /**
@@ -58,6 +61,18 @@ export const PIER = {
 
 /** The rider as the pier sees them: a capsule along the board (radius, board half-length) standing this tall. */
 export const PIER_RIDER = { radius: 0.4, boardHalf: 1, height: 1.8 } as const;
+
+/**
+ * The two clear lanes through the bents (frame z ranges a rider's centre may hold, running along x):
+ * FACE between the rows either side of the middle row's seaward neighbour, TROUGH shoreward of it.
+ */
+export const PIER_LANES = (() => {
+  const clear = PIER_RIDER.radius + PIER.pilingR;
+  return {
+    face: [PIER.rowZ - PIER.spacing + clear, PIER.rowZ - clear] as const,
+    trough: [PIER.rowZ + clear, PIER.rowZ + PIER.spacing - clear] as const,
+  };
+})();
 
 /**
  * Pier fragments nearer the camera than `hidden` m are not drawn, faded in (screen-door dither) to

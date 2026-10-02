@@ -1131,10 +1131,13 @@ describe('Surfer — held carves and the roundhouse', () => {
 
   it('let go at the lip with a snap armed (the rail biting harder there), the board stops turning', () => {
     const h = setup();
-    h.surfer.reset(15, 0.3);
-    const n = h.wave.normal(15, 0.3);
+    // (Playtest 7: from x = 15 at 4.5 m/s up the face → x = 20 at 8 m/s. The concave face's upper wall is
+    // steep: a 4.5 m/s climb topped out at 0.68 of the crest height, and from x = 15 a faster one ran back
+    // into the hollow section near the curl before it reached the lip. This one reaches it in 0.5 s.)
+    h.surfer.reset(20, 0.3);
+    const n = h.wave.normal(20, 0.3);
     const up = new Vector3().crossVectors(n, new Vector3(1, 0, 0)).normalize();
-    h.s.v.set(3 - h.surfer.peelSpeed, 0, 0).addScaledVector(up, 4.5);
+    h.s.v.set(3 - h.surfer.peelSpeed, 0, 0).addScaledVector(up, 8);
     h.run(DT);
     hold(h, 1, 3, () => internals(h).snapArmed && internals(h).atCrest);
     expect(internals(h).snapArmed && internals(h).atCrest).toBe(true);
@@ -1230,7 +1233,9 @@ describe('Surfer — held carves and the roundhouse', () => {
     for (let i = 0; i < 3 * 120 && h.s.mode === 'riding' && !climbedBack; i++) {
       h.surfer.step({ ...NO_INPUT, carve: -1 }, DT);
       if (h.s.heading.x < -0.7) wentBack = true;
-      if (wentBack && h.s.heading.y > 0.15) climbedBack = true;
+      // Back up the face: the line points ≥ 30° up the face (its yaw in the face — playtest 7: the
+      // concave face's bottom is gentle, so a line up it there reads a small 3D heading.y, < 0.15).
+      if (wentBack && Math.sin(faceYaw(h.wave, h.s.param, h.s.heading)) > 0.5) climbedBack = true;
     }
     expect(wentBack).toBe(true);
     expect(climbedBack).toBe(true);

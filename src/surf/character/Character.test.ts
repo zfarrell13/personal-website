@@ -340,7 +340,7 @@ describe.each(TEST_RIGS)('the lip lean on the %s rig (playtest 5: the steeper th
     expect(ch.leanAngle).toBeGreaterThan(20 * DEG);
     s.mode = 'airborne';
     s.launchKind = 'crest';
-    for (let i = 0; i < 60; i++) ch.update({ state: s, prevP: s.p, prevHeading: s.heading, wave: { crestY: () => 2.4 } } as never, 1, 1 / 60);
+    for (let i = 0; i < 60; i++) ch.update({ state: s, prevP: s.p, prevHeading: s.heading, wave: { crestY: () => 2.4, hollowness: () => 1 } } as never, 1, 1 / 60);
     expect(Math.abs(ch.leanAngle)).toBeLessThan(1 * DEG);
   });
 });

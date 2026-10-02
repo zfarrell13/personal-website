@@ -2,7 +2,7 @@ import { Vector3 } from 'three';
 import type { WaveParams } from '../config';
 import { clamp, smoothstep } from '../math/scalar';
 import { peakBump, type PeakShape } from './peak';
-import { BARREL_CLOSED, BARREL_OPEN, CREST_INDEX, FEATHER_AT, FEATHER_LIP, MOUND, PITCH_AT, SECTION_POINTS, SWELL, type Section } from './sections';
+import { BARREL_CLOSED, BARREL_OPEN, CREST_INDEX, FEATHER_AT, FEATHER_LIP, MOUND, PITCH_AT, ROLLER, SECTION_POINTS, SWELL, type Section } from './sections';
 
 /** Surface parameters: x along the wave (m), t ∈ [0, 1] across the profile. */
 export interface WaveParam {
@@ -22,6 +22,16 @@ function blendInto(out: Float64Array, a: Section, b: Section, w: number): void {
     const pb = b[i]!;
     out[i * 2] = pa[0] + (pb[0] - pa[0]) * w;
     out[i * 2 + 1] = pa[1] + (pb[1] - pa[1]) * w;
+  }
+}
+
+/** Blends the points already in `out` toward `b` by w. */
+function blendToward(out: Float64Array, b: Section, w: number): void {
+  if (w <= 0) return;
+  for (let i = 0; i < SECTION_POINTS; i++) {
+    const pb = b[i]!;
+    out[i * 2] += (pb[0] - out[i * 2]!) * w;
+    out[i * 2 + 1] += (pb[1] - out[i * 2 + 1]!) * w;
   }
 }
 
@@ -67,14 +77,10 @@ export class WaveShape {
   private readonly r = new Vector3();
   /** Key of the section blended into `pts` (x plus the params it depends on); NaN = none. */
   private secX = NaN;
-  private secD = NaN;
-  private secH = NaN;
-  private secC = NaN;
+  private readonly secKey = new Float64Array(5).fill(NaN);
   /** Last crestT result and its key. crestT depends only on the section (H scales y uniformly). */
   private crestX = NaN;
-  private crestD = NaN;
-  private crestH = NaN;
-  private crestC = NaN;
+  private readonly crestKey = new Float64Array(5).fill(NaN);
   private crestTVal = 0;
   /** The section peak (a temporary bump; amp 0 = none). Set with setPeak. */
   readonly peak: PeakShape = { x: 0, amp: 0, width: 7 };
@@ -127,24 +133,41 @@ export class WaveShape {
     return 1;
   }
 
+  /**
+   * How far the shoulder has eased from the concave SWELL into the gentle ROLLER: 0 up to the shoulder
+   * length, 1 where the height taper ends (the wave fades out).
+   */
+  rollerBlend(x: number): number {
+    const p = this.params;
+    return x > p.shoulderLength ? smoothstep(p.shoulderLength, p.taperEnd, x) : 0;
+  }
+
+  /** True if `key` holds the params the section shape depends on; otherwise stores them and returns false. */
+  private sameSectionParams(key: Float64Array): boolean {
+    const p = this.params;
+    if (key[0] === p.tubeDepth && key[1] === p.hollowLength && key[2] === p.collapseLength && key[3] === p.shoulderLength && key[4] === p.taperEnd) return true;
+    key[0] = p.tubeDepth;
+    key[1] = p.hollowLength;
+    key[2] = p.collapseLength;
+    key[3] = p.shoulderLength;
+    key[4] = p.taperEnd;
+    return false;
+  }
+
   /** Blended control points for column x (normalized by H), written to `out` as [z0,y0,z1,y1,…]. */
   sectionAt(x: number, out?: Float64Array): Float64Array {
     const p = this.params;
     if (!out) {
       // Hot path: profile() is called many times per column (mesh rows, crestT sweeps, tangents in t).
-      if (x === this.secX && p.tubeDepth === this.secD && p.hollowLength === this.secH && p.collapseLength === this.secC) {
-        return this.pts;
-      }
+      if (this.sameSectionParams(this.secKey) && x === this.secX) return this.pts;
       this.secX = x;
-      this.secD = p.tubeDepth;
-      this.secH = p.hollowLength;
-      this.secC = p.collapseLength;
       out = this.pts;
     }
     if (x >= 0) {
       const h = this.hollowness(x);
       blendInto(out, SWELL, BARREL_OPEN, h);
       pitchLip(out, h);
+      blendToward(out, ROLLER, this.rollerBlend(x));
     } else if (x >= -p.tubeDepth) blendInto(out, BARREL_OPEN, BARREL_CLOSED, smoothstep(0, p.tubeDepth, -x));
     else blendInto(out, BARREL_CLOSED, MOUND, smoothstep(0, p.collapseLength, -x - p.tubeDepth));
     return out;
@@ -216,15 +239,9 @@ export class WaveShape {
 
   /** t of the highest point of the profile at x (the crest / top of the curl). */
   crestT(x: number): number {
-    const p = this.params;
-    if (x === this.crestX && p.tubeDepth === this.crestD && p.hollowLength === this.crestH && p.collapseLength === this.crestC) {
-      return this.crestTVal;
-    }
+    if (this.sameSectionParams(this.crestKey) && x === this.crestX) return this.crestTVal;
     this.crestTVal = this.searchCrestT(x);
     this.crestX = x;
-    this.crestD = p.tubeDepth;
-    this.crestH = p.hollowLength;
-    this.crestC = p.collapseLength;
     return this.crestTVal;
   }
 

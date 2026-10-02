@@ -16,8 +16,30 @@
  */
 export type Section = readonly (readonly [number, number])[];
 
-/** h = 0: unbroken swell. The curve ends down the back of the wave. */
+/**
+ * h = 0: the open face down the line. Concave, like a halfpipe transition (playtest 7): a gentle
+ * ramp out of the trough (< 25° below a quarter of the height), steepening through the middle
+ * (≈ 45° at half height) to a steep wall (≈ 68° at three quarters, 73° at its steepest), which then
+ * rounds over the crest. It stays rideable to the crest (never past the Surfer's FACE_MIN_NY, ≈ 78°,
+ * even on a full section peak, 1.35× as tall on the same footprint): the open face's lip is its
+ * crest. Only the pitching lip near the curl goes vertical. The curve ends down the back of the wave.
+ */
 export const SWELL: Section = [
+  [3.0, 0.0],
+  [1.58, 0.08],
+  [0.84, 0.25],
+  [0.47, 0.445],
+  [0.24, 0.705],
+  [0.06, 1.0],
+  [-0.55, 0.9],
+  [-1.6, 0.4],
+];
+
+/**
+ * The far end of the shoulder, where the wave fades out: a gentle, rounded swell (the open face before
+ * playtest 7). The shoulder eases from SWELL into it as the height tapers (WaveShape.rollerBlend).
+ */
+export const ROLLER: Section = [
   [3.0, 0.0],
   [2.2, 0.06],
   [1.5, 0.25],
@@ -28,12 +50,15 @@ export const SWELL: Section = [
   [-1.8, 0.4],
 ];
 
-/** x = 0 (h = 1): the lip has just started to pitch; the tip hangs at 0.88 H, well out — the open eye of the barrel. */
+/**
+ * x = 0 (h = 1): the lip has just started to pitch; the tip hangs at 0.88 H, well out — the open eye of
+ * the barrel. The face is the same concave transition as SWELL, steeper: vertical under the lip.
+ */
 export const BARREL_OPEN: Section = [
   [3.0, 0.0],
-  [1.6, 0.05],
-  [0.8, 0.3],
-  [0.35, 0.7],
+  [2.0, 0.04],
+  [1.0, 0.25],
+  [0.42, 0.6],
   [0.25, 1.0],
   [0.55, 1.15],
   [1.1, 1.09],
@@ -59,9 +84,9 @@ export const PITCH_AT = 0.96;
 /** x = −D: the lip has landed in the trough in front of the face. */
 export const BARREL_CLOSED: Section = [
   [3.0, 0.0],
-  [1.6, 0.05],
-  [0.8, 0.3],
-  [0.35, 0.7],
+  [2.0, 0.04],
+  [1.0, 0.25],
+  [0.42, 0.6],
   [0.3, 1.0],
   [0.7, 1.15],
   [1.8, 0.85],

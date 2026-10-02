@@ -1,4 +1,4 @@
-import { Vector3 } from 'three';
+import { Quaternion, Vector3 } from 'three';
 import { configVersion, type PhysicsParams } from '../config';
 import { clamp, DEG, smoothstep, wrapAngle } from '../math/scalar';
 import type { WaveParam, WaveShape } from '../wave/WaveShape';
@@ -126,6 +126,7 @@ export class Surfer {
   private readonly axis = new Vector3();
   private readonly water = new Vector3();
   private readonly rel = new Vector3();
+  private readonly turn = new Quaternion();
   /** The board runs tail first (its motion against its heading); its motion was too slow to tell last time (see headingFromMotion). */
   private tailFirst = false;
   private stopped = false;
@@ -802,7 +803,12 @@ export class Surfer {
       } else {
         this.atCrest = false;
         w.profile(s.param.x, s.param.t, s.p);
+        // Turn the velocity with the surface into the new tangent plane (the face's pressure does no
+        // work): projecting it would bleed speed on every tick through the concave transition's tight
+        // curve (playtest 7).
+        this.tmp.copy(n);
         w.normal(s.param.x, s.param.t, n);
+        s.v.applyQuaternion(this.turn.setFromUnitVectors(this.tmp, n));
         s.v.addScaledVector(n, -s.v.dot(n));
         // Bottoming out on the flats turns the board only with a turn held (keyless, it bogs down there).
         if (keyless) this.holdLine();

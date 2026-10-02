@@ -206,11 +206,14 @@ describe('section peaks: airs off the peak', () => {
   });
 
   it('an ollie from high on the peak\'s face pops higher than the same ollie off the plain wave', () => {
+    // Playtest 7: the ollie 0.29 s into the climb (was 0.21 s): at 0.7 of the peak's crest height (0.59
+    // before). On the concave face the same height is steeper, and an ollie pops along the normal, so
+    // more of the extra pop goes out off the wall than up: from 0.59 it gained 0.43 m, from 0.7 0.6 m.
     const plain = world(1);
-    const normal = crestAir(plain, 25, 6, 25);
+    const normal = crestAir(plain, 25, 6, 35);
     const peaked = world(1);
     peaked.wave.setPeak(25, SURF_CONFIG.peak.height, SURF_CONFIG.peak.width);
-    const peak = crestAir(peaked, 25, 6, 25);
+    const peak = crestAir(peaked, 25, 6, 35);
     expect(peaked.events.find((e) => e.type === 'launched')).toMatchObject({ kind: 'ollie' });
     expect(peak).toBeGreaterThanOrEqual(normal + 0.5);
   });

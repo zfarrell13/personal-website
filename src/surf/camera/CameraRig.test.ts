@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DoubleSide, Mesh, MeshBasicMaterial, PerspectiveCamera, Raycaster, Vector3 } from 'three';
 import { SURF_CONFIG, type Side } from '../config';
 import { EventBus, type SurfEvent } from '../physics/events';
+import { faceCurl } from '../character/lean';
 import { carveFromKeys, NO_INPUT, type SurferInput } from '../physics/input';
 import { faceYaw } from '../physics/faceYaw';
 import { lineBot } from '../physics/lineBot';
@@ -121,7 +122,10 @@ describe('camera shake', () => {
 
 describe('CameraRig', () => {
   it("follows the rider's own motion closely but smooths jolts (a pump's kick doesn't lurch the view), and settles on the chase goal", () => {
-    const { wave, s } = world();
+    const { wave, s, surfer } = world();
+    // Clear of the pocket for the whole slide (playtest 7: from the drop-in at x = 3.5 the slide back
+    // ended at x = −1.5 high on the steep pocket wall, under the lip: the pocket view, not the chase).
+    surfer.reset(9.5, 0.5);
     const rig = new CameraRig(new PerspectiveCamera(), SURF_CONFIG.camera, wave);
     s.heading.set(1, 0, 0);
     rig.snap(s, 'left');
@@ -587,7 +591,7 @@ describe('a roundhouse: the camera follows the rider round, the held key keeps i
           chase++;
           // The drawn rider leans into the turn (as Character.ts banks the body): its chest within 0.7
           // of the half-screen and its board within 0.8 — on screen and clear of the HUD along the bottom.
-          const up = riderUp(s, new Vector3());
+          const up = riderUp(s, new Vector3(), undefined, faceCurl(wave.hollowness(s.p.x)));
           const leaned = frameToView(new Vector3().copy(s.p).addScaledVector(up, 0.9), side, new Vector3()).project(cam);
           const board = frameToView(s.p, side, new Vector3()).project(cam);
           if (leaned.z < 1 && Math.abs(leaned.x) < 0.95 && Math.abs(leaned.y) <= 0.7 && Math.abs(board.y) <= 0.8) framed++;

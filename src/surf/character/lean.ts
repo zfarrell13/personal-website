@@ -9,8 +9,8 @@ import { DEG, smoothstep } from '../math/scalar';
  * the body's own unleaned, unbanked tilt: a frontside stance (leaning in toward the face) lays back out
  * to the normal on an open face, a backside one (already out) is left there; in the curling pocket both
  * lay further out, past the normal, up to LEAN_MAX on a vertical face. On an open face the head is
- * farthest from the water along the normal; only where the face curls over (steep, near the curl) does
- * laying further out keep taking it away from the water. layBackWeight fades it all in from gentle
+ * farthest from the water along the normal; only where the face curls over (steep, near the curl: faceCurl)
+ * does laying further out keep taking it away from the water. layBackWeight fades it all in from gentle
  * faces (continuous from zero). Character draws it (pivoting on planted, flat feet); the camera's
  * framing guard (CameraRig.riderUp) models it.
  */
@@ -29,9 +29,27 @@ export function faceSteepness(normalY: number): number {
   return normalY <= 0 ? 1 : Math.sqrt(Math.max(0, 1 - normalY * normalY));
 }
 
-/** How far past the normal (rad, away from up) the body is laid back to on a face of this steepness. */
-export function layBackTarget(steepness: number): number {
-  return LEAN_MAX * smoothstep(LEAN_PAST_FROM, LEAN_PAST_FULL, steepness);
+/**
+ * The face curls over (the pocket) from hollowness (WaveShape.hollowness: 1 at the curl, fading down the
+ * line) CURL_FROM, fully from CURL_FULL (≈ 3 m ahead of the curl, as far as the pocket view reaches).
+ * Below CURL_FROM it is an open face, however steep (playtest 7: the concave open face is as steep as the
+ * pocket, but it does not curl over — laying out past the normal there tips the head down toward the
+ * water in the trough below).
+ */
+export const CURL_FROM = 0.2;
+export const CURL_FULL = 0.75;
+
+/** 0 … 1: how far the face at this hollowness curls over, for layBackTarget. */
+export function faceCurl(hollowness: number): number {
+  return smoothstep(CURL_FROM, CURL_FULL, hollowness);
+}
+
+/**
+ * How far past the normal (rad, away from up) the body is laid back to on a face of this steepness,
+ * where it curls over by `curl` (faceCurl; 0 on an open face: out to the normal only).
+ */
+export function layBackTarget(steepness: number, curl = 1): number {
+  return LEAN_MAX * smoothstep(LEAN_PAST_FROM, LEAN_PAST_FULL, steepness) * curl;
 }
 
 /** 0 … 1: how much of the lay-back applies on a face of this steepness (none on gentle faces). */

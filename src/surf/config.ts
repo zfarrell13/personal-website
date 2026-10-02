@@ -39,8 +39,12 @@ export const SURF_CONFIG = {
     /** Fraction of the cross-line gravity the rail holds at speed ≥ gripSpeed (0 = no rail, 1 = perfect trim). */
     railGrip: 0.85,
     gripSpeed: 5,
-    /** Wave drive gain along +x, multiplied by local steepness (m/s²). */
-    drive: 1.3,
+    /**
+     * Wave drive gain along +x, multiplied by local steepness (m/s²). Playtest 7: 1.3 → 0.8 — the concave
+     * face is steeper where the lines run (mid face and up), so the same gain drove them harder: unpumped
+     * lines outlived 10 s and fast sections cost too little.
+     */
+    drive: 0.8,
     /**
      * Quadratic drag against the water (moving at −Vp in the frame). Playtest 6: 0.025 → 0.032 — with
      * the rail holding the line on release (no sag, no release overshoot) unpumped lines kept more

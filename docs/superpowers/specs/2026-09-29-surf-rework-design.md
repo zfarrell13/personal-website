@@ -420,7 +420,8 @@ PIER scores 1000, doubled in the barrel.
   pile caps (its lowest part over the water) 6.4 m: ≥ 3 m over the crest of a full section peak. Bents —
   two 0.3 m pilings 4.4 m apart, capped and X-braced between them — every 4 m along z with rows at −0.4,
   3.6 and 7.6; side bracing only outside z −9 … 14.
-- **Lanes: a choice (review fix).** Rider radius 0.4 m, board 2 m: a rider's centre needs 0.7 m from a row.
+- **Lanes: a choice (review fix; moved in playtest 7, see "Playtest 7: concave face" below — rows now 0.8 / 4.3 / 7.8
+  every 3.5 m).** Rider radius 0.4 m, board 2 m: a rider's centre needs 0.7 m from a row.
   FACE lane z ≈ 0.3 … 2.9 — the upper and middle face below the lip, and the whole barrel (a tubed rider
   stays at z ≈ 1.4–2.7: probed over stall 0–1 s, pumps every 0.3–1.3 s, the pier 1–14 m away, never PIER'D
   in the tube). TROUGH lane z ≈ 4.3 … 6.9. Blocked: the lip line, the bottom-turn band (z ≈ 2.9–4.3) and the
@@ -458,6 +459,81 @@ chase / tube frames past the wave and the undissolved pier, the camera moves ≤
 e2e: `pierX` comes down the line, `?pierSoon` shows PIER AHEAD and a no-input rider is PIER'D; budgets with
 the pier at the rider (desktop 29 calls / 114k triangles, phone 30 / 68k). Screenshots (both sides):
 approaching, threading it, in the barrel under it, PIER'D.
+
+## Playtest 7: concave face (user request)
+
+User (verbatim): "the wave face does not look concave, it looks like a 45 degree angle flat surface from trough
+to peak. the wave face, down the line, should be more concave, like a half pipe." Approved plan: reshape the
+wave itself (the one profile drives physics, render, camera, pier, sea life and the shallows), keep the face
+shading, retune so the targets still hold.
+
+- **The profile** (`wave/sections.ts`). Every cross-section is a concave transition, trough to lip: gentle
+  over the lower third, steepening through the middle, steep at the top. Measured face angle (deg) at height
+  fraction h of the crest (tested, `WaveShape.test` "a concave face"):
+
+  | column | h 0.1 | 0.25 | 0.5 | 0.6 | 0.75 | 0.85 | max |
+  |---|---|---|---|---|---|---|---|
+  | x = −2 / 0 / 2 (barrel, pocket) | 11 | 23 | 43–44 | 56–57 | 74–76 | 90 (wall under the lip) | 90 |
+  | x = 8 (pitching lip fading) | 10 | 20 | 46 | 56 | 66 | 77 | 90 at h ≈ 0.97 |
+  | x = 12–45 (open face) | 9 | 18 | 45 | 52 | 68 | 72 | 73 at h ≈ 0.82, then it rounds over the crest |
+  | x = 60 (shoulder easing out) | 8 | 16 | 32 | 38 | 40 | 51 | — |
+  | x = 85 (fading out) | 5 | 9 | 13 | 14 | 14 | 10 | < 25 everywhere |
+
+  Before (the old open face): ≈ 13 / 21 / 29 / 30 / 29 / 22 — a rounded ramp, steepest mid-face. The new SWELL
+  (the open face) is capped at ≈ 73° so it stays rideable to its crest (the Surfer's face end is n.y < 0.2,
+  ≈ 78°) even on a full section peak (1.35× as tall on the same footprint): the open face's lip is still its
+  crest. Only near the curl (the pitching lip, x ≲ 8) does the wall go vertical. BARREL_OPEN / BARREL_CLOSED
+  got the same concave lower face (their lips are unchanged). Down the line the shoulder eases from the concave
+  SWELL into ROLLER (the old SWELL: a gentle rounded swell) over shoulderLength → taperEnd (45 → 90 m;
+  `WaveShape.rollerBlend`), on top of the height taper. The trough stays at z = 3 H (7.2 m), so the shallows'
+  `troughZ` and the sea life are unchanged. The crest on the open face is ≈ 0.3 m further shoreward.
+  Golden profile tables re-captured (face rows moved; the mound and the barrel's lip rows did not).
+- **Physics retunes.**
+  - `drive` 1.3 → 0.8: the drive is ∝ steepness and the concave face is steeper where the lines run, so the
+    same gain drove them harder (unpumped lines outlived 10 s, the mildest fast section cost a 1 / s pumper
+    5.3 m). Now: no input swallowed at ≈ 4.8 s (was 4.6), unpumped lineBot lines lost at ≈ 8.9 s (was 9.2),
+    the mildest / hardest fast sections cost a 1 / s pumper 6.7 / 10.2 m (≥ 6 / ≥ 9), pumping gains well over
+    the Verification 7 targets (e.g. slope 0.3 every 0.6 s +65 m in 20 s; human rhythm median +30 / +19 m).
+  - Riding re-projection: the velocity is turned with the surface (rotated from the old normal to the new)
+    instead of projected onto the new tangent plane. Projection bled ≈ 0.5 J/kg in 0.4 s through the tight
+    transition (Verification "a fall-line drop conserves energy" < 0.2); the rotation keeps |v| and leaves
+    ≈ +0.17 of semi-implicit Euler error.
+  - The lip lean only lays out past the normal where the face curls over (`lean.ts` `faceCurl`: hollowness
+    0.2 → 0.75, i.e. within ≈ 4 m of the curl; Character and the camera's `riderUp` both use it). On the open
+    face the concave wall is as steep as the pocket but doesn't curl over: laying out past the normal there
+    tipped the head down toward the trough (−20 cm). The open face lays back to the normal only.
+  - Tube detection (`tubeHeightFrac` 0.6, `tubeUnderLip`), `snapTopFrac`, launch / lip-turn rules, posture
+    thresholds, coach thresholds: unchanged (checked; their tests pass).
+- **Camera.** The pocket view also cuts straight in when the rider, out of the tube, rides under the pitching
+  lip (`underLip`: the first profile above the chest is the lip's underside): dropping out of a roundhouse down
+  the steep pocket wall the chase — still swinging round above the lip — could not see the rider for ≈ 0.15 s
+  (the profile sight test sees the thin lip only as its underside, air on both sides). The roundhouse framing
+  target (seen ≥ 90%) holds again.
+- **Pier lanes** (`pier/track.ts`, `PIER_LANES`). The concave face puts the barrel lower and wider in z (a
+  tubed rider at a pier pass is at z ≈ 1.6–3.4, was 1.4–2.7), and a rider sliding down takes ≈ 2 s through the
+  flat-bottomed transition. Rows 0.8 / 4.3 / 7.8 every 3.5 m (were −0.4 / 3.6 / 7.6 every 4 m): FACE lane
+  z ≈ 1.5–3.6 (mid face, the transition below it and the whole barrel), TROUGH lane z ≈ 5–7.1; blocked: the
+  steep upper wall to just under the crest (z ≈ 0.1–1.5), the foot of the face (3.6–5) and the flats (7.2).
+  Headless: no input and pumps only shot it 0 / 40, lane holders 40 / 40 (settled into the lane 2 s before the
+  pier arrives — on the concave face the lineBot rides high, ≈ 5 m up the face from the trough lane); the
+  barrel sweep is never PIER'D in the tube; pier camera probes (both lanes, barrel, ollie under the deck) pass.
+  The upper-face lane of the old layout is gone (the steep upper wall is blocked), and the crest itself
+  (z ≲ 0.1) falls in the seaward gap.
+- **Tests retuned** (scenarios, not thresholds): the snap-at-the-lip release test climbs from x = 20 at
+  8 m/s (was x = 15 at 4.5: it topped out at 0.68 of the crest, and faster from x = 15 ran into the pitching
+  section); "a held carve toward the trough … back up the face" reads the line's yaw in the face (≥ 30° up)
+  instead of the 3D heading.y > 0.15 (a line straight up the gentle bottom reads < 0.15); the coach's
+  never-pumping drift rides S-turns at 0.25–0.45 of the crest (the default line's last climb ran on up the
+  steep pocket wall and drifted through the barrel above tubeHeightFrac); the peak ollie pops 0.29 s into the
+  climb (0.7 of the peak's height; at 0.59 an ollie off the steeper wall goes more out than up: +0.43 m); the
+  camera follow test slides from x = 9.5 (from the drop-in it ended under the lip: the pocket view); the
+  roundhouse framing check models the curl-aware lean; pier tests read the lanes from `PIER_LANES`.
+
+Verification (playtest 7): the face angle table above at x ∈ {−2, 2, 8, 20, 35, 60} (+ 85), monotonic
+steepening to 0.8 of the height (0.85 in the pocket), the open face rideable to its crest; every physics
+target (1–13, playtest 4–6, peaks, pier) and the barrel eye (5.5°) still pass; e2e surf suite green.
+Screenshots (before / after, `.superpowers/sdd/concave/shots`): chase RIGHT and LEFT, a free-camera view from
+the trough up the line and into the pocket, a plotted cross-section (x = 0 and 20), drop-in, tube, title.
 
 ## Playtest 2 amendments (user feedback)
 
