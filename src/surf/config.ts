@@ -167,10 +167,12 @@ export const SURF_CONFIG = {
     landingSpeedKeep: 0.9,
     /**
      * In the tube when −D ≤ x ≤ tubeXMax, y < tubeHeightFrac × crest height, and under the lip: at least
-     * tubeUnderLip m seaward (in z) of the lip tip.
+     * tubeUnderLip m seaward (in z) of the lip tip. Playtest 7: tubeHeightFrac 0.6 → 0.8 — the concave
+     * pocket's wall is near vertical up to the face end (≈ 0.78 of the crest), all of it under the lip: a
+     * never-pumping rider drifts through the curl at ≈ 0.7–0.78 of the crest, metres under the lip.
      */
     tubeXMax: 1,
-    tubeHeightFrac: 0.6,
+    tubeHeightFrac: 0.8,
     tubeUnderLip: 0.3,
     kickOutX: 70,
     kickOutMinSpeed: 1.5,
@@ -223,11 +225,14 @@ export const SURF_CONFIG = {
     /**
      * The race: the peak drifts toward the curl (in the wave frame) so that at the pitch it sits at the
      * rider's starting frame x minus `allowance` × the race time. A rider who loses ground on the
-     * fast section no faster than this (m/s) is on or past the peak at the pitch. Measured over the
-     * race (headless, 12 seeds): steady pumping (1 / s) on a lineBot line loses 2.0–2.2 m/s, a human
-     * rhythm (0.8–1.2 s) 1.7–3.0, pumping every 2 s 2.8–4.0, drifting (no pumps) 4.2–5.6.
+     * fast section no faster than this (m/s) is on or past the peak at the pitch. Playtest 7 (the concave
+     * face): 3.3 → 3.55. Measured from the section's start to the pitch (headless, seeds 1–12, lineBot
+     * lines): pumping every 1 s loses 2.2–3.4 m/s, a human rhythm (0.8–1.2 s) 2.0–3.4 (all 12 make it),
+     * every 1.3 s 2.9–4.0 (7 / 12), every 2 s 3.7–5.0 and no pumps 4.5–6.0 (none). At 3.3 the 1 / s and
+     * human rhythms missed seed 11 (3.4 m/s); before playtest 7 the same probe read 2.1–3.1 / 1.9–3.2 /
+     * 2.8–3.9 (7 / 12) / 3.5–4.6 / 4.3–5.6.
      */
-    allowance: 3.3,
+    allowance: 3.55,
     /** The pitch carries the curl at least this far (m): the peak never pitches closer to the curl. */
     minPitchX: 1,
     /** … and never closer than this many m/s × race time down the line from where it formed (it always approaches). */

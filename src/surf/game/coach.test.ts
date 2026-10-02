@@ -194,10 +194,7 @@ describe('Coach — on a real ride', () => {
 
   it('a down-the-line rider that never pumps gets the prompt ≥ 1.5 s before being caught, and keeps it (tube included) until swallowed', () => {
     const h = setup();
-    // Playtest 7: S-turns lower on the face (0.25–0.45 of the crest, was the default 0.35–0.6). On the
-    // concave face the default line's last climb near the curl runs on up the steep pocket wall, and the
-    // rider drifts through the barrel high on it (≈ 0.65 of the crest), above tubeHeightFrac: never tubed.
-    const bot = lineBot(h.surfer, h.wave, { pumpEvery: 0, low: 0.25, high: 0.45 });
+    const bot = lineBot(h.surfer, h.wave, { pumpEvery: 0 });
     let tubePrompt = false;
     while (!h.over() && h.s.time < 30) {
       h.step(bot(DT));

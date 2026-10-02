@@ -74,7 +74,9 @@ function laneBot(w: World, zLane: number, pumpEvery = 0.8) {
     const s = w.s;
     const yaw = faceYaw(w.wave, s.param, s.heading);
     // Up the face is −z: above the lane (z too big) climb, below it drop.
-    const want = Math.max(-0.45, Math.min(0.45, 0.6 * (s.p.z - zLane)));
+    // (Playtest 7: lines up to 0.8 rad, ≈ 46°, off along the wave — was 0.45. On the concave face the trough
+    // lane is ≈ 5 m below where riders ride; a player heading for it drops into it, not along a 26° line.)
+    const want = Math.max(-0.8, Math.min(0.8, 0.6 * (s.p.z - zLane)));
     const err = want - yaw;
     const rot = Math.abs(err) > 0.06 ? Math.sign(err) : 0;
     if (gap) {
@@ -209,6 +211,59 @@ describe('shooting the pier', () => {
     expect(doubled / cases).toBeGreaterThan(0.7);
   });
 
+  it('the barrel is a clear lane up high too: drifting in high on the pocket wall, or stalling in and carving up — never PIER\'D in the tube', () => {
+    // Playtest 7: the concave pocket's wall is all barrel, up to the face end (≈ 0.78 of the crest).
+    const drives: [string, (w: World) => () => SurferInput][] = [
+      // The coach's never-pumping rider: drifts through the curl high on the wall (z ≈ 0.6–0.75).
+      ['never pumping, high line', (w) => {
+        const bot = lineBot(w.surfer, w.wave, { pumpEvery: 0 });
+        return () => ({ ...bot(DT) });
+      }],
+      ['never pumping, low line', (w) => {
+        const bot = lineBot(w.surfer, w.wave, { pumpEvery: 0, low: 0.25, high: 0.45 });
+        return () => ({ ...bot(DT) });
+      }],
+      // Stall in, carve up the wall for 0.3 s, then pump every 0.8 s.
+      ['stall in, carve up', (w) => {
+        let tIn = -1;
+        let since = 0;
+        return () => {
+          if (tIn < 0 && w.s.inTube) tIn = w.s.time;
+          if (tIn < 0) return { ...NO_INPUT, stall: true };
+          since += DT;
+          const pump = since > 0.8;
+          if (pump) since = 0;
+          return { ...NO_INPUT, carve: w.s.time - tIn < 0.3 ? 1 : 0, pump };
+        };
+      }],
+    ];
+    let minZ = Infinity;
+    for (const [name, drive] of drives) {
+      for (const ahead of [1, 3, 5, 8, 12]) {
+        const w = world();
+        w.placePier(1e4);
+        const input = drive(w);
+        let placed = false;
+        let tubedHit = false;
+        for (let i = 0; i < 20 * 120 && w.live(); i++) {
+          if (!placed && w.s.inTube && w.s.mode === 'riding') {
+            placed = true;
+            w.placePier(ahead);
+          }
+          const tubed = w.s.inTube;
+          if (tubed) minZ = Math.min(minZ, w.s.p.z);
+          w.step(input());
+          if (w.s.wipeoutReason === 'pierd' && tubed) tubedHit = true;
+          if (placed && w.pier.ahead < -6) break;
+        }
+        expect(placed, `${name}, pier ${ahead} m`).toBe(true);
+        expect(tubedHit, `${name}, pier ${ahead} m`).toBe(false);
+      }
+    }
+    // It really was high in the barrel: up on the pocket wall, seaward of the old face lane's top (z 1.5).
+    expect(minZ).toBeLessThan(0.8);
+  });
+
   it('sweeps the rider through the pier: a pier jumping 1 m a tick past them can\'t tunnel through', () => {
     // (A surge moves the frame past the rider up to ≈ 0.4 m a tick, but it moves the rider's frame x with
     // it: rider and pier only ever move apart at the rider's world speed. The sweep holds regardless.)
@@ -223,11 +278,8 @@ describe('shooting the pier', () => {
   });
 
   it('is a challenge: riders who don\'t pick a lane rarely shoot it, riders holding a lane always do (seeded arrivals)', () => {
-    /**
-     * Shot rate over 40 passes, the pier arriving at seeded times `warm` + 0.5 … 4.5 s; `drive` takes over
-     * `settle` s before `warm` (from the drop-in, or a lane holder settling into its lane after the lineBot).
-     */
-    const rate = (drive: (w: World) => () => SurferInput, warm: number, settle = 0) => {
+    /** Shot rate over 40 passes, the pier arriving at seeded times; `drive` from the drop-in, `lane` after a 5 s warm-up. */
+    const rate = (drive: (w: World) => () => SurferInput, warm: number) => {
       const r = mulberry32(42);
       let shots = 0;
       for (let k = 0; k < 40; k++) {
@@ -242,7 +294,7 @@ describe('shooting the pier', () => {
             placed = true;
             w.placePier(9);
           }
-          if (!driver && w.s.time >= warm - settle) driver = drive(w);
+          if (!driver && w.s.time >= warm) driver = drive(w);
           w.step(driver ? driver() : { ...bot(DT) });
           if (placed && w.pier.ahead < -8) break;
         }
@@ -260,10 +312,8 @@ describe('shooting the pier', () => {
     // No input from the drop-in (slides to the flats, z ≈ 7.2), or only pumps: PIER'D (or swallowed) nearly always.
     expect(rate(() => () => ({ ...NO_INPUT }), 0)).toBeLessThan(0.2);
     expect(rate(pumps, 0)).toBeLessThan(0.2);
-    // Holding the face lane or the trough lane: every time. (Playtest 7: settled into the lane for 2 s first,
-    // as setUp does — on the concave face the lineBot rides high, ≈ 5 m up the face from the trough lane,
-    // and a holder picked up just before the pier arrived was still on the way down to it.)
-    for (const zLane of [FACE_MID, TROUGH_MID]) expect(rate((w) => laneBot(w, zLane), 5, 2)).toBe(1);
+    // Holding the face lane or the trough lane: every time.
+    for (const zLane of [FACE_MID, TROUGH_MID]) expect(rate((w) => laneBot(w, zLane), 5)).toBe(1);
   });
 
   it('tests the whole path of a step, not its ends: a step from clear to clear through a bent hits', () => {
@@ -273,8 +323,8 @@ describe('shooting the pier', () => {
       w.travel = PIER_TRACK.sets[0]!;
       w.pier.reset(w.travel);
       // From the middle of the face lane: across the middle row into the trough lane, or along the face lane.
-      w.surfer.prevP.set(-4.5, 1, PIER.rowZ - PIER.spacing / 2);
-      w.s.p.set(4.5, 1, PIER.rowZ + (swept ? 1 : -1) * (PIER.spacing / 2));
+      w.surfer.prevP.set(-4.5, 1, FACE_MID);
+      w.s.p.set(4.5, 1, swept ? TROUGH_MID : FACE_MID);
       w.s.heading.set(1, 0, 0);
       w.pier.step(w.travel, w.travel);
       expect(w.s.wipeoutReason).toBe(swept ? 'pierd' : null);

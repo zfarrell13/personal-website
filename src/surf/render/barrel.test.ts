@@ -96,8 +96,8 @@ describe.each(CASES)('open barrel from the tube camera (%s mesh %i × %i, lip an
     return { pos: rig.pos.clone(), look: rig.look.clone() };
   };
 
-  // Rider heights up to 0.55 of the crest (the tube counts up to tubeHeightFrac 0.6).
-  const cases = [-4, -3, -2, -1].flatMap((x) => [0.2, 0.4, 0.5, 0.55].map((frac) => [x, frac] as const));
+  // Rider heights up to 0.75 of the crest (the tube counts up to tubeHeightFrac 0.8, the pocket's face end ≈ 0.78).
+  const cases = [-4, -3, -2, -1].flatMap((x) => [0.2, 0.4, 0.5, 0.55, 0.65, 0.75].map((frac) => [x, frac] as const));
 
   it.each(cases)('rider at x = %d, %d of the crest: the eye ahead is open for 15 m at 5.5° up', (x, frac) => {
     const pose = tubePose(x, frac);

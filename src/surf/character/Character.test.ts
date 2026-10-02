@@ -211,6 +211,29 @@ describe.each(TEST_RIGS)('the lip lean on the %s rig (playtest 5: the steeper th
     }
   });
 
+  it.each([
+    ['right', 'line'],
+    ['left', 'line'],
+    ['right', 'up'],
+    ['left', 'up'],
+  ] as const)('%s, heading %s: on the open face (no curl) the lay-back goes no further than the normal, however steep (playtest 7)', async (side, heading) => {
+    const { ch, s, ride } = await rider(side);
+    for (const st of [0.7, 0.85, 0.98]) {
+      const n = faceNormal(st);
+      // Out on the open face, 20 m down the line (hollowness 0): the concave wall doesn't curl over.
+      s.p.x = 20;
+      ch.leanScale = 0;
+      const plain = ride(n, heading);
+      ch.leanScale = 1;
+      const open = ride(n, heading);
+      expect(pastNormal(open, n), `steepness ${st}`).toBeLessThanOrEqual(Math.max(0, pastNormal(plain, n)) + 1);
+      expect(pastNormal(open, n), `steepness ${st}`).toBeGreaterThanOrEqual(pastNormal(plain, n) - 0.3); // out, never in
+      // The same face in the pocket (curling over) lays it out past the normal.
+      s.p.x = 1;
+      if (st === 0.98) expect(pastNormal(ride(n, heading), n)).toBeGreaterThan(25);
+    }
+  });
+
   it.each(['right', 'left'] as const)('%s: the lean comes on top of the rail bank — the bank is kept on gentle and steep faces, with no jump as the lean comes in', async (side) => {
     const { ch, ride } = await rider(side);
     for (const st of [0.1, 0.25, 0.6, 0.9]) {

@@ -27,7 +27,7 @@ function laneDriver(surfer: Surfer, wave: WaveShape, zLane: number) {
   let since = 0;
   return (): SurferInput => {
     const s = surfer.state;
-    const want = Math.max(-0.45, Math.min(0.45, 0.6 * (s.p.z - zLane)));
+    const want = Math.max(-0.8, Math.min(0.8, 0.6 * (s.p.z - zLane)));
     const err = want - faceYaw(wave, s.param, s.heading);
     const rot = Math.abs(err) > 0.06 ? Math.sign(err) : 0;
     if (gap) {

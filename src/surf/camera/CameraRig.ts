@@ -20,8 +20,11 @@ export const CAMERA_OFFSETS = {
    * further toward shore (into the middle of the tube, clear of the crest leaning over the face), looking
    * out the mouth at a point `look` past the rider (and as far out as the camera): the rider stands to
    * one side of the frame, and the eye — straight down the line from the camera — stays open beside them.
+   * It is never higher than `maxRise` × the crest height (playtest 7: a rider high on the concave pocket's
+   * wall is still in the tube; the camera stays low in the barrel and looks up at them, keeping the eye
+   * open below the lip).
    */
-  tube: { back: 2.2, lift: 0.3, out: 1.2, look: new Vector3(6, 1.8, 1.5), minDistance: 1.6 },
+  tube: { back: 2.2, lift: 0.3, out: 1.2, look: new Vector3(6, 1.8, 1.5), minDistance: 1.6, maxRise: 0.6 },
   underwater: { pos: new Vector3(2, -1.4, 3), look: new Vector3(0, -0.6, 0) },
   /** Trick air: the chase's behind/height offsets × this, plus `airLift` up (a modest pull back and up). */
   airScale: 1.25,
@@ -238,6 +241,7 @@ export function cameraGoal(s: Subject, side: Side, shot: CameraShot, wave: Crest
     out.pos.copy(s.p).addScaledVector(s.normal, lift);
     out.pos.x = x;
     out.pos.z += O.tube.out;
+    if (wave) out.pos.y = Math.min(out.pos.y, O.tube.maxRise * wave.crestY(s.p.x));
     out.look.copy(s.p).add(O.tube.look);
     out.look.x = s.p.x + dir * O.tube.look.x;
   } else if (shot === 'title') {

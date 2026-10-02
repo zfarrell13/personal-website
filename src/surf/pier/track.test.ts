@@ -39,35 +39,42 @@ describe('pier track', () => {
     expect(rows[0]!).toBeGreaterThanOrEqual(PIER.endZ);
     expect(rows[0]!).toBeLessThan(-20);
     expect(rows.at(-1)!).toBeGreaterThan(130);
-    for (let i = 1; i < rows.length; i++) expect(rows[i]! - rows[i - 1]!).toBeCloseTo(PIER.spacing, 9);
-    expect(rows.some((z) => Math.abs(z - PIER.rowZ) < 1e-9)).toBe(true);
+    // Every `spacing` m, but for the rows where the wave breaks through (playtest 7).
+    const wave = PIER.waveRows;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i]! > wave[0]! && rows[i - 1]! < wave[wave.length - 1]!) continue;
+      expect(rows[i]! - rows[i - 1]!).toBeCloseTo(PIER.spacing, 9);
+    }
+    for (const z of wave) expect(rows.some((r) => Math.abs(r - z) < 1e-9)).toBe(true);
+    expect(PIER.rowZ).toBe(wave[1]);
     // Crest ≈ 2.4 m, 3.2 m on a full section peak: the caps are ≥ 3 m above it.
     expect(PIER.capY).toBeGreaterThan(2.4 * 1.35 + 3);
     expect(PIER.deckY).toBeGreaterThanOrEqual(6);
     expect(PIER.deckY).toBeLessThanOrEqual(7.5);
   });
 
-  it('leaves two clear lanes (face and barrel; trough) and blocks the upper wall, the foot of the face and the flats', () => {
+  it('leaves two clear lanes (face and barrel; trough) and blocks the foot of the face and the flats', () => {
     const { radius } = { radius: 0.4 };
     const reach = radius + PIER.pilingR;
     const rows = pierRows(140);
-    const clear = (z: number) => rows.every((r) => Math.abs(z - r) >= reach);
-    // (Playtest 7: the concave face moved the lanes.) FACE: the middle of the face, the transition below
-    // it and the barrel (a tubed rider at a pier pass is at z ≈ 1.6 … 3.4).
-    for (let z = 1.55; z <= 3.55; z += 0.05) expect(clear(z)).toBe(true);
+    const clear = (z: number, r = reach) => rows.every((row) => Math.abs(z - row) >= r);
+    // (Playtest 7: the concave face moved the lanes.) FACE: the whole face, crest to foot, and the barrel —
+    // a tubed rider rides at z ≈ 0.6 … 3.6 (the pocket wall up to the face end down to the barrel's floor),
+    // clear even with the board pointing straight across the rows (its nose 1 m further: reach + 0.6).
+    for (let z = 0.05; z <= 4.15; z += 0.05) expect(clear(z)).toBe(true);
+    for (let z = 0.6; z <= 3.6; z += 0.05) expect(clear(z, reach + 0.6)).toBe(true);
     // TROUGH: the trough in front of the face.
-    for (let z = 5.05; z <= 7.05; z += 0.05) expect(clear(z)).toBe(true);
-    // Blocked: the steep upper wall up to just under the crest (z ≈ 0.1 … 1.5 on the open face), the foot of
-    // the face (z ≈ 3.6 … 5, where a sliding rider crosses), the flats (z ≈ 7.2, where a rider who does nothing ends up).
-    for (const z of [0.2, 0.8, 1.4, 3.7, 4.3, 4.9, 7.2, 7.5]) expect(clear(z)).toBe(false);
+    for (let z = 5.65; z <= 6.85; z += 0.05) expect(clear(z)).toBe(true);
+    // Blocked: the foot of the face (where a sliding rider crosses), the flats (z ≈ 7.2).
+    for (const z of [4.3, 4.9, 5.5, 7, 7.2, 7.5]) expect(clear(z)).toBe(false);
     // No side bracing across the lanes.
-    expect(sideBraced(PIER.rowZ - PIER.spacing, PIER.rowZ)).toBe(false);
-    expect(sideBraced(PIER.rowZ, PIER.rowZ + PIER.spacing)).toBe(false);
+    expect(sideBraced(PIER.waveRows[0]!, PIER.waveRows[1]!)).toBe(false);
+    expect(sideBraced(PIER.waveRows[1]!, PIER.waveRows[2]!)).toBe(false);
   });
 
   it('detects a rider touching a piling, a bent\'s bracing or the deck, and not one in a lane', () => {
     // Running down the line (+x) through the high and low lanes, under the deck.
-    for (const z of [1.6, 2.5, 3.5, 5.1, 6, 7]) for (let x = -5; x <= 5; x += 0.05) expect(riderHitsPier(x, 1, z, 1, 0)).toBe(false);
+    for (const z of [0.1, 1.6, 2.5, 4.1, 5.7, 6.2, 6.8]) for (let x = -5; x <= 5; x += 0.05) expect(riderHitsPier(x, 1, z, 1, 0)).toBe(false);
     // Into the middle row: the near piling, the X-brace between the pair, the far piling.
     expect(riderHitsPier(-PIER.half - 1.2, 1, PIER.rowZ, 1, 0)).toBe(true);
     expect(riderHitsPier(-PIER.half - 1.4, 1, PIER.rowZ, 1, 0)).toBe(false);
@@ -78,7 +85,7 @@ describe('pier track', () => {
     expect(riderHitsPier(0, 1, PIER.rowZ - 1.2, 0, 1)).toBe(true);
     expect(riderHitsPier(0, 1, PIER.rowZ - 1.2, 1, 0)).toBe(false);
     // Air up into the deck from below.
-    const faceLane = PIER.rowZ - PIER.spacing / 2;
+    const faceLane = (PIER.waveRows[0]! + PIER.waveRows[1]!) / 2;
     expect(riderHitsPier(0, PIER.capY - 1.7, faceLane, 1, 0)).toBe(true);
     expect(riderHitsPier(0, PIER.capY - 1.9, faceLane, 1, 0)).toBe(false);
     // Far along the line from it: nothing.
@@ -88,7 +95,7 @@ describe('pier track', () => {
   it('knows its solid volume for sight lines', () => {
     expect(insidePier(PIER.half, 1, PIER.rowZ)).toBe(true);
     expect(insidePier(0, 1, PIER.rowZ)).toBe(true);
-    const faceLane = PIER.rowZ - PIER.spacing / 2;
+    const faceLane = (PIER.waveRows[0]! + PIER.waveRows[1]!) / 2;
     expect(insidePier(0, 1, faceLane)).toBe(false);
     expect(insidePier(0, PIER.deckY - 0.2, faceLane)).toBe(true);
     expect(insidePier(0, PIER.deckY + 0.5, faceLane)).toBe(false);

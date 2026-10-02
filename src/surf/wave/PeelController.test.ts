@@ -95,7 +95,9 @@ describe('PeelController', () => {
   it('the peak forms 15–25 m ahead of the rider and pitches at the rider\'s start x − allowance × race time; the surge carries the curl to it', () => {
     const { peakCfg, peel } = make();
     peel.reset(9);
-    const { sections } = run(peel, 300, (t) => 20 + 5 * Math.sin(t / 7));
+    // (Riding 20–30 m out: far enough that the pitch is never clamped to minPitchX — playtest 7 raised the
+    // allowance to 3.55 m/s, which from 15 m out over a 4.5 s race would pitch at the curl.)
+    const { sections } = run(peel, 300, (t) => 25 + 5 * Math.sin(t / 7));
     expect(sections.length).toBeGreaterThan(5);
     for (const s of sections) {
       expect(s.x0 - s.riderX).toBeGreaterThanOrEqual(peakCfg.minAhead - 1e-9);

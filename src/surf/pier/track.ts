@@ -37,19 +37,21 @@ export const PIER = {
   /** Piling radius (m): drawn as an 8-sided prism, solid as a cylinder. */
   pilingR: 0.3,
   /**
-   * Bents (a pair of pilings across the deck, X-braced between them) stand every `spacing` m along z,
-   * one of them at z = `rowZ`. Fairness (rider radius 0.4, piling 0.3: a centre needs 0.7 m from a row)
-   * with a choice: the rows at 0.8, 4.3 and 7.8 leave two clear lanes (PIER_LANES) — FACE (z ≈ 1.5 … 3.6:
-   * the middle of the face, the transition below it and the barrel: a tubed rider at a pier pass is at
-   * z ≈ 1.6–3.4) and TROUGH (z ≈ 5 … 7.1: the trough in front of the face) — and block the steep upper
-   * wall (z ≈ 0.1 … 1.5, up to just under the crest), the foot of the face (z ≈ 3.6 … 5, where a sliding
-   * rider crosses) and the flats (z ≈ 7.2, where a rider who does nothing ends up). Playtest 7: the concave
-   * face (rows were −0.4, 3.6, 7.6 every 4 m) puts the barrel lower and wider in z (it was z ≈ 1.4–2.7) and
-   * a sliding rider takes ≈ 2 s through its flat-bottomed transition to the flats. Not steering for a lane
-   * is PIER'D (headless: no input / pumps only never shot it in the 40 seeded passes).
+   * Bents (a pair of pilings across the deck, X-braced between them) stand at `waveRows` where the wave
+   * breaks through the pier, and every `spacing` m beyond them (out to the seaward end, in to the beach).
+   * Fairness (rider radius 0.4, piling 0.3: a centre needs 0.7 m from a row riding along it, 1.3 m with
+   * the board pointing across it) with a choice: the rows at −0.7, 4.9 and 7.6 leave two clear lanes
+   * (PIER_LANES) — FACE (z ≈ 0 … 4.2: the whole face, crest to foot, and the barrel) and TROUGH (z ≈ 5.6
+   * … 6.9: the trough in front of the face) — and block the foot of the face (z ≈ 4.2 … 5.6, where a
+   * sliding rider crosses) and the flats (z ≈ 7.2, where a rider who does nothing ends up); the row at −0.7
+   * stands behind the crest. Playtest 7: the concave pocket's wall is all barrel (a tubed rider rides at
+   * z ≈ 0.6–3.6, anywhere from the face end down to the barrel's floor, board pointing any way: the FACE
+   * lane holds all of it), so the rows are no longer evenly spaced (they were −0.4, 3.6, 7.6 every 4 m).
    */
-  spacing: 3.5,
-  rowZ: 4.3,
+  waveRows: [-0.7, 4.9, 7.6] as readonly number[],
+  spacing: 4,
+  /** The middle wave row (between the lanes). */
+  rowZ: 4.9,
   /** Seaward end of the deck (z, m): past the break, five bents beyond the back of the wave. */
   endZ: -33,
   /**
@@ -64,13 +66,14 @@ export const PIER_RIDER = { radius: 0.4, boardHalf: 1, height: 1.8 } as const;
 
 /**
  * The two clear lanes through the bents (frame z ranges a rider's centre may hold, running along x):
- * FACE between the rows either side of the middle row's seaward neighbour, TROUGH shoreward of it.
+ * FACE between the first two wave rows, TROUGH between the middle one and the flats row.
  */
 export const PIER_LANES = (() => {
   const clear = PIER_RIDER.radius + PIER.pilingR;
+  const [a, b, c] = PIER.waveRows as [number, number, number];
   return {
-    face: [PIER.rowZ - PIER.spacing + clear, PIER.rowZ - clear] as const,
-    trough: [PIER.rowZ + clear, PIER.rowZ + PIER.spacing - clear] as const,
+    face: [a + clear, b - clear] as const,
+    trough: [b + clear, c - clear] as const,
   };
 })();
 
@@ -106,12 +109,31 @@ export function nearestPier(travel: number, ref = 0): { x: number; set: number }
   return best;
 }
 
+/** Every bent's z, seaward end to well past the beach (ascending). */
+const ROWS: readonly number[] = (() => {
+  const { spacing, waveRows, endZ } = PIER;
+  const rows: number[] = [];
+  for (let z = waveRows[0]! - spacing; z >= endZ + 0.6; z -= spacing) rows.unshift(z);
+  rows.push(...waveRows);
+  for (let z = waveRows[waveRows.length - 1]! + spacing; z <= 1000; z += spacing) rows.push(z);
+  return rows;
+})();
+
 /** z of every bent from the seaward end to `z1` (the shore end). */
 export function pierRows(z1: number): number[] {
-  const { spacing, rowZ, endZ } = PIER;
-  const rows: number[] = [];
-  for (let z = rowZ - Math.floor((rowZ - endZ - 0.6) / spacing) * spacing; z <= z1; z += spacing) rows.push(z);
-  return rows;
+  return ROWS.filter((z) => z <= z1);
+}
+
+/** Index of the last bent at or seaward of z (−1: seaward of them all). */
+function rowBelow(z: number): number {
+  let lo = -1;
+  let hi = ROWS.length;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (ROWS[mid]! <= z) lo = mid;
+    else hi = mid;
+  }
+  return lo;
 }
 
 /** Is the stretch between bents z0 and z1 braced along the sides (outside the open band)? */
@@ -149,7 +171,7 @@ function segSegDist2(ax: number, az: number, bx: number, bz: number, cx: number,
  */
 export function riderHitsPier(x: number, y: number, z: number, hx: number, hz: number): boolean {
   const { radius, boardHalf, height } = PIER_RIDER;
-  const { half, pilingR, width, capY, spacing, rowZ, endZ } = PIER;
+  const { half, pilingR, width, capY, endZ } = PIER;
   if (Math.abs(x) > width / 2 + boardHalf + radius || z < endZ - boardHalf - radius) return false;
   const hl = Math.hypot(hx, hz);
   const [ux, uz] = hl > 1e-9 ? [hx / hl, hz / hl] : [1, 0];
@@ -159,13 +181,12 @@ export function riderHitsPier(x: number, y: number, z: number, hx: number, hz: n
   // The deck: the rider's head up into the caps inside its width.
   if (y + height > capY && Math.min(Math.abs(ax), Math.abs(bx), Math.abs(x)) < width / 2 + radius) return true;
   // The bents either side of the rider (and the next ones: the board can reach across a row).
-  const k0 = Math.floor((z - rowZ) / spacing);
-  for (let k = k0 - 1; k <= k0 + 2; k++) {
-    const zr = rowZ + k * spacing;
-    if (zr < endZ) continue;
+  const k0 = rowBelow(z);
+  for (let k = Math.max(0, k0 - 1); k <= Math.min(ROWS.length - 1, k0 + 2); k++) {
+    const zr = ROWS[k]!;
     if (segSegDist2(ax, az, bx, bz, -half, zr, half, zr) < reach2) return true;
-    const zn = zr + spacing;
-    if (sideBraced(zr, zn)) {
+    const zn = ROWS[k + 1];
+    if (zn !== undefined && sideBraced(zr, zn)) {
       for (const s of [-1, 1]) if (segSegDist2(ax, az, bx, bz, s * half, zr, s * half, zn) < reach2) return true;
     }
   }
@@ -177,13 +198,15 @@ export function riderHitsPier(x: number, y: number, z: number, hx: number, hz: n
  * caps, or the deck slab with its railing)? For line-of-sight probes.
  */
 export function insidePier(x: number, y: number, z: number): boolean {
-  const { half, pilingR, width, capY, deckY, spacing, rowZ, endZ } = PIER;
+  const { half, pilingR, width, capY, deckY, endZ } = PIER;
   if (Math.abs(x) > width / 2 || z < endZ) return false;
   if (y >= capY) return y <= deckY + 1.1 && (y <= deckY || Math.abs(x) > width / 2 - 0.3);
-  const k = Math.round((z - rowZ) / spacing);
-  if (Math.abs(z - (rowZ + k * spacing)) < pilingR && Math.abs(x) < half + pilingR) return true;
-  const zr = rowZ + Math.floor((z - rowZ) / spacing) * spacing;
-  return sideBraced(zr, zr + spacing) && Math.abs(Math.abs(x) - half) < pilingR;
+  const k = rowBelow(z);
+  const zr = ROWS[k];
+  const zn = ROWS[k + 1];
+  const near = Math.min(zr === undefined ? Infinity : z - zr, zn === undefined ? Infinity : zn - z);
+  if (near < pilingR && Math.abs(x) < half + pilingR) return true;
+  return zr !== undefined && zn !== undefined && sideBraced(zr, zn) && Math.abs(Math.abs(x) - half) < pilingR;
 }
 
 /**

@@ -241,10 +241,11 @@ describe('WaveShape queries', () => {
  * Reference surface (hot-path refactors must not move it). Captured from the closure-based implementation (task 17);
  * re-captured in surf-rework task 5a (and its fix round 1) for the intentional lip changes: open barrel eye (higher BARREL_OPEN tip,
  * a lip that throws out only right at the curl, a crest-hung feathering lip ahead of it) and the closed barrel's lip landing further out.
- * Re-captured for playtest 7 (the concave face): new face points (1–3) in SWELL, BARREL_OPEN and BARREL_CLOSED and a crest a little
- * further shoreward on the open face (lip points unchanged), so every face row moved; the mound (x = −12) and the barrel's lip
- * rows (t = 0.77 / 1 at x ≤ 0) did not (its crest moved < 2 mm). At x = 60 the shoulder has begun to ease into the ROLLER
- * (the old SWELL).
+ * Re-captured for playtest 7 (the concave face): new face points (1–4) and back point (6) in SWELL, new face points (1–3) in
+ * BARREL_OPEN and BARREL_CLOSED, and a crest a little further shoreward on the open face, so every face row moved. The mound
+ * (x = −12) and the barrel's lip rows at x ≤ 0 (t = 0.77 / 1) did not; its crest moved < 2 mm. Ahead of the curl the lip
+ * moved with the crest it hangs off (x = 3, t = 1: 8 mm). At x = 60 the shoulder has begun to ease into the ROLLER (the old
+ * SWELL).
  */
 const GOLDEN_PROFILE: ReadonlyArray<readonly [number, number, number, number]> = [
   [-12, 0, 0, 7.2],
@@ -268,19 +269,19 @@ const GOLDEN_PROFILE: ReadonlyArray<readonly [number, number, number, number]> =
   [0, 0.77, 2.757110568, 1.80239802],
   [0, 1, 2.112, 3.72],
   [3, 0, 0, 7.2],
-  [3, 0.13, 0.073360272359, 5.003538336725],
-  [3, 0.5, 1.942546666667, 0.673930222222],
-  [3, 0.77, 2.756681436865, 1.694186400871],
+  [3, 0.13, 0.073972621729, 5.004956972789],
+  [3, 0.5, 1.941755466667, 0.674902977778],
+  [3, 0.77, 2.756732467155, 1.694150901538],
   [3, 1, 2.228238339278, 3.198702578266],
   [20, 0, 0, 7.2],
-  [20, 0.13, 0.111569656477, 4.608124716247],
-  [20, 0.5, 1.706049382716, 0.735176954733],
-  [20, 0.77, 2.633517350074, 0.892693754337],
+  [20, 0.13, 0.131612099249, 4.654557248895],
+  [20, 0.5, 1.68015308642, 0.76701563786],
+  [20, 0.77, 2.635187592128, 0.891531846821],
   [20, 1, 2.46587654321, 1.117596707819],
   [60, 0, 0, 7.2],
-  [60, 0.13, 0.130398225758, 4.402410457778],
-  [60, 0.5, 1.226555555556, 0.996944444444],
-  [60, 0.77, 2.016237704593, -0.506277131111],
+  [60, 0.13, 0.160461889916, 4.484889298667],
+  [60, 0.5, 1.187711111111, 1.0535],
+  [60, 0.77, 2.024901454637, -0.435412779111],
   [60, 1, 0.810666666667, -3.964444444444],
 ];
 const GOLDEN_CREST: ReadonlyArray<readonly [number, number, number]> = [
@@ -288,9 +289,9 @@ const GOLDEN_CREST: ReadonlyArray<readonly [number, number, number]> = [
   [-5, 0.69681624301, 2.770786340303],
   [-2.5, 0.709001996124, 2.760663314786],
   [0, 0.739589137786, 2.769364665194],
-  [3, 0.742003508465, 2.766856435214],
-  [20, 0.752433805641, 2.637988848954],
-  [60, 0.73718878552, 2.037273351149],
+  [3, 0.742033166737, 2.766900767915],
+  [20, 0.752786768687, 2.639642084906],
+  [60, 0.741155612627, 2.041425070729],
 ];
 
 describe('WaveShape hot paths', () => {
