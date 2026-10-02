@@ -10,7 +10,7 @@ export const site: SiteContent = {
     name: 'Zach Farrell',
     title: 'Principal Product Manager',
     location: 'Wilmington, NC',
-    tagline: 'Humble outperformer and oxymoron enthusiast',
+    tagline: 'Humble outperformer and irony enthusiast',
     bio: [
       'I am a self-made entrepreneur and hyper-embedded in all things tech. In my free time, I like to experiment with bleeding-edge technology, surf, and compose music.',
       'Professionally, I have a fintech and AI background, currently building the AI Platform and agent governance tools for Vantaca. I work in hyperproductive bursts with the intent to ship fast, get feedback, and iterate quickly. I care about making an impact to the bottom line.',
