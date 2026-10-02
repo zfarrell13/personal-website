@@ -51,7 +51,7 @@ export const site: SiteContent = {
         start: '2024-01',
         end: '2026-04',
         wins: [
-          'Decisioning Engine Platform (0→1): Solely architected, rebuilt, and tested the company’s core loan origination system and credit decisioning engine end-to-end — including underwriting logic, risk scoring models, and ML-driven inference pipelines — eliminating a $2M/year vendor dependency and single-handedly driving the company to breakeven.',
+          'Decisioning Engine Platform (0→1): Solely architected, rebuilt, and tested the company’s core loan origination system and credit decisioning engine end-to-end — including underwriting logic, risk scoring models, and ML-driven inference pipelines — eliminating a $200k/year vendor dependency.',
           'Credit Strategy & Roadmap: Defined and executed the product roadmap for the lending platform, owning underwriting thresholds, loss modeling, risk tolerance rules, and cap structures across multiple loan products in partnership with data science and finance teams.',
           'Underwriting Automation: Built automated credit workflows that replaced manual review processes with rules-based decisioning and intelligent escalation paths, reducing underwriting time and improving consistency at scale.',
           'Portfolio Performance: Monitored portfolio health metrics including loss rates, delinquency, repayment behavior, and model calibration — implementing guardrails that reduced adverse selection and improved risk-adjusted returns.',
