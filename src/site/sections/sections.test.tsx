@@ -157,6 +157,22 @@ describe('TROPHY ROOM', () => {
     expect(nav.push).toHaveBeenCalledWith('/');
   });
 
+  it('shows a trophy\'s clips on its detail card in place of the image: silent, looping, each named', () => {
+    render(<TrophiesPage.default />);
+    const robot = site.trophies.find((t) => t.id === 'robot-arm')!;
+    const card = screen.getAllByRole('article').find((c) => within(c).queryByText(robot.name))!;
+    expect(within(card).queryByRole('link')).toBeNull(); // a hardware build: nothing to link to
+    fireEvent.click(within(card).getByRole('button'));
+    const dialog = screen.getByRole('dialog', { name: robot.name });
+    const clips = [...dialog.querySelectorAll('video')];
+    expect(clips.map((v) => v.getAttribute('src'))).toEqual(robot.videos!.map((v) => v.src));
+    clips.forEach((v, i) => {
+      expect(v.getAttribute('aria-label')).toBe(robot.videos![i]!.label);
+      expect(v.muted && v.loop).toBe(true);
+    });
+    expect(dialog.querySelector('img')).toBeNull();
+  });
+
   it('keeps ↑↓ inside the open dialog', () => {
     render(<TrophiesPage.default />);
     fireEvent.click(within(screen.getAllByRole('article')[0]!).getByRole('button'));

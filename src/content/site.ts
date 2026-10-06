@@ -102,6 +102,24 @@ export const site: SiteContent = {
       ],
     },
     {
+      id: 'robot-arm',
+      name: 'Hand-Mirroring Robot Arm',
+      oneLiner: 'A 3D-printed 5-axis robot arm that mirrors my hand and arm, driven by camera glasses that track my movements.',
+      image: '/site/trophies/robot-arm.jpg',
+      stack: ['CAD', '3D Printing', 'Servo Motors', 'Electronics', 'Computer Vision', 'Hand Tracking', 'Web Simulator'],
+      links: [],
+      videos: [
+        { src: '/site/trophies/robot-arm/mirror.mp4', poster: '/site/trophies/robot-arm/mirror.jpg', label: 'The arm mirroring my hand' },
+        { src: '/site/trophies/robot-arm/tracking.mp4', poster: '/site/trophies/robot-arm/tracking.jpg', label: 'Hand tracking from the glasses camera' },
+        { src: '/site/trophies/robot-arm/arm.mp4', poster: '/site/trophies/robot-arm/arm.jpg', label: 'Testing the arm from the laptop' },
+      ],
+      story: [
+        'A hardware project, built end to end: I designed a 5-axis robot arm, 3D printed every part, and did the electrical engineering to drive its servo motors.',
+        'To control it I designed a pair of glasses with a camera that tracks my hand movements and sends signals to the robot, so the arm mirrors my hand and arm in real time.',
+        'I also built a web app to visualize the arm and test its functionality, so every movement could be tried in simulation before a real-world test.',
+      ],
+    },
+    {
       id: 'portraitly',
       name: 'Portraitly',
       oneLiner: 'Turn your pet photos into art: AI portraits in 8 styles, in seconds, with canvas, framed and metal prints.',

@@ -61,8 +61,8 @@ describe('site content', () => {
     }
   });
 
-  it('gives every trophy at least one link; the surf game comes first with PLAY → /surf and its code', () => {
-    for (const t of site.trophies) expect(t.links.length).toBeGreaterThan(0);
+  it('gives every trophy a link, except the hardware build (nothing to link to); the surf game has PLAY → /surf and its code', () => {
+    for (const t of site.trophies) if (t.id !== 'robot-arm') expect(t.links.length).toBeGreaterThan(0);
     const surf = site.trophies.find((t) => t.id === 'surf-game');
     expect(surf!.name).toBe('Kelly-style Surf Game');
     expect(surf!.links).toContainEqual({ label: 'PLAY', href: '/surf' });
@@ -83,7 +83,8 @@ describe('site content', () => {
   });
 
   it('points file paths at public/', () => {
-    const paths = [site.profile.photo, site.career.resumePdf, ...site.trophies.map((t) => t.image)];
+    const videos = site.trophies.flatMap((t) => t.videos ?? []).flatMap((v) => [v.src, v.poster]);
+    const paths = [site.profile.photo, site.career.resumePdf, ...site.trophies.map((t) => t.image), ...videos];
     for (const p of paths) expect(() => readFileSync(`public${p}`)).not.toThrow();
   });
 });

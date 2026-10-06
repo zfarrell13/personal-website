@@ -2,7 +2,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Trophy, TrophyLink } from '@/content/types';
+import type { Trophy, TrophyLink, TrophyVideo } from '@/content/types';
 import { isBackToMenuKey } from '@/shared/input/backKey';
 import { menuMove, menuSelect } from '../sfx';
 import { Chips } from './Chips';
@@ -12,9 +12,11 @@ const ARROW: Record<TrophyLink['label'], string> = { PLAY: '▶', VIEW: '↗', C
 
 /**
  * PLAY/VIEW/CODE: site routes through next/link, anything else opens in a new tab. Each is named for its
- * project ("CODE — Kelly-style Surf Game") and says when it opens a new tab, for screen readers.
+ * project ("CODE — Kelly-style Surf Game") and says when it opens a new tab, for screen readers. A project with
+ * no links (a hardware build) shows none.
  */
 function TrophyLinks({ links, name }: { links: readonly TrophyLink[]; name: string }) {
+  if (links.length === 0) return null;
   return (
     <div className={styles.links}>
       {links.map((l) => {
@@ -34,6 +36,40 @@ function TrophyLinks({ links, name }: { links: readonly TrophyLink[]; name: stri
         );
       })}
     </div>
+  );
+}
+
+/**
+ * The detail card's clips: silent, looping, and playing on their own unless the visitor prefers reduced
+ * motion, in which case each waits on its poster with the browser's controls.
+ */
+function TrophyVideos({ videos }: { videos: readonly TrophyVideo[] }) {
+  // Read once on mount: the dialog only ever mounts in the browser, after a click.
+  const [reduced] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+  return (
+    <ul className={styles.videos}>
+      {videos.map((v) => (
+        <li key={v.src}>
+          <figure className={styles.videoFigure}>
+            <video
+              className={styles.video}
+              src={v.src}
+              poster={v.poster}
+              aria-label={v.label}
+              width={540}
+              height={960}
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              autoPlay={!reduced}
+              controls={reduced}
+            />
+            <figcaption className={styles.videoLabel}>{v.label}</figcaption>
+          </figure>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -77,7 +113,11 @@ function TrophyDetail({ trophy, onClose }: { trophy: Trophy; onClose: () => void
         <button ref={closeRef} type="button" className={styles.close} onClick={onClose}>
           <span aria-hidden="true">✕ </span>CLOSE
         </button>
-        <Image className={styles.detailImage} src={trophy.image} alt="" width={480} height={270} sizes="(max-width: 700px) 100vw, 640px" />
+        {trophy.videos?.length ? (
+          <TrophyVideos videos={trophy.videos} />
+        ) : (
+          <Image className={styles.detailImage} src={trophy.image} alt="" width={480} height={270} sizes="(max-width: 700px) 100vw, 640px" />
+        )}
         <h2 id={titleId} className={styles.trophyName}>
           {trophy.name}
         </h2>

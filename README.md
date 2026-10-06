@@ -39,7 +39,7 @@ All of the site's text lives in one typed file, **`src/content/site.ts`** (types
 
 - `profile`: name, title, location, tagline, bio paragraphs, `lookingFor`, `photo`, and `stats` (skill bars, 0–10).
 - `career.resumePdf` and `career.seasons`: role, company, `start`/`end` (`YYYY-MM`, or `'Present'`), location, `wins` (3–4 each) and `stack`. Seasons can go in any order; the page sorts them newest first.
-- `trophies`: `id`, name, one-liner, image, stack, `links` (labelled `PLAY` / `VIEW` / `CODE`) and the longer `story` shown on the detail card. The surf game is the first trophy.
+- `trophies`: `id`, name, one-liner, image, stack, `links` (labelled `PLAY` / `VIEW` / `CODE`) and the longer `story` shown on the detail card. `links` may be empty, and optional `videos` (silent MP4 clips with a poster and a label, under `public/site/trophies/`) replace the image on the detail card.
 - `credits`: `email`, `links` (LinkedIn, GitHub, …) and `music` (the soundtrack credits) shown on CREDITS.
 
 Placeholder text starts with `SAMPLE`. Replace it, and the files under `public/site/` (photo, resume PDF, trophy images), with your own. `src/content/site.test.ts` checks the file's shape. The page titles, descriptions and the link-preview card (`src/app/opengraph-image.tsx`) are all built from the same file.

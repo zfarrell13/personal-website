@@ -223,6 +223,15 @@
 /* Fills the dialog, so a click that lands on the <dialog> itself was on the backdrop. */
 .dialogBody { position: relative; display: grid; gap: 10px; padding: clamp(16px, 3vw, 26px); }
 .dialog .detailImage { max-height: min(32vh, 260px); }
+/* A trophy's clips (portrait phone video): three across, or a swipeable row on a narrow phone. */
+.videos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.videoFigure { display: grid; gap: 4px; margin: 0; }
+.video { width: 100%; height: auto; aspect-ratio: 9 / 16; object-fit: cover; display: block; background: #050a24; border: 2px solid #8fb4ff; border-radius: 4px; }
+.videoLabel { font-family: var(--font-mono), monospace; font-size: 1rem; line-height: 1.1; color: #c9d8ff; }
+@media (max-width: 480px) {
+  .videos { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 62%; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; }
+  .videos > li { scroll-snap-align: start; }
+}
 .dialog .trophyName { font-size: clamp(1.4rem, 4vw, 1.9rem); margin: 4px 0 0; }
 .dialog .oneLiner { color: #ffe16b; margin-bottom: 4px; }
 .close {
@@ -234,6 +243,7 @@
 @media (orientation: landscape) and (max-height: 520px) {
   .grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
   .dialog .detailImage { display: none; }
+  .videos { grid-template-columns: repeat(3, minmax(0, 130px)); }
   .close { position: absolute; top: 12px; right: 12px; }
   .dialog .trophyName { padding-right: 140px; }
 }
