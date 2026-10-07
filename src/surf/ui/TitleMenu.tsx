@@ -61,7 +61,7 @@ export function TitleMenu({ initialSide, onStart, guide = true, onGuide, onMenu 
         <h1 className={styles.title}>ZF PRO SURFER</h1>
         {/* Side by side (wrapping on narrow screens): stacked, DROP IN falls off a phone held landscape. */}
         <div className={styles.row}>
-          <Panel title="SELECT BREAK">
+          <Panel title="SELECT BREAK" className={styles.compact}>
             <div className={styles.row}>
               <RetroButton active={side === 'left'} aria-pressed={side === 'left'} onClick={() => setSide('left')}>
                 LEFT
@@ -71,7 +71,7 @@ export function TitleMenu({ initialSide, onStart, guide = true, onGuide, onMenu 
               </RetroButton>
             </div>
           </Panel>
-          <Panel title="GUIDE (G)">
+          <Panel title="GUIDE (G)" className={styles.compact}>
             <div className={styles.row}>
               <RetroButton active={guide} aria-pressed={guide} aria-label="GUIDE ON" onClick={() => onGuide?.(true)}>
                 ON

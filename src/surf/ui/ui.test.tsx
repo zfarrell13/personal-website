@@ -118,6 +118,19 @@ describe('Results', () => {
     expect(screen.getByText(/WIPEOUT — PIER'D/)).toBeTruthy();
   });
 
+  it('takes initials by touch: ▲ ▼ step each letter, SAVE stores them and shows GO AGAIN (no keyboard)', () => {
+    const onAgain = vi.fn();
+    render(<Results run={run} onAgain={onAgain} onTitle={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Letter 1: previous' })); // A → Z
+    fireEvent.click(screen.getByRole('button', { name: 'Letter 3: next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Letter 3: next' })); // A → C
+    expect(screen.getByTestId('initials').textContent).toBe('ZAC');
+    fireEvent.click(screen.getByRole('button', { name: 'SAVE' }));
+    expect(JSON.parse(localStorage.getItem(HIGH_SCORE_KEY)!)[0]).toMatchObject({ initials: 'ZAC', score: 4200 });
+    fireEvent.click(screen.getByRole('button', { name: /GO AGAIN/ }));
+    expect(onAgain).toHaveBeenCalledTimes(1);
+  });
+
   it('takes 3-letter initials for a qualifying score, saves, then Enter goes again', () => {
     const onAgain = vi.fn();
     render(<Results run={run} onAgain={onAgain} onTitle={vi.fn()} />);

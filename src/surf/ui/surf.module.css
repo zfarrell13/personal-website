@@ -1,6 +1,9 @@
 .root { position: fixed; inset: 0; overflow: hidden; background: #4fb6ff; }
 .layer { position: fixed; inset: 0; pointer-events: none; }
-.center { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: auto; padding: 16px; }
+/* A menu over the game. It scrolls when it is taller than the screen (a phone held landscape); the auto margins
+   centre it and, unlike centring by alignment, never push its top out of reach. */
+.center { position: fixed; inset: 0; display: flex; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; pointer-events: auto; padding: 16px; }
+.center > * { margin: auto; }
 .title {
   margin: 0 0 8px;
   font-size: clamp(2.4rem, 8vw, 5.5rem);
@@ -16,9 +19,29 @@
 .menu { display: grid; gap: 18px; justify-items: center; }
 /* Phone held landscape: a smaller title and a top margin keep the top-row buttons (◀ MENU, music) off it. */
 @media (orientation: landscape) and (max-height: 520px) {
+  /* Every menu starts under the top row (◀ MENU, the NOW PLAYING tag). */
+  .center { padding-top: 76px; }
   .center:has(.menuBack) { padding-top: 60px; }
   .center:has(.menuBack) .title { font-size: 2.6rem; margin-bottom: 0; }
-  .center:has(.menuBack) .menu { gap: 12px; }
+  .center .menu { gap: 12px; }
+  /* Results: the run and its buttons on the left, TOP 10 beside them, so GO AGAIN shows without scrolling. */
+  .results { grid-template-columns: auto auto; align-items: start; }
+  .results .resultSide { display: grid; gap: 12px; justify-items: center; }
+  .results .table { font-size: 1.05rem; line-height: 1.1; }
+  .results .score { font-size: 2rem; margin: 0; }
+  /* Initials: SAVE beside the letters rather than under them (off the bottom of the screen). */
+  .initialsPad { grid-template-columns: auto auto; column-gap: 16px; align-items: center; }
+  .initialsPad > :not(button) { grid-column: 1; }
+  .initialsPad > button { grid-column: 2; grid-row: 1 / span 3; }
+  .initialArrow { min-height: 34px; }
+  .initials { font-size: 2.4rem; }
+}
+/* The shortest phones (Safari's bars showing): tighter still, so DROP IN is on screen. */
+@media (orientation: landscape) and (max-height: 360px) {
+  .center:has(.menuBack) .title { font-size: 1.9rem; }
+  .center .menu { gap: 8px; }
+  .compact { padding: 10px 16px; }
+  .compact h2 { margin-bottom: 6px; }
 }
 .row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
 .legend { margin: 0; font-family: var(--font-mono), monospace; font-size: 1.15rem; line-height: 1.35; color: #dfe8ff; }
@@ -69,6 +92,10 @@
   .coach { top: 68px; font-size: clamp(1.1rem, 3.4vw, 1.6rem); }
   .tube { top: 22px; left: auto; right: calc(50% + 24px + 12px); transform: none; font-size: 1.4rem; }
   .pierAhead { font-size: 1.1rem; }
+  /* The d-pad sits bottom left: the speed goes under the score. */
+  .speed { top: 58px; bottom: auto; font-size: 1.1rem; }
+  /* Just the number: the bar would run into the pad on a short screen. */
+  .speed > :not(span) { display: none; }
 }
 @keyframes coachPop { 0% { transform: translateX(-50%) scale(1.6); opacity: 0.2; } 100% { transform: translateX(-50%) scale(1); opacity: 1; } }
 @keyframes coachBeat { 0%, 100% { transform: translateX(-50%) scale(1); } 12% { transform: translateX(-50%) scale(1.12); } 42% { transform: translateX(-50%) scale(1); } }
@@ -78,6 +105,22 @@
 .initials { display: flex; gap: 10px; justify-content: center; font-family: var(--font-mono), monospace; font-size: 3rem; }
 .letter { width: 1.2em; text-align: center; border-bottom: 3px solid #8fb4ff; }
 .letter[data-active='true'] { color: #ffe16b; border-color: #ffe16b; }
+/* ▲ / ▼ over and under each letter: initials by touch or mouse (the keys still work). */
+.initialsPad { display: grid; gap: 4px; justify-items: center; }
+.initialArrows { display: flex; gap: 10px; justify-content: center; }
+/* As wide as a letter (1.2em of its 3rem). */
+.initialArrow {
+  width: 3.6rem; min-height: 40px; padding: 0; border: 2px solid #8fb4ff; border-radius: 6px; background: rgba(8, 12, 40, 0.6);
+  font-size: 1.1rem; line-height: 1; cursor: pointer; touch-action: manipulation;
+}
+.initialArrow:active { background: rgba(255, 225, 107, 0.6); }
+/* Results: the run panel and its buttons. Ordinarily they are the menu's own rows, the buttons last (under
+   TOP 10); on a short landscape screen they become the left column (below). */
+.resultSide { display: contents; }
+.resultButtons { order: 2; }
+.top10 { order: 1; }
+.keysOnly { display: block; }
+@media (pointer: coarse) { .keysOnly { display: none; } }
 .touch { position: fixed; inset: 0; pointer-events: none; display: none; }
 @media (pointer: coarse) { .touch { display: block; } }
 .pad { position: fixed; left: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(3, 64px); pointer-events: auto; }

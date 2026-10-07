@@ -29,6 +29,20 @@ export function Results({ run, onAgain, onTitle }: { run: RunSummary; onAgain: (
   // Arrow keys held from the run must not spin the initials: wait for a fresh (non-repeat) keydown.
   const armed = useRef(false);
 
+  const save = () => {
+    const initials = sanitizeInitials(String.fromCharCode(...letters.map((v) => v + A)));
+    const res = insertHighScore(scores, { initials, score: run.score, side: run.side, date: new Date().toISOString().slice(0, 10) });
+    saveHighScores(browserStorage(), res.list);
+    setScores(res.list);
+    setRank(res.rank);
+    setEntering(false);
+  };
+  /** A touch / mouse step on letter `i` (the ▲ ▼ buttons); it takes the cursor with it. */
+  const stepLetter = (i: number, d: 1 | 25) => {
+    setCursor(i);
+    setLetters((l) => l.map((v, j) => (j === i ? (v + d) % 26 : v)));
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.repeat) armed.current = true;
@@ -47,12 +61,7 @@ export function Results({ run, onAgain, onTitle }: { run: RunSummary; onAgain: (
         } else if (e.key === 'Enter') {
           e.preventDefault();
           if (e.repeat) return;
-          const initials = sanitizeInitials(String.fromCharCode(...letters.map((v) => v + A)));
-          const res = insertHighScore(scores, { initials, score: run.score, side: run.side, date: new Date().toISOString().slice(0, 10) });
-          saveHighScores(browserStorage(), res.list);
-          setScores(res.list);
-          setRank(res.rank);
-          setEntering(false);
+          save();
         }
         return;
       }
@@ -77,37 +86,55 @@ export function Results({ run, onAgain, onTitle }: { run: RunSummary; onAgain: (
 
   return (
     <div className={styles.center} ref={rootRef} role="dialog" aria-label="Run results" tabIndex={-1}>
-      <div className={styles.menu}>
-        <Panel title={headline}>
-          <p className={styles.score} data-testid="final-score">{run.score.toLocaleString('en-US')}</p>
-          <p className={styles.legend}>
-            BEST COMBO {run.bestCombo.toLocaleString('en-US')} · LONGEST TUBE {run.longestTube.toFixed(1)}s · TRICKS {run.tricks} · RIDE {run.durationSec.toFixed(0)}s
-          </p>
-        </Panel>
-        {entering ? (
-          <Panel title="NEW HIGH SCORE — ENTER INITIALS">
-            <div className={styles.initials} data-testid="initials" role="group" aria-label="Initials, three letters">
-              {letters.map((v, i) => (
-                <span key={i} className={styles.letter} data-active={i === cursor ? 'true' : 'false'}>
-                  {String.fromCharCode(v + A)}
-                </span>
-              ))}
-            </div>
-            <p className={styles.legend}>↑ ↓ letter · ← → move · ENTER save</p>
+      <div className={`${styles.menu} ${entering || scores.length > 0 ? styles.results : ''}`}>
+        <div className={styles.resultSide}>
+          <Panel title={headline} className={styles.compact}>
+            <p className={styles.score} data-testid="final-score">{run.score.toLocaleString('en-US')}</p>
+            <p className={styles.legend}>
+              BEST COMBO {run.bestCombo.toLocaleString('en-US')} · LONGEST TUBE {run.longestTube.toFixed(1)}s · TRICKS {run.tricks} · RIDE {run.durationSec.toFixed(0)}s
+            </p>
           </Panel>
-        ) : (
-          <>
-            {scores.length > 0 ? (
-              <Panel title="TOP 10">
-                <HighScoreTable scores={scores} highlight={rank} />
-              </Panel>
-            ) : null}
-            <div className={styles.row}>
+          {entering ? null : (
+            <div className={`${styles.row} ${styles.resultButtons}`}>
               <RetroButton data-primary="true" onClick={onAgain}>GO AGAIN (ENTER)</RetroButton>
               <RetroButton onClick={onTitle}>TITLE (ESC)</RetroButton>
             </div>
-          </>
-        )}
+          )}
+        </div>
+        {entering ? (
+          <Panel title="NEW HIGH SCORE — ENTER INITIALS" className={styles.compact}>
+            <div className={styles.initialsPad}>
+              <div className={styles.initialArrows}>
+                {letters.map((_, i) => (
+                  <button key={i} type="button" className={styles.initialArrow} aria-label={`Letter ${i + 1}: next`} onClick={() => stepLetter(i, 1)}>
+                    ▲
+                  </button>
+                ))}
+              </div>
+              <div className={styles.initials} data-testid="initials" role="group" aria-label="Initials, three letters">
+                {letters.map((v, i) => (
+                  <span key={i} className={styles.letter} data-active={i === cursor ? 'true' : 'false'}>
+                    {String.fromCharCode(v + A)}
+                  </span>
+                ))}
+              </div>
+              <div className={styles.initialArrows}>
+                {letters.map((_, i) => (
+                  <button key={i} type="button" className={styles.initialArrow} aria-label={`Letter ${i + 1}: previous`} onClick={() => stepLetter(i, 25)}>
+                    ▼
+                  </button>
+                ))}
+              </div>
+              <RetroButton onClick={save}>SAVE</RetroButton>
+            </div>
+            <p className={`${styles.legend} ${styles.keysOnly}`}>↑ ↓ letter · ← → move · ENTER save</p>
+          </Panel>
+        ) : null}
+        {!entering && scores.length > 0 ? (
+          <Panel title="TOP 10" className={`${styles.compact} ${styles.top10}`}>
+            <HighScoreTable scores={scores} highlight={rank} />
+          </Panel>
+        ) : null}
       </div>
     </div>
   );
